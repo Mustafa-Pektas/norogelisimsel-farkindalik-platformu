@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# Media & Temp files
+*.mp4
+*.avi
+*.mov
+temp/
+outputs/
+*.tmp
+*.log
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Mobile (Flutter / React Native)
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+android/.gradle
+android/captures/
+ios/Pods/
+ios/.symlinks/
+node_modules/
+.expo/
+
+# Mobile Builds & Packages (APK, AAB, Build Artifacts)
+*.apk
+*.aab
+*.ipa
+**/build/
+**/android/.gradle/
+**/android/local.properties
+
+# OS generated
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,50 @@
+name: Build Release APK
+
+on:
+  workflow_dispatch: # Sadece GitHub web arayüzünden "Run workflow" butonuna basıldığında çalışır
+  push:
+    tags:
+      - 'v*' # İsteğe bağlı: Yalnızca 'v1.0.0' gibi resmi bir release etiketi atılırsa çalışır
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Kodu Çek (Checkout)
+        uses: actions/checkout@v4
+
+      - name: Java Ortamını Hazırla
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Flutter Ortamını Hazırla
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Bağımlılıkları İndir (pub get)
+        working-directory: mobile_skeleton
+        run: flutter pub get
+
+      - name: Release APK Derle
+        working-directory: mobile_skeleton
+        run: flutter build apk --release
+
+      - name: APK'yı GitHub Actions Çıktısı Olarak Yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: neuro-awareness-app-release
+          path: mobile_skeleton/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: GitHub Releases Kısmına Otomatik Ekle (Tag girilmişse)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mobile_skeleton/build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
