@@ -1,0 +1,1 @@
+# norogelisimsel-farkindalik-platformu
