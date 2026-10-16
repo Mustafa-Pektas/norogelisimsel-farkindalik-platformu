@@ -86,7 +86,11 @@ Write-Host "`n[4/4] Release APK emulatore yukleniyor ve telefon ekraninda baslat
 
 $installedSuccess = $false
 if (Test-Path $localAdb) {
-    Write-Host "-> ADB ile yukleme yapiliyor..." -ForegroundColor Gray
+    Write-Host "-> Emülatör depolama alanı ve önbellek temizleniyor..." -ForegroundColor Gray
+    & $adbPath shell "rm -rf /data/local/tmp/*" 2>$null | Out-Null
+    & $adbPath shell "pm trim-caches 300M" 2>$null | Out-Null
+    & $adbPath uninstall com.neuroapp.neuro_awareness_app 2>$null | Out-Null
+    Write-Host "-> ADB ile taze yükleme yapılıyor..." -ForegroundColor Gray
     $installOutput = & $adbPath install -r "$apkPath" 2>&1
     if ($installOutput -match "Success") {
         Write-Host "-> YUKLEME BASARILI!" -ForegroundColor Green

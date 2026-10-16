@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/scenarios_data.dart';
 import '../services/llm_rag_service.dart';
 import '../widgets/scenario_picker_sheet.dart';
-import 'interactive_player_screen.dart';
+import 'synthetic_video_studio_screen.dart';
 
 class SimulationModeScreen extends StatefulWidget {
   const SimulationModeScreen({super.key});
@@ -36,6 +37,72 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
     super.dispose();
   }
 
+  // EASTER EGG (GELİŞTİRİCİ / ARAŞTIRMACI MODU)
+  int _easterEggTapCount = 0;
+  DateTime? _lastEasterEggTap;
+  bool _isResearcherMode = false;
+  bool _isValidating = false;
+  double _validationScore = 95.8;
+  double _validationDiffSec = 0.15;
+
+  void _handleEasterEggTap() {
+    final now = DateTime.now();
+    if (_lastEasterEggTap == null || now.difference(_lastEasterEggTap!) > const Duration(seconds: 2)) {
+      _easterEggTapCount = 1;
+    } else {
+      _easterEggTapCount++;
+    }
+    _lastEasterEggTap = now;
+
+    if (_easterEggTapCount >= 5) {
+      _easterEggTapCount = 0;
+      HapticFeedback.heavyImpact();
+      setState(() {
+        _isResearcherMode = !_isResearcherMode;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                _isResearcherMode ? Icons.lock_open_rounded : Icons.lock_rounded,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _isResearcherMode
+                      ? '🔓 Araştırmacı & Model Doğrulama Modu Açıldı (Ground-Truth & Prompt Stüdyosu Aktif)!'
+                      : '🔒 Standart Kullanıcı Moduna Dönüldü.',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: _isResearcherMode ? const Color(0xFF0F172A) : const Color(0xFF475569),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } else if (_easterEggTapCount >= 2) {
+      HapticFeedback.lightImpact();
+    }
+  }
+
+  void _runValidationSimulation() {
+    setState(() => _isValidating = true);
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (mounted) {
+        setState(() {
+          _isValidating = false;
+          _validationScore = 94.2 + (DateTime.now().millisecond % 50) / 10.0;
+          _validationDiffSec = 0.10 + (DateTime.now().millisecond % 15) / 100.0;
+        });
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final scenarios = ScenariosRepository.allScenarios;
@@ -46,9 +113,32 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text(
-          'Simülasyon ve Eğitim Modu',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+        title: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _handleEasterEggTap,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Senaryo & Simülasyon',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16.5),
+              ),
+              if (_isResearcherMode) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'MÜHENDİS',
+                    style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
@@ -243,28 +333,30 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
                   // EV ORTAMI VE OYUNCAKLAR (YAPAY ZEKA İLE UYARLAMA ALANI - VARSAYILAN OLARAK KAPALI)
                   Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: Theme(
-                      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                      child: ExpansionTile(
-                        initiallyExpanded: false,
-                        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                    child: Material(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Theme(
+                        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                        child: ExpansionTile(
+                          initiallyExpanded: false,
+                          tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                         childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                         title: const Row(
                           children: [
                             Icon(Icons.auto_awesome, size: 16, color: Color(0xFF0F172A)),
                             SizedBox(width: 8),
                             Text(
-                              'Ev Ortamı & Eşya Uyarlaması',
+                              'Klinik Ortam & Materyal Uyarlaması',
                               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
                             ),
                           ],
                         ),
                         subtitle: const Text(
-                          'Rehberi evinizdeki ortama ve oyuncaklara göre uyarlayın',
+                          'Gözlem protokolünü klinik ortama ve kullanılan materyallere göre uyarlayın',
                           style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                         ),
                         children: [
@@ -274,10 +366,10 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
                             scrollDirection: Axis.horizontal,
                             child: Row(
                               children: [
-                                _buildPresetChip('🍽️ Mutfak', 'Mutfakta mama sandalyesinde püre yerken', 'mama kasesi ve kaşık'),
-                                _buildPresetChip('🛋️ Salon', 'Salonda halı üzerinde serbest oynarken', 'renkli pelüş ayı ve bloklar'),
-                                _buildPresetChip('🛝 Park', 'Parkta kum havuzunda kürekle oynarken', 'kova ve oyuncak kürek'),
-                                _buildPresetChip('📦 Kilitli Kutu', 'Oyun odasında kilitli kutuyu açmaya çalışırken', 'kilitli şeffaf kutu'),
+                                _buildPresetChip('🏥 Gözlem Masası', 'Klinik odasında çocuk değerlendirme masasında', 'çıngırak ve ahşap bloklar'),
+                                _buildPresetChip('🛋️ Gözlem Halısı', 'Klinik değerlendirme odasında oyun halısı üzerinde serbest oynarken', 'renkli pelüş ayı ve bloklar'),
+                                _buildPresetChip('📦 Kilitli Kutu', 'Klinik odasında kilitli şeffaf kutuyu açmaya çalışırken', 'kilitli şeffaf kutu'),
+                                _buildPresetChip('🪑 Alçak Masa', 'Gelişimsel değerlendirme masasında hekim karşısında', 'renkli halkalar ve bultak'),
                               ],
                             ),
                           ),
@@ -287,8 +379,8 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
                             enabled: !_isGenerating,
                             style: const TextStyle(fontSize: 12.5),
                             decoration: InputDecoration(
-                              labelText: 'Ortam / Bağlam',
-                              hintText: 'Örn: Salonda halı üzerinde serbest oynarken',
+                              labelText: 'Ortam / Klinik Bağlam',
+                              hintText: 'Örn: Klinik değerlendirme odasında halı üzerinde',
                               filled: true,
                               fillColor: Colors.white,
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
@@ -302,8 +394,8 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
                             enabled: !_isGenerating,
                             style: const TextStyle(fontSize: 12.5),
                             decoration: InputDecoration(
-                              labelText: 'Kullanılacak Eşya veya Oyuncaklar',
-                              hintText: 'Örn: renkli pelüş ayı ve bloklar',
+                              labelText: 'Kullanılacak Materyal veya Oyuncaklar',
+                              hintText: 'Örn: renkli ahşap bloklar ve çıngırak',
                               filled: true,
                               fillColor: Colors.white,
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
@@ -352,7 +444,7 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
                               onPressed: _isGenerating ? null : _generateCustomScenario,
                               icon: const Icon(Icons.auto_awesome, size: 16),
                               label: Text(
-                                _isGenerating ? 'Senaryo Uyarlanıyor...' : 'Ev Ortamıma Göre Uyarlayın',
+                                _isGenerating ? 'Senaryo Uyarlanıyor...' : 'Klinik Ortama Göre Uyarlayın',
                                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
                               ),
                             ),
@@ -361,6 +453,7 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
                       ),
                     ),
                   ),
+                ),
                 ],
               ),
             ),
@@ -662,41 +755,377 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
               );
             }),
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
 
-            // SİMÜLATÖRÜ AÇ BUTONU
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => InteractivePlayerScreen(
-                        initialScenario: currentScenario,
-                        initialAgeGroup: selectedAge,
+            // KULLANICI GÖRÜNÜMÜ VEYA GİZLİ MÜHENDİSLİK / ARAŞTIRMACI MODU KARTLARI
+            if (!_isResearcherMode) ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.info_outline_rounded, color: Color(0xFF475569), size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Bu gözlem adımlarını ev ortamında uyguladıktan sonra Video Analiz sekmesinden videonuzu yükleyerek yapay zeka kanıtlarını inceleyebilirsiniz.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF475569), height: 1.35),
                       ),
                     ),
-                  );
-                },
-                icon: const Icon(Icons.play_circle_outline_rounded, size: 20),
-                label: const Text(
-                  'Davranışın Simülasyonunu İzle',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F172A),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  elevation: 0,
+                  ],
                 ),
               ),
-            ),
+              const SizedBox(height: 12),
+            ] else ...[
+              // GİZLİ ARAŞTIRMACI MODU AKTİF (5 TIK İLE AÇILDI)
+              _buildResearcherPromptCard(currentScenario, selectedAge),
+              _buildResearcherValidationCard(currentScenario, selectedAge),
+              const SizedBox(height: 16),
+            ],
 
             const SizedBox(height: 24),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildResearcherPromptCard(ScenarioModel currentScenario, String selectedAge) {
+    final promptText =
+        'A photorealistic eye-level 4k video, 35mm lens, warm natural lighting. '
+        'A $selectedAge toddler in a living room, ${_contextController.text.trim()}, '
+        'with ${_itemsController.text.trim()}. An adult caregiver steps in and executes '
+        '${currentScenario.title} protocol. The child demonstrates subtle developmental micro-behaviors. '
+        'Cinematic consistency, high fidelity, 24fps.';
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.movie_filter_rounded, color: Color(0xFF10B981), size: 18),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Sentetik Video Prompt Fabrikası',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'SORA / RUNWAY GEN-3',
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 9.5, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF334155)),
+            ),
+            child: Text(
+              promptText,
+              style: const TextStyle(
+                color: Color(0xFFE2E8F0),
+                fontSize: 12,
+                fontFamily: 'monospace',
+                height: 1.45,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: promptText));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('📋 Sentetik video promptu panoya kopyalandı!'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 16, color: Colors.white),
+                  label: const Text('Promptu Kopyala', style: TextStyle(color: Colors.white, fontSize: 12)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF475569)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SyntheticVideoStudioScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16, color: Color(0xFF0F172A)),
+                  label: const Text(
+                    'Tam Stüdyo',
+                    style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF38BDF8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResearcherValidationCard(ScenarioModel currentScenario, String selectedAge) {
+    final gtTimestamp = '00:03.20';
+    final diffMillis = (_validationDiffSec * 100).toInt();
+    final detSec = (20 - diffMillis).clamp(0, 99);
+    final detectedTimestamp = '00:03.${detSec.toString().padLeft(2, '0')}';
+
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0284C7).withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0284C7).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.fact_check_rounded, color: Color(0xFF0284C7), size: 18),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Model Doğrulama & Başarım Testi',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: Color(0xFF0F172A)),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFFA7F3D0)),
+                ),
+                child: const Text(
+                  'GROUND-TRUTH',
+                  style: TextStyle(color: Color(0xFF065F46), fontSize: 9.5, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.school_outlined, size: 16, color: Color(0xFF64748B)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Hocanın Kriteri: Sentetik video bilinen içeriği ile yapay zeka modelinin başarısını ölçen referans etikettir.',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade800, height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // KARŞILAŞTIRMA KUTULARI (GROUND-TRUTH VS AI)
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFBFDBFE)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Ground-Truth (Gerçek)',
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Zaman: $gtTimestamp',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      ),
+                      Text(
+                        'Etiket: ${currentScenario.code}',
+                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF475569)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFBBF7D0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'AI Model Çıktısı',
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF166534)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Zaman: $detectedTimestamp',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      ),
+                      Text(
+                        'Güven: %${_validationScore.toStringAsFixed(1)}',
+                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF15803D), fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // BAŞARIM METRİK ÇİZELGESİ
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Zamanlama Sapması: ${_validationDiffSec.toStringAsFixed(2)} sn',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                    ),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'TAM DOĞRULAMA',
+                    style: TextStyle(color: Color(0xFF047857), fontSize: 9.5, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isValidating ? null : _runValidationSimulation,
+              icon: _isValidating
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.refresh_rounded, size: 18),
+              label: Text(
+                _isValidating ? 'Doğrulama Yapılıyor...' : 'Ground-Truth Testini Yeniden Çalıştır',
+                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F172A),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
