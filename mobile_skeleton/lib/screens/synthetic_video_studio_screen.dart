@@ -2,8 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/scenarios_data.dart';
+import '../models/local_model_option.dart';
 import '../services/synthetic_video_service.dart';
 import '../services/llama_model_service.dart';
+import '../services/local_llama_test_service.dart';
+import '../services/llamadart_test_runtime.dart';
+import '../widgets/local_llama_test_card.dart';
+import 'scenario_graph_screen.dart';
 
 class SyntheticVideoStudioScreen extends StatefulWidget {
   final String? initialOntologyCode;
@@ -114,6 +119,32 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   bool _isLlamaDownloading = false;
   LlamaDownloadStatus _downloadStatus = LlamaDownloadStatus();
   StreamSubscription<LlamaDownloadStatus>? _downloadSub;
+  final _modelTest = LocalLlamaTestService(
+    resolveModel: LlamaModelService.getModelFile,
+    createRuntime: LlamadartTestRuntime.new,
+  );
+  final _d01Test = LocalLlamaTestService(
+    request: LocalLlamaTestRequest.d01,
+    resolveModel: LlamaModelService.getModelFile,
+    createRuntime: LlamadartTestRuntime.new,
+  );
+  final _d01EnglishTest = LocalLlamaTestService(
+    request: LocalLlamaTestRequest.d01English,
+    resolveModel: LlamaModelService.getModelFile,
+    createRuntime: LlamadartTestRuntime.new,
+  );
+  final _qwenTest = LocalLlamaTestService(
+    request: LocalLlamaTestRequest.d01Qwen,
+    resolveModel: () =>
+        LlamaModelService.getModelFile(model: LocalModelOption.qwen3),
+    createRuntime: LlamadartTestRuntime.new,
+  );
+  bool _isQwenDownloaded = false;
+  bool _isQwenDownloading = false;
+  LlamaDownloadStatus _qwenDownloadStatus = LlamaDownloadStatus(
+    totalBytes: LocalModelOption.qwen3.estimatedBytes,
+  );
+  StreamSubscription<LlamaDownloadStatus>? _qwenDownloadSub;
 
   @override
   void initState() {
@@ -125,6 +156,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       _selectedAge = widget.initialAgeMonths!;
     }
     _checkLlamaStatus();
+    _checkQwenStatus();
     _generateScenario();
   }
 
@@ -148,6 +180,14 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   @override
   void dispose() {
     _downloadSub?.cancel();
+    unawaited(_modelTest.dispose());
+    unawaited(_d01Test.dispose());
+    unawaited(_d01EnglishTest.dispose());
+    unawaited(_qwenTest.dispose());
+    if (_isQwenDownloading) {
+      LlamaModelService.cancelDownload(model: LocalModelOption.qwen3);
+    }
+    _qwenDownloadSub?.cancel();
     super.dispose();
   }
 
@@ -157,6 +197,101 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       setState(() => _isLlamaDownloaded = downloaded);
     }
   }
+
+  Future<void> _checkQwenStatus() async {
+    final downloaded = await LlamaModelService.isModelDownloaded(
+      model: LocalModelOption.qwen3,
+    );
+    if (mounted) setState(() => _isQwenDownloaded = downloaded);
+  }
+
+  void _startQwenDownload() {
+    if (_isLlamaDownloading || _isQwenDownloading || !_qwenTest.canRun) return;
+    setState(() {
+      _isQwenDownloading = true;
+      _qwenDownloadStatus = LlamaDownloadStatus(
+        isDownloading: true,
+        totalBytes: LocalModelOption.qwen3.estimatedBytes,
+      );
+    });
+    _qwenDownloadSub =
+        LlamaModelService.downloadModel(model: LocalModelOption.qwen3).listen(
+          (status) {
+            if (!mounted) return;
+            setState(() {
+              _qwenDownloadStatus = status;
+              _isQwenDownloading = status.isDownloading;
+              if (!status.isDownloading && status.progress >= 1 && status.error == null) {
+                _isQwenDownloaded = true;
+              }
+            });
+          },
+          onError: (Object error) {
+            if (!mounted) return;
+            setState(() {
+              _isQwenDownloading = false;
+              _qwenDownloadStatus = LlamaDownloadStatus(
+                error: error.toString(),
+              );
+            });
+          },
+        );
+  }
+
+  Widget _buildQwenDownloadCard() => Card(
+    color: Colors.white,
+    margin: EdgeInsets.zero,
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Qwen3-1.7B Q4_K_M',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF142540),
+            ),
+          ),
+          const Text(
+            'Ayrı model dosyası · yaklaşık 1,11 GB. Llama dosyası korunur.',
+          ),
+          Text(
+            _isQwenDownloaded
+                ? 'Model dosyası indirildi; üretim sonucu ayrı testte doğrulanır.'
+                : 'Qwen modeli indirilmedi.',
+          ),
+          if (_qwenDownloadStatus.error != null)
+            SelectableText(_qwenDownloadStatus.error!),
+          if (_isQwenDownloading) ...[
+            Text(
+              '${_qwenDownloadStatus.statusMessage} (${_qwenDownloadStatus.downloadedMb} / ${_qwenDownloadStatus.totalMb} MB)',
+            ),
+            LinearProgressIndicator(
+              value: _qwenDownloadStatus.progress.clamp(0, 1),
+            ),
+            TextButton(
+              onPressed: () => LlamaModelService.cancelDownload(
+                model: LocalModelOption.qwen3,
+              ),
+              child: const Text('Qwen indirmesini iptal et'),
+            ),
+          ] else if (!_isQwenDownloaded)
+            FilledButton.icon(
+              key: const ValueKey('download-qwen3'),
+              onPressed: _isLlamaDownloading || !_qwenTest.canRun
+                  ? null
+                  : _startQwenDownload,
+              icon: const Icon(Icons.download),
+              label: const Text('Qwen modelini indir (~1,11 GB)'),
+            ),
+          if (!_isQwenDownloading &&
+              _qwenDownloadStatus.statusMessage == 'İndirme iptal edildi')
+            const Text('Qwen indirmesi iptal edildi.'),
+        ],
+      ),
+    ),
+  );
 
   String _getAgeGroupLabel(int months) {
     if (months < 18) return '12–18 Ay';
@@ -222,7 +357,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
           setState(() {
             _downloadStatus = status;
             _isLlamaDownloading = status.isDownloading;
-            if (status.progress >= 1.0) {
+            if (!status.isDownloading && status.error == null && status.progress >= 1.0) {
               _isLlamaDownloaded = true;
             }
           });
@@ -392,8 +527,80 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               const SizedBox(height: 14),
             ],
 
+            Card(
+              margin: EdgeInsets.zero,
+              child: ListTile(
+                key: const ValueKey('open-scenario-graph'),
+                leading: const Icon(Icons.account_tree_outlined),
+                title: const Text('Senaryo Grafı'),
+                subtitle: const Text('Elle hazırlanmış D01 örneğini incele'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ScenarioGraphScreen(),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+
             // 1. MODEL DURUMU VE İNDİRME KARTI (HER ZAMAN GÖRÜNÜR)
-            _buildLlamaManagementCard(),
+            StreamBuilder<LocalLlamaTestState>(
+              stream: _modelTest.states,
+              initialData: _modelTest.state,
+              builder: (context, hello) => StreamBuilder<LocalLlamaTestState>(
+                stream: _d01Test.states,
+                initialData: _d01Test.state,
+                builder: (context, d01) => StreamBuilder<LocalLlamaTestState>(
+                  stream: _d01EnglishTest.states,
+                  initialData: _d01EnglishTest.state,
+                  builder: (context, english) =>
+                      StreamBuilder<LocalLlamaTestState>(
+                        stream: _qwenTest.states,
+                        initialData: _qwenTest.state,
+                        builder: (context, qwen) => Column(
+                          children: [
+                            AbsorbPointer(
+                              absorbing:
+                                  hello.data!.isBusy ||
+                                  d01.data!.isBusy ||
+                                  english.data!.isBusy ||
+                                  qwen.data!.isBusy ||
+                                  _isQwenDownloading,
+                              child: _buildLlamaManagementCard(),
+                            ),
+                            const SizedBox(height: 14),
+                            LocalLlamaTestCard(
+                              service: _modelTest,
+                              enabled:
+                                  !_isLlamaDownloading && !_isQwenDownloading,
+                            ),
+                            const SizedBox(height: 14),
+                            LocalLlamaTestCard(
+                              service: _d01Test,
+                              enabled:
+                                  !_isLlamaDownloading && !_isQwenDownloading,
+                            ),
+                            const SizedBox(height: 14),
+                            LocalLlamaTestCard(
+                              service: _d01EnglishTest,
+                              enabled:
+                                  !_isLlamaDownloading && !_isQwenDownloading,
+                            ),
+                            const SizedBox(height: 14),
+                            _buildQwenDownloadCard(),
+                            const SizedBox(height: 14),
+                            LocalLlamaTestCard(
+                              service: _qwenTest,
+                              enabled:
+                                  !_isLlamaDownloading && !_isQwenDownloading,
+                            ),
+                          ],
+                        ),
+                      ),
+                ),
+              ),
+            ),
             const SizedBox(height: 14),
 
             // 2. HİBRİT MOTOR SEÇİCİ (0 MB YEREL vs LLAMA 3.2 ON-DEVICE)

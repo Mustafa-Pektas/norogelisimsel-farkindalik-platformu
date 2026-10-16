@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/local_model_option.dart';
 import 'synthetic_video_service.dart';
 
 class LlamaDownloadStatus {
@@ -38,25 +39,32 @@ class LlamaModelService {
 
   static http.Client? _activeClient;
   static bool _isCancelled = false;
+  static LocalModelOption? _downloadingModel;
 
   /// Cihazdaki yerel model dosya yolunu getirir
-  static Future<File> getModelFile() async {
+  static Future<File> getModelFile({
+    LocalModelOption model = LocalModelOption.llama,
+  }) async {
     final dir = await getApplicationDocumentsDirectory();
     final modelDir = Directory('${dir.path}/models');
     if (!await modelDir.exists()) {
       await modelDir.create(recursive: true);
     }
-    return File('${modelDir.path}/$modelFileName');
+    return File('${modelDir.path}/${model.fileName}');
   }
 
   /// Modelin cihazda indirilmiş olup olmadığını kontrol eder
-  static Future<bool> isModelDownloaded() async {
+  static Future<bool> isModelDownloaded({
+    LocalModelOption model = LocalModelOption.llama,
+  }) async {
     try {
-      final file = await getModelFile();
+      final file = await getModelFile(model: model);
       if (await file.exists()) {
         final length = await file.length();
         // Dosya en az 500 MB ise tam inmiş kabul et
-        return length > 500 * 1024 * 1024;
+        return model == LocalModelOption.qwen3
+            ? length == model.estimatedBytes
+            : length > 500 * 1024 * 1024;
       }
       return false;
     } catch (e) {
@@ -92,42 +100,64 @@ class LlamaModelService {
   }
 
   /// Modeli HuggingFace'den cihazın sandbox hafızasına indirir (İlerleme raporlamalı)
-  static Stream<LlamaDownloadStatus> downloadModel() async* {
+  static Stream<LlamaDownloadStatus> downloadModel({
+    LocalModelOption model = LocalModelOption.llama,
+    http.Client? client,
+    Future<File> Function()? resolveFile,
+  }) async* {
+    // Aynı akış kullanılır; Llama ve Qwen ayrı adlara ve kısmi dosyalara gider.
+    if (_downloadingModel != null) {
+      yield LlamaDownloadStatus(error: 'Başka bir model indirmesi sürüyor.');
+      return;
+    }
+    _downloadingModel = model;
     _isCancelled = false;
-    final file = await getModelFile();
-
-    yield LlamaDownloadStatus(
-      isDownloading: true,
-      progress: 0.01,
-      downloadedBytes: 0,
-      totalBytes: estimatedSizeBytes,
-      statusMessage: 'Bağlantı kuruluyor (HuggingFace)...',
-    );
-
+    File? partial;
+    IOSink? sink;
     try {
-      _activeClient = http.Client();
-      final request = http.Request('GET', Uri.parse(downloadUrl));
+      final file = await (resolveFile?.call() ?? getModelFile(model: model));
+      if (await file.exists()) {
+        final size = await file.length();
+        final complete = model == LocalModelOption.qwen3
+            ? size == model.estimatedBytes
+            : size > 500 * 1024 * 1024;
+        if (!complete) {
+          throw StateError(
+            'Mevcut ${model.fileName} dosyası beklenen boyutta değil; üzerine yazılmadı.',
+          );
+        }
+        yield LlamaDownloadStatus(
+          progress: 1,
+          downloadedBytes: size,
+          totalBytes: size,
+          statusMessage: 'Model zaten indirilmiş; mevcut dosya korundu.',
+        );
+        return;
+      }
+      partial = File('${file.path}.part');
+      yield LlamaDownloadStatus(
+        isDownloading: true,
+        totalBytes: model.estimatedBytes,
+        statusMessage: 'Bağlantı kuruluyor (HuggingFace)...',
+      );
+      if (_isCancelled) throw StateError('İndirme iptal edildi');
+      _activeClient = client ?? http.Client();
+      final request = http.Request('GET', Uri.parse(model.downloadUrl));
       final response = await _activeClient!.send(request);
 
       if (response.statusCode != 200) {
         throw Exception('İndirme hatası: HTTP ${response.statusCode}');
       }
 
-      final total = response.contentLength ?? estimatedSizeBytes;
+      final total = response.contentLength ?? model.estimatedBytes;
       var downloaded = 0;
-      final sink = file.openWrite();
+      sink = partial.openWrite();
 
       var lastReportTime = DateTime.now();
 
       await for (final chunk in response.stream) {
         if (_isCancelled) {
-          await sink.close();
-          if (await file.exists()) await file.delete();
-          yield LlamaDownloadStatus(
-            isDownloading: false,
-            statusMessage: 'İndirme iptal edildi',
-          );
-          return;
+          throw StateError('İndirme iptal edildi');
         }
 
         sink.add(chunk);
@@ -135,7 +165,8 @@ class LlamaModelService {
 
         // Her 200 ms'de bir arayüzü güncelle (UI kilitlenmesini önle)
         final now = DateTime.now();
-        if (now.difference(lastReportTime).inMilliseconds > 200 || downloaded == total) {
+        if (now.difference(lastReportTime).inMilliseconds > 200 ||
+            downloaded == total) {
           lastReportTime = now;
           final prog = downloaded / total;
           yield LlamaDownloadStatus(
@@ -150,31 +181,74 @@ class LlamaModelService {
 
       await sink.flush();
       await sink.close();
+      sink = null;
+      if (_isCancelled) throw StateError('İndirme iptal edildi');
+      if (downloaded != total ||
+          (model == LocalModelOption.qwen3 &&
+              downloaded != model.estimatedBytes)) {
+        throw StateError(
+          'Eksik indirme: $downloaded bayt; beklenen '
+          '${model == LocalModelOption.qwen3 ? model.estimatedBytes : total} bayt '
+          '(HTTP bildirimi: $total).',
+        );
+      }
+      final header = await partial.open();
+      late List<int> magic;
+      try {
+        magic = await header.read(4);
+      } finally {
+        await header.close();
+      }
+      if (!listEquals(magic, const [71, 71, 85, 70])) {
+        throw StateError('İndirilen dosyada GGUF başlığı yok.');
+      }
+      if (await file.exists()) {
+        throw StateError('Hedef dosya oluştu; üzerine yazılmadı.');
+      }
+      await partial.rename(file.path);
+      partial = null;
 
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('llama_model_downloaded', true);
+      await prefs.setBool(
+        model == LocalModelOption.llama
+            ? 'llama_model_downloaded'
+            : 'qwen3_model_downloaded',
+        true,
+      );
 
       yield LlamaDownloadStatus(
         isDownloading: false,
         progress: 1.0,
         downloadedBytes: downloaded,
         totalBytes: total,
-        statusMessage: 'Model başarıyla indirildi ve hazır!',
+        statusMessage: 'Model dosyası indirildi; çıkarım henüz doğrulanmadı.',
       );
     } catch (e) {
       yield LlamaDownloadStatus(
         isDownloading: false,
-        statusMessage: 'Hata oluştu',
-        error: e.toString(),
+        statusMessage: _isCancelled ? 'İndirme iptal edildi' : 'Hata oluştu',
+        error: _isCancelled ? null : e.toString(),
       );
     } finally {
-      _activeClient?.close();
-      _activeClient = null;
+      try {
+        await sink?.close();
+      } finally {
+        try {
+          if (partial != null && await partial.exists()) await partial.delete();
+        } finally {
+          _activeClient?.close();
+          _activeClient = null;
+          _downloadingModel = null;
+        }
+      }
     }
   }
 
   /// Devam eden indirmeyi iptal eder
-  static void cancelDownload() {
+  static void cancelDownload({
+    LocalModelOption model = LocalModelOption.llama,
+  }) {
+    if (_downloadingModel != model) return;
     _isCancelled = true;
     _activeClient?.close();
   }
