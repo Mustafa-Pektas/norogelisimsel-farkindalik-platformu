@@ -5,10 +5,42 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neuro_awareness_app/services/local_llama_test_service.dart';
 import 'package:neuro_awareness_app/widgets/local_llama_test_card.dart';
+import 'package:neuro_awareness_app/screens/synthetic_video_studio_screen.dart';
 
 import 'support/fake_local_llama_runtime.dart';
 
 void main() {
+  testWidgets(
+    'MiniCPM mevcut model alanından seçilir; yeni kart veya otomatik indirme eklenmez',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: SyntheticVideoStudioScreen()),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(LocalLlamaTestCard), findsNWidgets(5));
+      final selector = find.byKey(const ValueKey('comparison-model-selector'));
+      await tester.ensureVisible(selector);
+      await tester.tap(selector);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('MiniCPM5-1B-Turkish Q4_K_M').last);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('download-minicpm-turkish')),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Değerlendirme modeli: MiniCPM5-1B-Turkish Q4_K_M'),
+        findsOneWidget,
+      );
+      expect(find.byType(LocalLlamaTestCard), findsNWidgets(5));
+      expect(
+        find.byKey(const ValueKey('start-d01-evaluation')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Bağlantı kuruluyor'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
   Future<LocalLlamaTestService> prepare(
     WidgetTester tester,
     FakeLocalLlamaRuntime runtime, {
@@ -343,6 +375,72 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'Ortak başlangıç kartı 160 sınırını, ham cevabı ve ölçümleri korur',
+    (tester) async {
+      const raw = '  TEST: {"ham": "başarılı sayılmayan cevap"}  ';
+      final runtime = FakeLocalLlamaRuntime()
+        ..diagnosticValues = {
+          'API bitiş nedeni': 'stop',
+          'Native istek tokenı': 'TEST: 91',
+          'Native üretilen token': 'TEST: 42',
+        }
+        ..output = () => Stream.value(raw);
+      final service = await prepare(
+        tester,
+        runtime,
+        request: LocalLlamaTestRequest.qwenCommonStart,
+      );
+      expect(find.text('Qwen — Ortak başlangıç testi'), findsOneWidget);
+      expect(
+        find.text('CPU · 2048 token bağlam · En fazla 160 yeni token'),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('qwen-common-start-test-start')),
+      );
+      await tester.runAsync(() async {
+        final done = service.states.firstWhere(
+          (s) => s.phase == LocalLlamaPhase.completed,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('qwen-common-start-test-start')),
+        );
+        await done;
+      });
+      await tester.pumpAndSettle();
+      expect(find.text(raw), findsOneWidget);
+      expect(find.textContaining('Toplam:'), findsOneWidget);
+      expect(find.text('API bitiş nedeni: stop'), findsOneWidget);
+      await tester.ensureVisible(find.text('Çıkarım ayrıntıları'));
+      await tester.tap(find.text('Çıkarım ayrıntıları'));
+      await tester.pumpAndSettle();
+      expect(find.text('TEST: 91'), findsOneWidget);
+      expect(find.text('TEST: 42'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('Stüdyo mevcut Qwen D01 ve yeni başlangıç testini ayrı sunar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: SyntheticVideoStudioScreen()),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Qwen D01 karşılaştırma'), findsOneWidget);
+    expect(find.text('Qwen — Ortak başlangıç testi'), findsOneWidget);
+    expect(find.byKey(const ValueKey('d01-qwen3-test-start')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('qwen-common-start-test-start')),
+      findsOneWidget,
+    );
+    expect(find.text('Henüz üretim denenmedi'), findsNWidgets(5));
+    expect(find.byType(LocalLlamaTestCard), findsNWidgets(5));
+    expect(find.byKey(const ValueKey('start-d01-evaluation')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('İndirme sürerken test düğmesi devre dışıdır', (tester) async {
     final runtime = FakeLocalLlamaRuntime();

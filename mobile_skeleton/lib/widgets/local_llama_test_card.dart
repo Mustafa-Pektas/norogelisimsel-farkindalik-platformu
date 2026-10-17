@@ -7,9 +7,13 @@ class LocalLlamaTestCard extends StatelessWidget {
     super.key,
     required this.service,
     this.enabled = true,
+    this.disabledReason,
+    this.footer,
   });
   final LocalLlamaTestService service;
   final bool enabled;
+  final String? disabledReason;
+  final Widget? footer;
 
   @override
   Widget build(BuildContext context) => StreamBuilder<LocalLlamaTestState>(
@@ -123,7 +127,10 @@ class LocalLlamaTestCard extends StatelessWidget {
                   'Motor token veya bağlam sınırında durdu; cevap tamamlanmamış olabilir.',
                 ),
               if (!enabled)
-                const Text('Test için model indirmesinin bitmesini bekleyin.'),
+                Text(
+                  disabledReason ??
+                      'Test için model indirmesinin bitmesini bekleyin.',
+                ),
               if (enabled && !state.isBusy && !service.canRun)
                 const Text(
                   'Diğer model testinin bitmesini bekleyin. Kaynak kapatma hatası varsa uygulamayı yeniden başlatın.',
@@ -166,6 +173,7 @@ class LocalLlamaTestCard extends StatelessWidget {
                     ),
                 ],
               ),
+              if (footer != null) ...[const SizedBox(height: 12), footer!],
             ],
           ),
         ),

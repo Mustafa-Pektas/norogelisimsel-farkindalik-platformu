@@ -109,6 +109,23 @@ Bu taslağı doğal sahne anlatımına dönüştür.''';
     prompt: d01TurkishPrompt,
   );
 
+  static const qwenCommonStart = LocalLlamaTestRequest(
+    id: 'qwen-common-start-test',
+    title: 'Qwen — Ortak başlangıç testi',
+    actionLabel: 'Ortak başlangıcı dene',
+    model: LocalModelOption.qwen3,
+    description:
+        'Oyuncak ve basit bir eylemle iki cümlelik ev sahnesi. '
+        'Yetişkin, konuşma ve çocuk tepkisi istenmez. '
+        'Planlanan taslaktır; içeriğin uygunluğu insan incelemesi bekler.',
+    contextSize: 2048,
+    maxTokens: 160,
+    prompt:
+        'Evde oyuncakla oynayan 30 aylık bir çocuğu anlatan iki kısa Türkçe cümle yaz. '
+        'Bir oyuncak ve onunla yapılan basit bir eylem seç. '
+        'Yetişkin, konuşma, isim çağrısı veya çocuğun birine verdiği tepkiyi anlatma.',
+  );
+
   static const d01English = LocalLlamaTestRequest(
     id: 'd01-english-test',
     title: 'D01 İngilizce karşılaştırma',

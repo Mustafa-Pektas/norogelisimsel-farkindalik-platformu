@@ -76,7 +76,7 @@ void main() {
   final graph = ScenarioGraph.fromJsonString(fixture);
 
   testWidgets(
-    'İlk açılışta kısa kutular ve çakışmayan beş bağlantıyla tüm dallar görünür',
+    'İlk açılışta beş sahne ve çakışmayan dört bağlantıyla iki çağrı alternatifi görünür',
     (tester) async {
       expect(File('examples/d01_scenario_graph.json').existsSync(), isFalse);
       expect(
@@ -88,6 +88,8 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
       loading.complete(fixture);
       await tester.pumpAndSettle();
+      expect(graph.scenes, hasLength(5));
+      expect(graph.transitions, hasLength(4));
       expect(find.textContaining('Elle hazırlanmış örnek'), findsOneWidget);
       expect(
         find.textContaining('Planlanan senaryo; gözlem değildir'),
@@ -187,14 +189,14 @@ void main() {
       );
       await tester.pumpAndSettle();
       _expectOverview(tester, graph);
-      await tester.tap(find.byKey(const ValueKey('scene:isim_cagrisi')));
+      await tester.tap(find.byKey(const ValueKey('scene:oyuncakla_oyun')));
       await tester.pumpAndSettle();
       final scrollable = find.descendant(
         of: find.byKey(const ValueKey('scene-details-scroll')),
         matching: find.byType(Scrollable),
       );
       await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('detail-transition:2')),
+        find.byKey(const ValueKey('detail-transition:1')),
         120,
         scrollable: scrollable,
       );
@@ -202,7 +204,7 @@ void main() {
       expect(state.position.pixels, greaterThan(0));
       await tester.drag(scrollable, const Offset(0, -200));
       await tester.pumpAndSettle();
-      expect(find.text(graph.transitions[2].description), findsOneWidget);
+      expect(find.text(graph.transitions[1].description), findsOneWidget);
       await tester.tap(find.byTooltip('Ayrıntıları kapat'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
@@ -275,7 +277,7 @@ void main() {
     await tester.tap(find.text('Tekrar dene'));
     await tester.pumpAndSettle();
     expect(attempts, 2);
-    expect(find.byKey(const ValueKey('scene:isim_cagrisi')), findsOneWidget);
+    expect(find.byKey(const ValueKey('scene:yetiskine_yonelme')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

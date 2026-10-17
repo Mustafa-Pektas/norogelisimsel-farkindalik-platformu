@@ -6,6 +6,7 @@ import 'package:llamadart/llamadart.dart';
 import 'package:neuro_awareness_app/services/llamadart_test_runtime.dart';
 import 'package:neuro_awareness_app/services/local_llama_test_service.dart';
 import 'package:neuro_awareness_app/models/local_model_option.dart';
+import 'package:neuro_awareness_app/services/d01_evaluation_service.dart';
 
 // Gerçek yayımlanmış paket türleriyle API sınırı kontrol edilir; model yüklenmez.
 class _RecordingEngine extends Fake implements LlamaEngine {
@@ -25,6 +26,8 @@ class _RecordingEngine extends Fake implements LlamaEngine {
   int createCalls = 0;
   Stream<LlamaCompletionChunk>? output;
   bool qwenProfile = false;
+  bool miniCpmProfile = false;
+  bool missingTemplate = false;
   bool closedThinking = true;
   String qwenArchitecture = 'qwen3';
 
@@ -33,8 +36,9 @@ class _RecordingEngine extends Fake implements LlamaEngine {
     switch (invocation.memberName) {
       case #getMetadata:
         return Future.value(<String, String>{
-          'tokenizer.chat_template': 'UNIT TEST TEMPLATE',
+          if (!missingTemplate) 'tokenizer.chat_template': 'UNIT TEST TEMPLATE',
           if (qwenProfile) 'general.architecture': qwenArchitecture,
+          if (miniCpmProfile) 'general.architecture': 'llama',
         });
       case #getContextSize:
         return Future.value(contextSize);
@@ -81,11 +85,49 @@ class _RecordingEngine extends Fake implements LlamaEngine {
 }
 
 void main() {
+  test('MiniCPM kendi şablonuyla tek user mesajı alır; Qwen think zorunluluğu uygulanmaz', () async {
+    final request = D01EvaluationProtocol.parse(
+      File('assets/evaluations/d01_qwen_v1.json').readAsStringSync(),
+    ).tasks.first.requestFor(LocalModelOption.miniCpmTurkish);
+    final engine = _RecordingEngine()..miniCpmProfile = true;
+    final runtime = LlamadartTestRuntime(request, engine: engine);
+    await runtime.load('/existing/minicpm.gguf');
+    await runtime.generate().drain<void>();
+    expect(engine.modelParams!.device, ComputeDevice.cpu);
+    expect(engine.modelParams!.contextSize, 2048);
+    expect(engine.messages, hasLength(1));
+    expect(engine.messages!.single.role, LlamaChatRole.user);
+    expect(engine.messages!.single.content, request.prompt);
+    expect(identical(engine.templateMessages, engine.messages), isTrue);
+    expect(engine.generationParams!.maxTokens, 160);
+    expect(engine.generationParams!.temp, 0.7);
+    expect(engine.generationParams!.topP, 0.8);
+    expect(engine.generationParams!.topK, 20);
+    expect(engine.generationParams!.grammar, isNull);
+    expect(engine.enableThinking, isFalse);
+    expect(engine.createCalls, 1);
+    expect(
+      runtime.diagnostics['Düşünmesiz şablon kontrolü'],
+      contains('Qwen boş think kontrolü uygulanmadı'),
+    );
+    await runtime.dispose();
+    final missingEngine = _RecordingEngine()
+      ..miniCpmProfile = true
+      ..missingTemplate = true;
+    final missing = LlamadartTestRuntime(request, engine: missingEngine);
+    await expectLater(missing.generate().drain<void>(), throwsStateError);
+    expect(missingEngine.createCalls, 0);
+    await missing.dispose();
+  });
   for (final request in [
     LocalLlamaTestRequest.greeting,
     LocalLlamaTestRequest.d01,
     LocalLlamaTestRequest.d01English,
     LocalLlamaTestRequest.d01Qwen,
+    LocalLlamaTestRequest.qwenCommonStart,
+    ...D01EvaluationProtocol.parse(
+      File('assets/evaluations/d01_qwen_v1.json').readAsStringSync(),
+    ).tasks.map((t) => t.request),
   ]) {
     test(
       '${request.id}: yayımlanmış llamadart API yerel dosya, CPU, istek ve token sınırını alır',
@@ -106,7 +148,13 @@ void main() {
         expect(engine.messages!.single.content, request.prompt);
         expect(
           engine.generationParams!.maxTokens,
-          request == LocalLlamaTestRequest.greeting ? 32 : 384,
+          request.id.startsWith('d01-evaluation-')
+              ? 160
+              : switch (request.id) {
+                  'local-llama-test' => 32,
+                  'qwen-common-start-test' => 160,
+                  _ => 384,
+                },
         );
         expect(engine.enableThinking, isFalse);
         // İstenen örnekleme ayarlarını değiştirmedik.

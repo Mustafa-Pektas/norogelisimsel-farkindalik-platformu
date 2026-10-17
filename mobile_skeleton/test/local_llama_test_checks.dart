@@ -28,6 +28,45 @@ Future<void> main() async {
         createRuntime: (_) => runtime,
       );
   final tests = <String, Future<void> Function()>{
+    'Qwen başlangıç ve D01 testleri aynı dosyada bağımsız cevapları ve ortak kilidi korur':
+        () async {
+          final startRuntime = FakeLocalLlamaRuntime()
+            ..loadGate = Completer<void>()
+            ..output = () => Stream.value('  TEST: başlangıç ham cevabı  ');
+          final d01Runtime = FakeLocalLlamaRuntime()
+            ..output = () => Stream.value('TEST: önceki D01 cevabı');
+          final d01 = LocalLlamaTestService(
+            request: LocalLlamaTestRequest.d01Qwen,
+            resolveModel: () async => file,
+            createRuntime: (_) => d01Runtime,
+          );
+          final start = LocalLlamaTestService(
+            request: LocalLlamaTestRequest.qwenCommonStart,
+            resolveModel: () async => file,
+            createRuntime: (_) => startRuntime,
+          );
+          await d01.run();
+          final running = start.run();
+          await startRuntime.loadStarted.future;
+          await rejects(d01.run());
+          check(
+            d01.state.text == 'TEST: önceki D01 cevabı',
+            'D01 cevabı korunur',
+          );
+          startRuntime.loadGate!.complete();
+          await running;
+          check(
+            startRuntime.path == d01Runtime.path,
+            'Aynı yerel Qwen dosyası',
+          );
+          check(
+            start.state.text == '  TEST: başlangıç ham cevabı  ',
+            'Ham başlangıç cevabı',
+          );
+          check(startRuntime.generations == 1, 'Otomatik yeniden deneme yok');
+          await start.dispose();
+          await d01.dispose();
+        },
     'Türkçe ve İngilizce D01 cevapları ayrıdır ve ortak native kilidi korur':
         () async {
           final trRuntime = FakeLocalLlamaRuntime()

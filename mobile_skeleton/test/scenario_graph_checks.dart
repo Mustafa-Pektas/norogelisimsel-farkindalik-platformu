@@ -60,16 +60,21 @@ void main() {
         'D01 sürümü',
       );
       _check(graph.ageMonths == 30 && graph.language == 'tr', 'Yaş ve dil');
-      _check(graph.scenes.length == 6, 'Örneğin altı sahnesi olmalı');
+      _check(graph.scenes.length == 5, 'Örneğin beş sahnesi olmalı');
+      _check(
+        graph.scenes.every((scene) => scene.id != 'isim_cagrisi') &&
+            graph.transitions.length == 4,
+        'Ayrı ortak çağrı düğümü kaldırılmalı; dört geçiş korunmalı',
+      );
       final alternatives = graph.transitions
-          .where((edge) => edge.fromSceneId == 'isim_cagrisi')
+          .where((edge) => edge.fromSceneId == 'oyuncakla_oyun')
           .map((edge) => edge.toSceneId)
           .toSet();
       _check(
         alternatives.length == 2 &&
             alternatives.contains('yetiskine_yonelme') &&
             alternatives.contains('oyuna_devam'),
-        'Çağrıdan sonra iki farklı devam olmalı',
+        'Çağrı öncesi ortak oyundan iki ayrı çağrı+devam alternatifine geçilmeli',
       );
       _check(graph.endSceneIds.length == 2, 'İki açık bitiş');
       _check(

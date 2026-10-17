@@ -40,7 +40,9 @@ class LlamadartTestRuntime implements LocalLlamaTestRuntime {
       LlamaChatMessage.fromText(role: LlamaChatRole.user, text: request.prompt),
     ];
     final qwen = request.model == LocalModelOption.qwen3;
-    final params = qwen
+    final miniCpm = request.model == LocalModelOption.miniCpmTurkish;
+    // Küçük karşılaştırmada örnekleme sabit; şablon her modelin kendi GGUF'sinden.
+    final params = qwen || miniCpm
         ? GenerationParams(
             maxTokens: request.maxTokens,
             temp: 0.7,
@@ -54,7 +56,8 @@ class LlamadartTestRuntime implements LocalLlamaTestRuntime {
     final inspect =
         request.id == LocalLlamaTestRequest.d01.id ||
         request.id == LocalLlamaTestRequest.d01English.id ||
-        qwen;
+        qwen ||
+        miniCpm;
     // İnceleme ve create aynı tarih bağlamıyla aynı şablonu render etsin.
     final templateNow = DateTime.now().toUtc();
     if (inspect) {
@@ -85,6 +88,13 @@ class LlamadartTestRuntime implements LocalLlamaTestRuntime {
           'Qwen3 mimarisi ve GGUF sohbet şablonu doğrulanamadı; başka modele veya şablona geçilmedi.',
         );
       }
+      if (miniCpm &&
+          (metadata['general.architecture'] != 'llama' ||
+              (metadata['tokenizer.chat_template'] ?? '').trim().isEmpty)) {
+        throw StateError(
+          'MiniCPM Llama mimarisi ve kendi GGUF sohbet şablonu doğrulanamadı; üretim durduruldu.',
+        );
+      }
       final context = await _engine.getContextSize();
       _diagnostics['Motorun bildirdiği bağlam kapasitesi'] = '$context';
       final template = await _engine.chatTemplate(
@@ -94,6 +104,9 @@ class LlamadartTestRuntime implements LocalLlamaTestRuntime {
         templateNow: templateNow,
       );
       _diagnostics['Şablon uygulanmış istek'] = template.prompt;
+      if (miniCpm) {
+        _diagnostics['Düşünmesiz şablon kontrolü'] = 'MiniCPM kendi GGUF şablonu, enableThinking=false; Qwen boş think kontrolü uygulanmadı.';
+      }
       if (qwen) {
         final closedThinking = RegExp(
           r'<\|im_start\|>assistant\s*<think>\s*</think>\s*$',

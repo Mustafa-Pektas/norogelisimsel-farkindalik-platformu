@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0",
+  "planId": "d01-elle-hazirlanmis-klip-plani-001",
+  "scenarioId": "d01-elle-hazirlanmis-taslak-001",
+  "authoringNote": "Elle hazırlanmış örnek üretim planıdır; LLM çıktısı, gerçekleşmiş davranış, video ground_truth veya klinik değerlendirme değildir. Davranis_Kartlari_v02.md, D01 / 0.2 esas alınır. Beş sahne, yedi üretim klibi vardır. Ortak oyun 6 saniyedir ve çağrı başlamadan biter; ayrı ortak çağrı klibi kaldırılmıştır. Her alternatifin ilk 8 saniyelik klibinde anne yalnız bir kez Deniz der ve aynı klipte ilgili devam görülür. Her izlenen yolda toplam tek çağrı bulunur; iki alternatif art arda uygulanmaz. Çağrının bir klibin tam sonunda bitmesi şartı yoktur. Her dalda ilk 8 saniyelik çağrı+devam klibini çağrısız 8 saniyelik gözlem ve 2 saniyelik bitiş izler; ortak oyunla her yolun hedef süresi 24 saniyedir. İlk klipte çağrı erken ve doğal biçimde planlanır; çağrı bitişinden sonra kalan bölüm ile 8 saniyelik devam, en az 10 saniyelik gözlem için ayrılır. 8+8 saniyelik toplam klip süresi, 16 saniyelik çağrı sonrası gözlem anlamına gelmez. Gerçek pencere çağrının videodaki bitişinden itibaren ölçülür. Süre, ses ve sınır sürekliliği doğrulanmaz veya 10 saniye sağlanmazsa plan tamamlanmış geçerli D01 denemesi sayılmaz; gerekirse ek çağrısız devam planlanır. Süreler üretim hedefidir, klinik eşik değildir. Ayrı üretilen parçalar kesintisiz kayıt kanıtı oluşturmaz; gerçek çağrı bitişi, en az 10 saniyelik görünür ve kesintisiz gözlem, karakter/nesne devamlılığı insan incelemesiyle doğrulanmadan davranış sonucu atanmaz. Bu veri video birleştirme yapmaz ve dalı kimin seçeceğini belirlemez.",
+  "continuityNotes": "Bütün klipler aynı sentetik 30 aylık Deniz’i kullanır: kısa koyu saç, düz krem tişört, lacivert pantolon, gri çorap. Aynı anne düz lacivert uzun kollu üst ve bej pantolon giyer; Deniz’in sağında, bir kol mesafesinin dışında oturur. Aynı ev salonu, açık renk duvar, soldaki pencereden sabit gün ışığı ve açık gri oyun matı korunur. Tam olarak iki doğal ahşap küp ve bir lacivert ahşap küp kullanılır. Sabit, hafif çapraz orta geniş kadraj Deniz’in başını/yüzünü, ellerini, blokları ve annenin konumunu gösterir. Kamera, karakter yüzleri, kıyafet, ışık ve nesneler klipler arasında değişmez. Son durum sonraki klibin ilk durumuna aktarılmalıdır; platform destekliyorsa onaylanan son kare devam referansı olarak kullanılabilir. Bunu desteklememesi veya görsel/ses sürekliliğinin bozulması ayrıca insan incelemesi gerektirir; yalnız promptla süreklilik kanıtlanmaz. Yetişkin çocuğa dokunmaz. Bu kısıt çocuğun oyuncak bloklara dokunmasını yasaklamaz. Ortak oyunun son durumu iki alternatifin ilk durumudur; her devam klibi kendi dalındaki önceki klibin bitiş durumundan başlar. Anne yalnız alternatifin ilk klibindeki tek isim çağrısında konuşur; diğer kliplerde sessizdir.",
+  "clips": [
+    {
+      "id": "d01_oyun_01",
+      "sceneId": "oyuncakla_oyun",
+      "orderInScene": 1,
+      "targetDurationS": 6,
+      "plannedAction": "Deniz doğal ahşap küplerden birini alıp diğerine hafifçe dokundurur; yetişkine dönük değildir.",
+      "initialState": "Üç küp mat üzerindedir; Deniz oturmuş, bloklara bakmaktadır. Anne sağda sessizce oturur.",
+      "finalState": "Deniz sağ elinde bir doğal ahşap küp tutar; diğer doğal küp önünde, lacivert küp solundadır. Başı bloklara dönüktür; anne aynı yerde sessizdir.",
+      "productionPrompt": "6 saniyelik çağrı öncesi ortak oyun. Aynı kısa koyu saçlı, 30 aylık sentetik Deniz: krem tişört, lacivert pantolon ve gri çorap. Aynı anne lacivert uzun kollu üst ve bej pantolonla Deniz’in sağında, bir kol mesafesinin dışında oturur. Aynı açık duvarlı ev salonu, soldaki pencereden sabit gün ışığı ve açık gri mat. Tam iki doğal ahşap küp ve bir lacivert ahşap küp vardır. Sabit çapraz orta geniş kadraj çocuğun başını, yüzünü, ellerini, blokları ve annenin konumunu görünür tutar. Üç küp mat üzerindedir. Deniz önündeki doğal küpü sağ eliyle alır ve diğer doğal küpe hafifçe dokundurur; elindeki küpü tutarak bitirir. İkinci doğal küp önünde, lacivert küp solunda kalır. Deniz annesine dönük değildir. Bu klipte isim çağrısı veya konuşma yoktur; çağrı başlamadan bitir. Yetişkin çocuğa dokunmaz. İşaret, el sallama, müzik, yeni nesne veya başka uyaran ekleme."
+    },
+    {
+      "id": "d01_yonelme_01",
+      "sceneId": "yetiskine_yonelme",
+      "orderInScene": 1,
+      "targetDurationS": 8,
+      "plannedAction": "Anne doğal sesle yalnız bir kez “Deniz” der. Deniz aynı klipte çağrıdan sonra başını annesine çevirir ve ona dönük kalır.",
+      "initialState": "Deniz sağ elinde bir doğal ahşap küp tutar; diğer doğal küp önünde, lacivert küp solundadır. Başı bloklara dönüktür; anne aynı yerde sessizdir.",
+      "finalState": "Deniz'in başı annesine dönüktür; sağ elinde doğal küpü tutar. Diğer doğal küp önde, lacivert küp soldadır; anne sessizdir.",
+      "productionPrompt": "8 saniyelik Alternatif A başlangıcı; ortak sessiz oyunun son durumundan devam. Aynı kısa koyu saçlı, 30 aylık sentetik Deniz: krem tişört, lacivert pantolon ve gri çorap. Aynı anne lacivert uzun kollu üst ve bej pantolonla Deniz’in sağında, bir kol mesafesinin dışında oturur. Aynı açık duvarlı ev salonu, soldaki pencereden sabit gün ışığı ve açık gri mat. Tam iki doğal ahşap küp ve bir lacivert ahşap küp vardır. Sabit çapraz orta geniş kadraj çocuğun başını, yüzünü, ellerini, blokları ve annenin konumunu görünür tutar. İlk karede Deniz bloklara bakar; doğal küp sağ elinde, ikinci doğal küp önünde, lacivert küp solundadır. Anne doğal sesle yalnız bir kez “Deniz” der. Bu tek çağrı klibin ilk bölümünde duyulsun; sözcüğün klip sonunda bitmesini hedefleme, baş hareketine ve gözleme doğal süre bırak. Deniz çağrı tamamlandıktan sonra aynı klipte başını sağdaki annesine çevirir ve kalan sürede ona dönük kalır. Elindeki küp ve diğer nesneler aynı yerde kalır. Yetişkin çocuğa dokunmaz. İkinci çağrı, ek konuşma, işaret, el sallama, ek yönerge veya başka uyaran ekleme. Çağrı ve baş hareketi arasında kamera kesmesi veya zaman atlaması olmasın. Bu klip tek başına 10 saniyelik çağrı sonrası pencere sayılmaz; sonraki çağrısız gözlem klibiyle devamı planlanır."
+    },
+    {
+      "id": "d01_yonelme_02",
+      "sceneId": "yetiskine_yonelme",
+      "orderInScene": 2,
+      "targetDurationS": 8,
+      "plannedAction": "Alternatif A’nın çağrısız 8 saniyelik gözlem devamı: Deniz annesine dönük konumunu korur; yeni dönüş veya çağrı eklenmez.",
+      "initialState": "Deniz'in başı annesine dönüktür; sağ elinde doğal küpü tutar. Diğer doğal küp önde, lacivert küp soldadır; anne sessizdir.",
+      "finalState": "Deniz'in başı annesine dönüktür; sağ elinde doğal küpü tutar. Diğer doğal küp önde, lacivert küp soldadır; anne sessizdir.",
+      "productionPrompt": "8 saniyelik Alternatif A gözlem devamı. Aynı kısa koyu saçlı, 30 aylık sentetik Deniz: krem tişört, lacivert pantolon ve gri çorap. Aynı anne lacivert uzun kollu üst ve bej pantolonla Deniz’in sağında, bir kol mesafesinin dışında oturur. Aynı açık duvarlı ev salonu, soldaki pencereden sabit gün ışığı ve açık gri mat. Tam iki doğal ahşap küp ve bir lacivert ahşap küp vardır. Sabit çapraz orta geniş kadraj çocuğun başını, yüzünü, ellerini, blokları ve annenin konumunu görünür tutar. Önceki klibin son durumunu ilk karede koru: Deniz zaten annesine dönüktür; doğal küp sağ elinde, ikinci doğal küp önünde, lacivert küp solundadır. Başını tekrar çevirtme; bu konumu sakin biçimde sürdür. Yetişkin çocuğa dokunmaz. Yeni isim çağrısı yoktur. Anne sessiz kalır; ek konuşma, işaret, el sallama, yönerge, müzik veya başka uyaran eklenmez. Zaman atlaması veya kamera kesmesi planlama. Bu devam, ilk klipte çağrının bitişinden sonraki bölümle birlikte en az 10 saniyelik gözlem hedefini karşılamak içindir. Gerçek çağrı bitişi, toplam süre ve klipler arası süreklilik üretilen videodan doğrulanacaktır."
+    },
+    {
+      "id": "d01_oyuna_devam_01",
+      "sceneId": "oyuna_devam",
+      "orderInScene": 1,
+      "targetDurationS": 8,
+      "plannedAction": "Anne doğal sesle yalnız bir kez “Deniz” der. Deniz aynı klipte annesine dönmeden elindeki doğal küpü diğer doğal küpün yanına koyarak oyununu sürdürür.",
+      "initialState": "Deniz sağ elinde bir doğal ahşap küp tutar; diğer doğal küp önünde, lacivert küp solundadır. Başı bloklara dönüktür; anne aynı yerde sessizdir.",
+      "finalState": "İki doğal küp mat üzerinde yan yanadır; lacivert küp solda kalır. Deniz bloklara dönüktür, sağ eli boştur; anne aynı yerde sessizdir.",
+      "productionPrompt": "8 saniyelik Alternatif B başlangıcı; aynı ortak sessiz oyunun son durumundan devam. Aynı kısa koyu saçlı, 30 aylık sentetik Deniz: krem tişört, lacivert pantolon ve gri çorap. Aynı anne lacivert uzun kollu üst ve bej pantolonla Deniz’in sağında, bir kol mesafesinin dışında oturur. Aynı açık duvarlı ev salonu, soldaki pencereden sabit gün ışığı ve açık gri mat. Tam iki doğal ahşap küp ve bir lacivert ahşap küp vardır. Sabit çapraz orta geniş kadraj çocuğun başını, yüzünü, ellerini, blokları ve annenin konumunu görünür tutar. İlk karede Deniz bloklara bakar; doğal küp sağ elinde, ikinci doğal küp önünde, lacivert küp solundadır. Anne doğal sesle yalnız bir kez “Deniz” der. Çağrı klibin ilk bölümünde doğal biçimde duyulsun; sözcüğü klibin son sınırına yerleştirme. Deniz çağrıdan sonra aynı klipte annesine dönmeden elindeki doğal küpü önündeki doğal küpün yanına yavaşça koyar; sağ eli boş kalır. Çocuk bloklarla ilgilenmeyi sürdürür. Yetişkin çocuğa dokunmaz. İkinci çağrı, ek konuşma, işaret, el sallama, ek yönerge veya başka uyaran ekleme. Çağrı ve oyun devamı arasında kamera kesmesi veya zaman atlaması olmasın. Çağrı sonrası gözlemi sonraki çağrısız klipte sürdür; bu ilk klibi tek başına tam 10 saniyelik pencere sayma."
+    },
+    {
+      "id": "d01_oyuna_devam_02",
+      "sceneId": "oyuna_devam",
+      "orderInScene": 2,
+      "targetDurationS": 8,
+      "plannedAction": "Alternatif B’nin çağrısız 8 saniyelik gözlem devamı: Deniz lacivert küpü iki doğal küpün yanına kaydırır ve anneye dönmeden bloklarla ilgilenir.",
+      "initialState": "İki doğal küp mat üzerinde yan yanadır; lacivert küp solda kalır. Deniz bloklara dönüktür, sağ eli boştur; anne aynı yerde sessizdir.",
+      "finalState": "Üç küp mat üzerinde yan yana dizilidir. Deniz bloklara dönüktür; anne aynı konumda sessizdir.",
+      "productionPrompt": "8 saniyelik Alternatif B gözlem devamı. Aynı kısa koyu saçlı, 30 aylık sentetik Deniz: krem tişört, lacivert pantolon ve gri çorap. Aynı anne lacivert uzun kollu üst ve bej pantolonla Deniz’in sağında, bir kol mesafesinin dışında oturur. Aynı açık duvarlı ev salonu, soldaki pencereden sabit gün ışığı ve açık gri mat. Tam iki doğal ahşap küp ve bir lacivert ahşap küp vardır. Sabit çapraz orta geniş kadraj çocuğun başını, yüzünü, ellerini, blokları ve annenin konumunu görünür tutar. Önceki klibin son durumunu koru: iki doğal küp yan yana, lacivert küp soldadır; Deniz bloklara dönüktür ve sağ eli boştur. Deniz sağ eliyle lacivert küpü iki doğal küpün yanına yavaşça kaydırır; kalan sürede yan yana duran üç küple ilgilenir ve annesine dönmez. Yetişkin çocuğa dokunmaz. Yeni isim çağrısı yoktur. Anne sessiz kalır; ek konuşma, işaret, el sallama, yönerge, müzik veya başka uyaran eklenmez. Zaman atlaması veya kamera kesmesi planlama. İlk klibin çağrı sonrası bölümü ile bu devamın toplamında en az 10 saniyelik gözlem hedeflenir; gerçek çağrı bitişi, süre ve klipler arası süreklilik üretilen videodan doğrulanmalıdır."
+    },
+    {
+      "id": "d01_yonelme_bitis_01",
+      "sceneId": "yonelme_bitis",
+      "orderInScene": 1,
+      "targetDurationS": 2,
+      "plannedAction": "Alternatif A'nın açık bitişi: mevcut yönelme durumu iki saniye daha görünür kalır.",
+      "initialState": "Deniz'in başı annesine dönüktür; sağ elinde doğal küpü tutar. Diğer doğal küp önde, lacivert küp soldadır; anne sessizdir.",
+      "finalState": "Çocuk ve anne aynı kadrajda, aynı konumda kalır; alternatif başka olay veya sahneye geçmeden tamamlanır.",
+      "productionPrompt": "2 saniyelik açık bitiş; çağrı sonrası gözlem devamının son durumunu koru. Aynı kısa koyu saçlı, 30 aylık sentetik Deniz: krem tişört, lacivert pantolon ve gri çorap. Aynı anne lacivert uzun kollu üst ve bej pantolonla Deniz’in sağında, bir kol mesafesinin dışında oturur. Aynı açık duvarlı ev salonu, soldaki pencereden sabit gün ışığı ve açık gri mat. Tam iki doğal ahşap küp ve bir lacivert ahşap küp vardır. Sabit çapraz orta geniş kadraj çocuğun başını, yüzünü, ellerini, blokları ve annenin konumunu görünür tutar. Deniz'in başı annesine dönüktür; sağ elinde doğal küpü tutar. Diğer doğal küp önde, lacivert küp soldadır; anne sessizdir. Yetişkin çocuğa dokunmaz. Yeni isim çağrısı yoktur. Anne sessiz kalır; ek konuşma, işaret, el sallama, yönerge, müzik veya başka uyaran eklenmez. Çocuk ve anne aynı kadrajda görünürken başka sahneye geçmeden bölüm bitsin. Bu bitiş, gerçek gözlem süresini veya davranış sonucunu doğrulamaz."
+    },
+    {
+      "id": "d01_oyun_bitis_01",
+      "sceneId": "oyun_bitis",
+      "orderInScene": 1,
+      "targetDurationS": 2,
+      "plannedAction": "Alternatif B'nin açık bitişi: Deniz önündeki küplere ilgisini sürdürür; anneye dönmez.",
+      "initialState": "Üç küp mat üzerinde yan yana dizilidir. Deniz bloklara dönüktür; anne aynı konumda sessizdir.",
+      "finalState": "Deniz yan yana duran küplere bakmayı sürdürürken alternatif aynı kadrajda biter; yeni sahne veya uyaran yoktur.",
+      "productionPrompt": "2 saniyelik açık bitiş; çağrı sonrası gözlem devamının son durumunu koru. Aynı kısa koyu saçlı, 30 aylık sentetik Deniz: krem tişört, lacivert pantolon ve gri çorap. Aynı anne lacivert uzun kollu üst ve bej pantolonla Deniz’in sağında, bir kol mesafesinin dışında oturur. Aynı açık duvarlı ev salonu, soldaki pencereden sabit gün ışığı ve açık gri mat. Tam iki doğal ahşap küp ve bir lacivert ahşap küp vardır. Sabit çapraz orta geniş kadraj çocuğun başını, yüzünü, ellerini, blokları ve annenin konumunu görünür tutar. Üç küp mat üzerinde yan yana dizilidir. Deniz bloklara dönüktür; anne aynı konumda sessizdir. Yetişkin çocuğa dokunmaz. Yeni isim çağrısı yoktur. Anne sessiz kalır; ek konuşma, işaret, el sallama, yönerge, müzik veya başka uyaran eklenmez. Çocuk ve anne aynı kadrajda görünürken başka sahneye geçmeden bölüm bitsin. Bu bitiş, gerçek gözlem süresini veya davranış sonucunu doğrulamaz."
+    }
+  ]
+}

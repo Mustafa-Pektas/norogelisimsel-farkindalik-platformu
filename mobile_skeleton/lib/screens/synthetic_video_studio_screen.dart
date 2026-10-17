@@ -1,14 +1,19 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/scenarios_data.dart';
 import '../models/local_model_option.dart';
 import '../services/synthetic_video_service.dart';
 import '../services/llama_model_service.dart';
 import '../services/local_llama_test_service.dart';
 import '../services/llamadart_test_runtime.dart';
+import '../services/d01_evaluation_service.dart';
 import '../widgets/local_llama_test_card.dart';
 import 'scenario_graph_screen.dart';
+import 'clip_production_plan_screen.dart';
 
 class SyntheticVideoStudioScreen extends StatefulWidget {
   final String? initialOntologyCode;
@@ -139,16 +144,41 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
         LlamaModelService.getModelFile(model: LocalModelOption.qwen3),
     createRuntime: LlamadartTestRuntime.new,
   );
-  bool _isQwenDownloaded = false;
-  bool _isQwenDownloading = false;
-  LlamaDownloadStatus _qwenDownloadStatus = LlamaDownloadStatus(
+  final _qwenStartTest = LocalLlamaTestService(
+    request: LocalLlamaTestRequest.qwenCommonStart,
+    resolveModel: () =>
+        LlamaModelService.getModelFile(model: LocalModelOption.qwen3),
+    createRuntime: LlamadartTestRuntime.new,
+  );
+  LocalModelOption _comparisonModel = LocalModelOption.qwen3;
+  late final _d01Evaluation = D01EvaluationService(
+    loadProtocol: () =>
+        rootBundle.loadString('assets/evaluations/d01_qwen_v1.json'),
+    resolveRecordsRoot: () async {
+      final documents = await getApplicationDocumentsDirectory();
+      return Directory('${documents.path}/evaluations/d01_qwen');
+    },
+    resolveModel: (model) => LlamaModelService.getModelFile(model: model),
+    createRuntime: LlamadartTestRuntime.new,
+    executionSource: 'llamadart_native',
+  );
+  StreamSubscription<D01EvaluationState>? _evaluationSub;
+  String? get _evaluationDisabledReason => _d01Evaluation.state.isBusy
+      ? 'Altı denemelik değerlendirme sürerken tekli testler kapalıdır.'
+      : null;
+  bool _isComparisonDownloaded = false;
+  bool _isComparisonDownloading = false;
+  LlamaDownloadStatus _comparisonDownloadStatus = LlamaDownloadStatus(
     totalBytes: LocalModelOption.qwen3.estimatedBytes,
   );
-  StreamSubscription<LlamaDownloadStatus>? _qwenDownloadSub;
+  StreamSubscription<LlamaDownloadStatus>? _comparisonDownloadSub;
 
   @override
   void initState() {
     super.initState();
+    _evaluationSub = _d01Evaluation.states.listen((_) {
+      if (mounted) setState(() {});
+    });
     if (widget.initialOntologyCode != null) {
       _selectedOntologies = {widget.initialOntologyCode!};
     }
@@ -156,7 +186,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       _selectedAge = widget.initialAgeMonths!;
     }
     _checkLlamaStatus();
-    _checkQwenStatus();
+    _checkComparisonStatus();
     _generateScenario();
   }
 
@@ -184,10 +214,13 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     unawaited(_d01Test.dispose());
     unawaited(_d01EnglishTest.dispose());
     unawaited(_qwenTest.dispose());
-    if (_isQwenDownloading) {
-      LlamaModelService.cancelDownload(model: LocalModelOption.qwen3);
+    unawaited(_qwenStartTest.dispose());
+    _evaluationSub?.cancel();
+    unawaited(_d01Evaluation.dispose());
+    if (_isComparisonDownloading) {
+      LlamaModelService.cancelDownload(model: _comparisonModel);
     }
-    _qwenDownloadSub?.cancel();
+    _comparisonDownloadSub?.cancel();
     super.dispose();
   }
 
@@ -198,39 +231,42 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     }
   }
 
-  Future<void> _checkQwenStatus() async {
+  Future<void> _checkComparisonStatus() async {
+    final model = _comparisonModel;
     final downloaded = await LlamaModelService.isModelDownloaded(
-      model: LocalModelOption.qwen3,
+      model: model,
     );
-    if (mounted) setState(() => _isQwenDownloaded = downloaded);
+    if (mounted && model == _comparisonModel) {
+      setState(() => _isComparisonDownloaded = downloaded);
+    }
   }
 
-  void _startQwenDownload() {
-    if (_isLlamaDownloading || _isQwenDownloading || !_qwenTest.canRun) return;
+  void _startComparisonDownload() {
+    if (_isLlamaDownloading || _isComparisonDownloading || !_qwenTest.canRun || _d01Evaluation.state.isBusy) return;
     setState(() {
-      _isQwenDownloading = true;
-      _qwenDownloadStatus = LlamaDownloadStatus(
+      _isComparisonDownloading = true;
+      _comparisonDownloadStatus = LlamaDownloadStatus(
         isDownloading: true,
-        totalBytes: LocalModelOption.qwen3.estimatedBytes,
+        totalBytes: _comparisonModel.estimatedBytes,
       );
     });
-    _qwenDownloadSub =
-        LlamaModelService.downloadModel(model: LocalModelOption.qwen3).listen(
+    _comparisonDownloadSub =
+        LlamaModelService.downloadModel(model: _comparisonModel).listen(
           (status) {
             if (!mounted) return;
             setState(() {
-              _qwenDownloadStatus = status;
-              _isQwenDownloading = status.isDownloading;
+              _comparisonDownloadStatus = status;
+              _isComparisonDownloading = status.isDownloading;
               if (!status.isDownloading && status.progress >= 1 && status.error == null) {
-                _isQwenDownloaded = true;
+                _isComparisonDownloaded = true;
               }
             });
           },
           onError: (Object error) {
             if (!mounted) return;
             setState(() {
-              _isQwenDownloading = false;
-              _qwenDownloadStatus = LlamaDownloadStatus(
+              _isComparisonDownloading = false;
+              _comparisonDownloadStatus = LlamaDownloadStatus(
                 error: error.toString(),
               );
             });
@@ -238,7 +274,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
         );
   }
 
-  Widget _buildQwenDownloadCard() => Card(
+  Widget _buildComparisonDownloadCard() => Card(
     color: Colors.white,
     margin: EdgeInsets.zero,
     child: Padding(
@@ -246,52 +282,160 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Qwen3-1.7B Q4_K_M',
+          DropdownButtonFormField<LocalModelOption>(
+            key: const ValueKey('comparison-model-selector'),
+            initialValue: _comparisonModel,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Karşılaştırma modeli'),
+            items: [
+              for (final model in [LocalModelOption.qwen3, LocalModelOption.miniCpmTurkish])
+                DropdownMenuItem(value: model, child: Text(model.name)),
+            ],
+            onChanged: _isLlamaDownloading || _isComparisonDownloading ||
+                !_qwenStartTest.canRun || _d01Evaluation.state.isBusy
+                ? null
+                : (model) {
+                    if (model == null) return;
+                    setState(() {
+                      _comparisonModel = model;
+                      _isComparisonDownloaded = false;
+                      _comparisonDownloadStatus = LlamaDownloadStatus(totalBytes: model.estimatedBytes);
+                    });
+                    _checkComparisonStatus();
+                  },
+          ),
+          Text(
+            _comparisonModel.name,
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Color(0xFF142540),
             ),
           ),
           const Text(
-            'Ayrı model dosyası · yaklaşık 1,11 GB. Llama dosyası korunur.',
+            'Ayrı model dosyası; mevcut modeller korunur. Seçim indirmeyi başlatmaz.',
           ),
+          Text('Dosya boyutu: ${(_comparisonModel.estimatedBytes / (1024 * 1024)).toStringAsFixed(1)} MiB'),
           Text(
-            _isQwenDownloaded
+            _isComparisonDownloaded
                 ? 'Model dosyası indirildi; üretim sonucu ayrı testte doğrulanır.'
-                : 'Qwen modeli indirilmedi.',
+                : 'Seçilen model indirilmedi.',
           ),
-          if (_qwenDownloadStatus.error != null)
-            SelectableText(_qwenDownloadStatus.error!),
-          if (_isQwenDownloading) ...[
+          if (_comparisonDownloadStatus.error != null)
+            SelectableText(_comparisonDownloadStatus.error!),
+          if (_isComparisonDownloading) ...[
             Text(
-              '${_qwenDownloadStatus.statusMessage} (${_qwenDownloadStatus.downloadedMb} / ${_qwenDownloadStatus.totalMb} MB)',
+              '${_comparisonDownloadStatus.statusMessage} (${_comparisonDownloadStatus.downloadedMb} / ${_comparisonDownloadStatus.totalMb} MB)',
             ),
             LinearProgressIndicator(
-              value: _qwenDownloadStatus.progress.clamp(0, 1),
+              value: _comparisonDownloadStatus.progress.clamp(0, 1),
             ),
             TextButton(
               onPressed: () => LlamaModelService.cancelDownload(
-                model: LocalModelOption.qwen3,
+                model: _comparisonModel,
               ),
-              child: const Text('Qwen indirmesini iptal et'),
+              child: const Text('İndirmeyi iptal et'),
             ),
-          ] else if (!_isQwenDownloaded)
+          ] else if (!_isComparisonDownloaded)
             FilledButton.icon(
-              key: const ValueKey('download-qwen3'),
-              onPressed: _isLlamaDownloading || !_qwenTest.canRun
+              key: ValueKey(_comparisonModel == LocalModelOption.qwen3
+                  ? 'download-qwen3' : 'download-minicpm-turkish'),
+              onPressed: _isLlamaDownloading || !_qwenTest.canRun || _d01Evaluation.state.isBusy
                   ? null
-                  : _startQwenDownload,
+                  : _startComparisonDownload,
               icon: const Icon(Icons.download),
-              label: const Text('Qwen modelini indir (~1,11 GB)'),
+              label: const Text('Seçilen modeli indir'),
             ),
-          if (!_isQwenDownloading &&
-              _qwenDownloadStatus.statusMessage == 'İndirme iptal edildi')
-            const Text('Qwen indirmesi iptal edildi.'),
+          if (!_isComparisonDownloading &&
+              _comparisonDownloadStatus.statusMessage == 'İndirme iptal edildi')
+            const Text('Model indirmesi iptal edildi.'),
         ],
       ),
     ),
   );
+
+  Widget _buildD01EvaluationControls() {
+    final state = _d01Evaluation.state;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        const Text(
+          'Üç görev × iki tekrar · sabit istemler · insan değerlendirmesi bekler.',
+        ),
+        Text('Değerlendirme modeli: ${_comparisonModel.name}'),
+        FilledButton.icon(
+          key: const ValueKey('start-d01-evaluation'),
+          onPressed:
+              state.isBusy ||
+                  _isLlamaDownloading ||
+                  _isComparisonDownloading ||
+                  !_qwenStartTest.canRun
+              ? null
+              : () async {
+                  try {
+                    await _d01Evaluation.run(model: _comparisonModel);
+                  } catch (error) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Değerlendirme zaten çalışıyor veya kapatıldı.',
+                          ),
+                        ),
+                      );
+                    }
+                  }
+                },
+          icon: const Icon(Icons.playlist_play),
+          label: const Text('D01 değerlendirmesini başlat (6 deneme)'),
+        ),
+        Text(state.message, key: const ValueKey('d01-evaluation-status')),
+        if (state.runId != null) Text('Kayıt: ${state.runId}'),
+        if (state.error != null) SelectableText(state.error!),
+        if (state.isBusy)
+          TextButton(
+            onPressed: _d01Evaluation.cancel,
+            child: const Text('Değerlendirmeyi durdur'),
+          ),
+        if (_d01Evaluation.canExport) ...[
+          TextButton.icon(
+            key: const ValueKey('copy-d01-evaluation'),
+            onPressed: () => _copyToClipboard(
+              _d01Evaluation.exportJson(),
+              'Değerlendirme JSON kayıtları panoya kopyalandı.',
+            ),
+            icon: const Icon(Icons.copy),
+            label: const Text('Değerlendirme kayıtlarını kopyala'),
+          ),
+          ExpansionTile(
+            title: const Text('Ham deneme kayıtları'),
+            children: [
+              for (final record in _d01Evaluation.records)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${record['attempt_id']} · ${record['execution_status']}',
+                      ),
+                      SelectableText(
+                        record['raw_response'] as String? ??
+                            'Henüz çıkarım yapılmadı.',
+                      ),
+                      if (record['elapsed_s'] != null)
+                        Text(
+                          'Toplam: ${record['elapsed_s']} sn · Bitiş: ${record['finish_reason']}',
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
 
   String _getAgeGroupLabel(int months) {
     if (months < 18) return '12–18 Ay';
@@ -544,6 +688,28 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
             ),
             const SizedBox(height: 14),
 
+            // Derleme görünürlüğüdür; gerçek kullanıcı yetkilendirmesi değildir.
+            if (kDebugMode) ...[
+              Card(
+                margin: EdgeInsets.zero,
+                child: ListTile(
+                  key: const ValueKey('open-clip-production-plan'),
+                  leading: const Icon(Icons.developer_mode),
+                  title: const Text('Geliştirici: Klip Üretim Planı'),
+                  subtitle: const Text(
+                    'Yalnız debug görünürlüğü; kullanıcı yetkilendirmesi değildir.',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ClipProductionPlanScreen(),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+
             // 1. MODEL DURUMU VE İNDİRME KARTI (HER ZAMAN GÖRÜNÜR)
             StreamBuilder<LocalLlamaTestState>(
               stream: _modelTest.states,
@@ -558,45 +724,74 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       StreamBuilder<LocalLlamaTestState>(
                         stream: _qwenTest.states,
                         initialData: _qwenTest.state,
-                        builder: (context, qwen) => Column(
-                          children: [
-                            AbsorbPointer(
-                              absorbing:
-                                  hello.data!.isBusy ||
-                                  d01.data!.isBusy ||
-                                  english.data!.isBusy ||
-                                  qwen.data!.isBusy ||
-                                  _isQwenDownloading,
-                              child: _buildLlamaManagementCard(),
+                        builder: (context, qwen) =>
+                            StreamBuilder<LocalLlamaTestState>(
+                              stream: _qwenStartTest.states,
+                              initialData: _qwenStartTest.state,
+                              builder: (context, start) => Column(
+                                children: [
+                                  AbsorbPointer(
+                                    absorbing:
+                                        hello.data!.isBusy ||
+                                        d01.data!.isBusy ||
+                                        english.data!.isBusy ||
+                                        qwen.data!.isBusy ||
+                                        start.data!.isBusy ||
+                                        _d01Evaluation.state.isBusy ||
+                                        _isComparisonDownloading,
+                                    child: _buildLlamaManagementCard(),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  LocalLlamaTestCard(
+                                    service: _modelTest,
+                                    enabled:
+                                        !_isLlamaDownloading &&
+                                        !_isComparisonDownloading &&
+                                        !_d01Evaluation.state.isBusy,
+                                    disabledReason: _evaluationDisabledReason,
+                                  ),
+                                  const SizedBox(height: 14),
+                                  LocalLlamaTestCard(
+                                    service: _d01Test,
+                                    enabled:
+                                        !_isLlamaDownloading &&
+                                        !_isComparisonDownloading &&
+                                        !_d01Evaluation.state.isBusy,
+                                    disabledReason: _evaluationDisabledReason,
+                                  ),
+                                  const SizedBox(height: 14),
+                                  LocalLlamaTestCard(
+                                    service: _d01EnglishTest,
+                                    enabled:
+                                        !_isLlamaDownloading &&
+                                        !_isComparisonDownloading &&
+                                        !_d01Evaluation.state.isBusy,
+                                    disabledReason: _evaluationDisabledReason,
+                                  ),
+                                  const SizedBox(height: 14),
+                                  _buildComparisonDownloadCard(),
+                                  const SizedBox(height: 14),
+                                  LocalLlamaTestCard(
+                                    service: _qwenTest,
+                                    enabled:
+                                        !_isLlamaDownloading &&
+                                        !_isComparisonDownloading &&
+                                        !_d01Evaluation.state.isBusy,
+                                    disabledReason: _evaluationDisabledReason,
+                                  ),
+                                  const SizedBox(height: 14),
+                                  LocalLlamaTestCard(
+                                    service: _qwenStartTest,
+                                    footer: _buildD01EvaluationControls(),
+                                    enabled:
+                                        !_isLlamaDownloading &&
+                                        !_isComparisonDownloading &&
+                                        !_d01Evaluation.state.isBusy,
+                                    disabledReason: _evaluationDisabledReason,
+                                  ),
+                                ],
+                              ),
                             ),
-                            const SizedBox(height: 14),
-                            LocalLlamaTestCard(
-                              service: _modelTest,
-                              enabled:
-                                  !_isLlamaDownloading && !_isQwenDownloading,
-                            ),
-                            const SizedBox(height: 14),
-                            LocalLlamaTestCard(
-                              service: _d01Test,
-                              enabled:
-                                  !_isLlamaDownloading && !_isQwenDownloading,
-                            ),
-                            const SizedBox(height: 14),
-                            LocalLlamaTestCard(
-                              service: _d01EnglishTest,
-                              enabled:
-                                  !_isLlamaDownloading && !_isQwenDownloading,
-                            ),
-                            const SizedBox(height: 14),
-                            _buildQwenDownloadCard(),
-                            const SizedBox(height: 14),
-                            LocalLlamaTestCard(
-                              service: _qwenTest,
-                              enabled:
-                                  !_isLlamaDownloading && !_isQwenDownloading,
-                            ),
-                          ],
-                        ),
                       ),
                 ),
               ),

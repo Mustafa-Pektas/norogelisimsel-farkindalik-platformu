@@ -13,6 +13,13 @@ enum LocalModelOption {
     fileName: 'Qwen3-1.7B-Q4_K_M.gguf',
     estimatedBytes: 1107409472,
     downloadUrl: 'https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf',
+  ),
+  miniCpmTurkish(
+    id: 'thealper2/MiniCPM5-1B-Turkish',
+    name: 'MiniCPM5-1B-Turkish Q4_K_M',
+    fileName: 'MiniCPM5-1B-Turkish-Q4_K_M.gguf',
+    estimatedBytes: 688065856,
+    downloadUrl: 'https://huggingface.co/thealper2/MiniCPM5-1B-Turkish/resolve/main/MiniCPM5-1B-Turkish-Q4_K_M.gguf',
   );
 
   const LocalModelOption({

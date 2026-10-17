@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/local_model_option.dart';
 import 'synthetic_video_service.dart';
 
@@ -24,7 +26,8 @@ class LlamaDownloadStatus {
     this.error,
   });
 
-  String get downloadedMb => (downloadedBytes / (1024 * 1024)).toStringAsFixed(1);
+  String get downloadedMb =>
+      (downloadedBytes / (1024 * 1024)).toStringAsFixed(1);
   String get totalMb => (totalBytes / (1024 * 1024)).toStringAsFixed(1);
   int get percentage => (progress * 100).clamp(0, 100).toInt();
 }
@@ -62,7 +65,7 @@ class LlamaModelService {
       if (await file.exists()) {
         final length = await file.length();
         // Dosya en az 500 MB ise tam inmiş kabul et
-        return model == LocalModelOption.qwen3
+        return model != LocalModelOption.llama
             ? length == model.estimatedBytes
             : length > 500 * 1024 * 1024;
       }
@@ -118,7 +121,7 @@ class LlamaModelService {
       final file = await (resolveFile?.call() ?? getModelFile(model: model));
       if (await file.exists()) {
         final size = await file.length();
-        final complete = model == LocalModelOption.qwen3
+        final complete = model != LocalModelOption.llama
             ? size == model.estimatedBytes
             : size > 500 * 1024 * 1024;
         if (!complete) {
@@ -184,11 +187,11 @@ class LlamaModelService {
       sink = null;
       if (_isCancelled) throw StateError('İndirme iptal edildi');
       if (downloaded != total ||
-          (model == LocalModelOption.qwen3 &&
+          (model != LocalModelOption.llama &&
               downloaded != model.estimatedBytes)) {
         throw StateError(
           'Eksik indirme: $downloaded bayt; beklenen '
-          '${model == LocalModelOption.qwen3 ? model.estimatedBytes : total} bayt '
+          '${model != LocalModelOption.llama ? model.estimatedBytes : total} bayt '
           '(HTTP bildirimi: $total).',
         );
       }
@@ -212,7 +215,9 @@ class LlamaModelService {
       await prefs.setBool(
         model == LocalModelOption.llama
             ? 'llama_model_downloaded'
-            : 'qwen3_model_downloaded',
+            : model == LocalModelOption.qwen3
+            ? 'qwen3_model_downloaded'
+            : 'minicpm_turkish_model_downloaded',
         true,
       );
 
@@ -340,7 +345,10 @@ Generate the everyday observation scenario and guidelines in Turkish.
     );
 
     return SyntheticVideoSession(
-      title: session.title.replaceFirst('Klinik Gözlem Senaryosu', 'Llama-3.2 Klinik Gözlem Senaryosu'),
+      title: session.title.replaceFirst(
+        'Klinik Gözlem Senaryosu',
+        'Llama-3.2 Klinik Gözlem Senaryosu',
+      ),
       targetAgeMonths: ageMonths,
       totalDurationSec: session.totalDurationSec,
       blockDurationSec: session.blockDurationSec,

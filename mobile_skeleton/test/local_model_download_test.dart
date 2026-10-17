@@ -9,6 +9,48 @@ import 'package:neuro_awareness_app/models/local_model_option.dart';
 import 'package:neuro_awareness_app/services/llama_model_service.dart';
 
 void main() {
+  test('MiniCPM indiricisi ayrı dosyayı korur; seçim indirme değildir ve eksik aktarım reddedilir', () async {
+    final dir = await Directory('.dart_tool')
+        .createTemp('minicpm_download_test_');
+    addTearDown(() async {
+      expect(dir.absolute.parent.path, Directory('.dart_tool').absolute.path);
+      await dir.delete(recursive: true);
+    });
+    final target = File(
+      '${dir.path}/${LocalModelOption.miniCpmTurkish.fileName}',
+    );
+    expect(target.path, isNot(endsWith(LocalModelOption.qwen3.fileName)));
+    expect(target.path, isNot(endsWith(LocalModelOption.llama.fileName)));
+    var calls = 0;
+    MockClient client() => MockClient((request) async {
+      calls++;
+      expect(
+        request.url.toString(),
+        LocalModelOption.miniCpmTurkish.downloadUrl,
+      );
+      return http.Response.bytes([71, 71, 85, 70], 200);
+    });
+    final stream = LlamaModelService.downloadModel(
+      model: LocalModelOption.miniCpmTurkish,
+      client: client(),
+      resolveFile: () async => target,
+    );
+    expect(calls, 0);
+    final states = await stream.toList();
+    expect(states.last.error, contains('Eksik indirme'));
+    expect(await target.exists(), isFalse);
+    expect(await File('${target.path}.part').exists(), isFalse);
+    await target.writeAsString('TEST: existing model sentinel');
+    final previousCalls = calls;
+    final kept = await LlamaModelService.downloadModel(
+      model: LocalModelOption.miniCpmTurkish,
+      client: client(),
+      resolveFile: () async => target,
+    ).toList();
+    expect(kept.last.error, contains('üzerine yazılmadı'));
+    expect(calls, previousCalls);
+    expect(await target.readAsString(), 'TEST: existing model sentinel');
+  });
   Future<Directory> scratch() async {
     final dir = await Directory('.dart_tool')
         .createTemp('model_download_check_');

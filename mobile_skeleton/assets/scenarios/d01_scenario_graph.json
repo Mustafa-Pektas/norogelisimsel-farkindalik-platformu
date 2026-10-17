@@ -10,37 +10,31 @@
   "scenes": [
     {
       "id": "oyuncakla_oyun",
-      "description": "Planlanan başlangıç: 30 aylık sentetik çocuk oyuncak bloklarla oynar. Çocuk yetişkine dönük değildir. Yetişkinin konumu anlaşılır; çocuğun başı ve yüzü görünür. Çağrı öncesi görüntü korunur.",
+      "description": "Planlanan ortak başlangıç: 30 aylık sentetik Deniz oyuncak bloklarla oynar ve annesine dönük değildir. Anne sağda, aynı konumda sessizce oturur; bu ortak sahnede konuşma ve isim çağrısı yoktur. Çocuğun başı ve yüzü görünür kalır. Oyun sahnesi herhangi bir çağrı başlamadan biter; ardından aynı başlangıç durumundan iki ayrı üretim alternatifi hazırlanır. Yetişkin çocuğa dokunmaz.",
       "title": "Oyuncakla oyun",
-      "summary": "Çocuk bloklarla oynar; yetişkine dönük değildir."
-    },
-    {
-      "id": "isim_cagrisi",
-      "description": "Yetişkin aynı konumdan çocuğun adını bir kez doğal sesle söyler: Deniz. Çocuğa dokunmaz, el sallamaz veya aynı anda başka bir yönerge vermez. Çağrı duyulabilir olacak, çağrı öncesi ve sonrası görüntü kesintisiz korunacaktır.",
-      "title": "İsim çağrısı",
-      "summary": "Yetişkin “Deniz” diye bir kez seslenir."
+      "summary": "Sessiz ortak oyun; çağrı başlamadan biter."
     },
     {
       "id": "yetiskine_yonelme",
-      "description": "Planlanan alternatif devam: çocuk çağrıdan sonra başını belirgin biçimde adı söyleyen yetişkine çevirir. Başın hareketi ve yönelme hedefi açıkça görünür kalır. Bu bir senaryo eylemidir; videoda gerçekleştiği henüz doğrulanmamıştır.",
-      "title": "Yetişkine yönelme",
-      "summary": "Çocuk başını çağıran yetişkine çevirir."
+      "description": "Planlanan Alternatif A: ortak çağrı öncesi oyun durumundan devam edilir. Anne doğal sesle yalnız bir kez “Deniz” der; çocuk bu çağrıdan sonra başını annesine çevirir. Çağrı ve yönelme aynı üretim klibinde görünür; sözcüğün klip sonunda bitmesi istenmez. Yetişkin çocuğa dokunmaz, işaret etmez ve ek yönerge vermez. Ardından yeni çağrı olmadan gözlem sürer; çağrı bitişinden itibaren en az 10 saniyelik pencerenin gerçekten oluştuğu üretilen videodan doğrulanır. Bu bir planlanan eylemdir, gözlenmiş davranış değildir.",
+      "title": "Çağrı ve yönelme",
+      "summary": "Anne bir kez çağırır; Deniz ona başını çevirir."
     },
     {
       "id": "oyuna_devam",
-      "description": "Diğer planlanan alternatif devam: çocuk oyuncakla oynamayı sürdürür; yetişkine belirgin baş yönelmesi planlanmaz. Yetişkin yeni bir çağrı, dokunma veya jest eklemez. Bu taslak, herhangi bir videoya gözlenmedi sonucu atamaz.",
-      "title": "Oyuna devam",
-      "summary": "Çocuk oyuncağıyla oynamayı sürdürür."
+      "description": "Planlanan Alternatif B: aynı ortak çağrı öncesi oyun durumundan devam edilir. Anne doğal sesle yalnız bir kez “Deniz” der; Deniz annesine dönmeden bloklarla oynamayı sürdürür. Çağrı ve oyunu sürdürme aynı üretim klibindedir; çağrı klip sınırına yerleştirilmez. Yetişkin çocuğa dokunmaz, işaret etmez ve ek yönerge vermez. Devam klibinde çağrı tekrarlanmaz. Gerçek çağrı bitişinden itibaren en az 10 saniyelik görünür, kesintisiz pencere ayrıca insan tarafından doğrulanır; bu taslak herhangi bir videoya gözlenmedi sonucu atamaz.",
+      "title": "Çağrı ve oyun",
+      "summary": "Anne bir kez çağırır; Deniz oyununu sürdürür."
     },
     {
       "id": "yonelme_bitis",
-      "description": "Bu alternatifin açık bitişi: çocuk ve yetişkin aynı sahnede görünür kalırken planlanan yönelme bölümü tamamlanır. Başka sahneye geçilmez. Gerçek video hazırlanırsa gözlem penceresinin yeterliliği ve olaylar ayrıca insan incelemesiyle doğrulanır.",
+      "description": "Alternatif A’nın açık bitişi: çağrı ve yönelme klibi ile çağrısız gözlem devamından sonra çocuk annesine dönük kalırken bölüm tamamlanır. Yeni çağrı, konuşma veya başka uyaran eklenmez. Yetişkin çocuğa dokunmaz. Başka sahneye geçilmez. Gerçek gözlem penceresinin süresi ve görüntü/ses sürekliliği üretimden sonra ayrıca doğrulanır.",
       "title": "Yönelme bitişi",
       "summary": "Yönelme alternatifi burada tamamlanır."
     },
     {
       "id": "oyun_bitis",
-      "description": "Bu alternatifin açık bitişi: çocuk oyuncağıyla oynamayı sürdürürken bölüm tamamlanır. Başka sahneye geçilmez. Videoda geçerli fırsat ve yeterli kayıt ayrıca doğrulanmadan davranış sonucu atanmaz.",
+      "description": "Alternatif B’nin açık bitişi: çağrı ve oyun klibi ile çağrısız gözlem devamından sonra çocuk bloklarla ilgilenmeyi sürdürürken bölüm tamamlanır. Yeni çağrı, konuşma veya başka uyaran eklenmez. Yetişkin çocuğa dokunmaz. Geçerli fırsat, kayıt süresi ve süreklilik doğrulanmadan davranış sonucu atanmaz.",
       "title": "Oyun bitişi",
       "summary": "Oyuna devam alternatifi burada tamamlanır."
     }
@@ -48,20 +42,14 @@
   "transitions": [
     {
       "fromSceneId": "oyuncakla_oyun",
-      "toSceneId": "isim_cagrisi",
-      "description": "Oyuncakla oyun sürerken yetişkinin tek isim çağrısına devam edilir.",
-      "label": "İsim çağrısı"
-    },
-    {
-      "fromSceneId": "isim_cagrisi",
       "toSceneId": "yetiskine_yonelme",
-      "description": "Alternatif A: isim çağrısından sonra yetişkine baş yönelmesiyle devam edilir.",
+      "description": "Alternatif A: aynı çağrı öncesi oyun durumundan anne doğal sesle bir kez Deniz der; çocuk aynı klipte başını annesine çevirir. Bu yolda tek çağrı vardır; ardından çağrısız gözlem sürer.",
       "label": "A · Yönelme"
     },
     {
-      "fromSceneId": "isim_cagrisi",
+      "fromSceneId": "oyuncakla_oyun",
       "toSceneId": "oyuna_devam",
-      "description": "Alternatif B: isim çağrısından sonra oyuncakla oyuna devam edilir.",
+      "description": "Alternatif B: aynı çağrı öncesi oyun durumundan anne doğal sesle bir kez Deniz der; çocuk aynı klipte annesine dönmeden oyununu sürdürür. Bu yolda tek çağrı vardır; ardından çağrısız gözlem sürer.",
       "label": "B · Oyuna devam"
     },
     {
@@ -81,5 +69,5 @@
     "yonelme_bitis",
     "oyun_bitis"
   ],
-  "authoringNote": "Elle hazırlanmış senaryo taslağıdır. Proje üst klasöründeki belgeler/Davranis_Kartlari_v02.md içinde D01, sürüm 0.2 esas alınmıştır. Sahne ve geçişler planlanan olaylardır; gözlenmiş davranış, video ground_truth veya klinik değerlendirme değildir. Sahne sınırları video kesmesi gerektirmez; çağrı öncesi ile alternatif devam arasındaki görüntü kesintisiz planlanır. Dalların kim tarafından veya nasıl seçileceği belirlenmemiştir. Süre ve video doğrulaması ayrı çalışma konusudur."
+  "authoringNote": "Elle hazırlanmış senaryo taslağıdır; Davranis_Kartlari_v02.md, D01 / 0.2 esas alınır. Ortak sahne çağrı öncesi oyunla biter. Ayrı ortak çağrı düğümü kaldırılmıştır; her alternatifin ilk üretim klibinde kendi tek çağrısı ve ilgili devamı bulunur. Her izlenen yolda toplam tek isim çağrısı planlanır; alternatifler aynı kayıtta art arda uygulanmaz. Devam ve bitiş kliplerinde çağrı tekrarlanmaz. Yetişkin çocuğa dokunmaz. Çağrının bir klibin tam sonunda bitmesi şartı yoktur. Çağrı öncesi görünürlük ile çağrı sonrası 10 saniyelik gözlem ve ses/görüntü sürekliliği gerçek videodan insan incelemesiyle doğrulanmalıdır. Ayrı üretim parçaları kesintisiz video kanıtı sayılmaz. Planlanan sahneler LLM çıktısı, gözlenmiş davranış, ground_truth veya klinik değerlendirme değildir. Dalların kim tarafından veya nasıl seçileceği belirlenmemiştir."
 }

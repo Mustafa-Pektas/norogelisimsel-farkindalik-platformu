@@ -71,7 +71,9 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/evaluations/d01_qwen_v1.json
     - assets/scenarios/d01_scenario_graph.json
+    - assets/scenarios/d01_clip_plan.json
     - assets/videos/
     - assets/videos/ont_01_isme_tepki/
     - assets/videos/ont_02_ortak_dikkat/
