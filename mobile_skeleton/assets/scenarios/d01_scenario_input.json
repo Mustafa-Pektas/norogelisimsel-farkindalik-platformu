@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0",
+  "scenarioId": "d01-elle-hazirlanmis-donusum-001",
+  "title": "Deniz'in isim çağrısı — elle hazırlanmış senaryo taslağı",
+  "language": "tr",
+  "ageMonths": 30,
+  "behaviorId": "D01",
+  "cardVersion": "0.2",
+  "source": "manual_example",
+  "commonStart": "30 aylık Deniz evde yerde oturur ve oyuncak arabasını halının üzerinde sürer. Annesi yakınında oturmaktadır; Deniz çağrı öncesinde annesine dönük değildir. Annesi doğal sesle yalnız bir kez ‘Deniz’ der. Yetişkin çocuğa dokunmaz, el sallamaz, işaret etmez ve ek yönerge vermez.",
+  "alternatives": [
+    {
+      "title": "Anneye yönelme",
+      "continuation": "Deniz çağrının ardından başını annesine çevirir. Anne yeni bir çağrı veya ek uyaran sunmaz.",
+      "ending": "Deniz'in başı annesine dönükken sahne sona erer. Anne ve çocuk aynı ev ortamında görünür kalır."
+    },
+    {
+      "title": "Oyuna devam",
+      "continuation": "Deniz annesine dönmeden oyuncak arabasını sürmeye devam eder. Anne yeni bir çağrı veya ek uyaran sunmaz.",
+      "ending": "Deniz aynı oyuncak arabayla oyununu sürdürürken sahne sona erer. Anne ve çocuk aynı ev ortamında görünür kalır."
+    }
+  ]
+}

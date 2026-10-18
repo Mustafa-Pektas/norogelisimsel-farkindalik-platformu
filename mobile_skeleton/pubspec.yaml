@@ -73,6 +73,7 @@ flutter:
   assets:
     - assets/evaluations/d01_qwen_v1.json
     - assets/scenarios/d01_scenario_graph.json
+    - assets/scenarios/d01_scenario_input.json
     - assets/scenarios/d01_clip_plan.json
     - assets/videos/
     - assets/videos/ont_01_isme_tepki/

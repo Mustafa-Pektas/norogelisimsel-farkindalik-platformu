@@ -5,10 +5,21 @@ import 'package:flutter/material.dart';
 import '../models/scenario_graph.dart';
 
 class ScenarioGraphScreen extends StatefulWidget {
-  const ScenarioGraphScreen({super.key, this.assetPath = d01AssetPath});
+  const ScenarioGraphScreen({
+    super.key,
+    this.assetPath = d01AssetPath,
+    this.graph,
+    this.sourceLabel,
+  });
 
   static const d01AssetPath = 'assets/scenarios/d01_scenario_graph.json';
+  static const importedSourceLabel = 'Kullanıcının içe aktardığı taslak';
   final String assetPath;
+  /// Verilirse asset okunmaz; kaynak etiketi yoksa kullanıcı taslağı gösterilir.
+  final ScenarioGraph? graph;
+
+  /// Yalnız dışarıdan verilen grafın kaynak açıklaması; köken doğrulaması değildir.
+  final String? sourceLabel;
 
   @override
   State<ScenarioGraphScreen> createState() => _ScenarioGraphScreenState();
@@ -18,9 +29,16 @@ class _ScenarioGraphScreenState extends State<ScenarioGraphScreen> {
   AssetBundle? _bundle;
   late Future<ScenarioGraph> _loading;
 
-  Future<ScenarioGraph> _load() async => ScenarioGraph.fromJsonString(
-    await _bundle!.loadString(widget.assetPath, cache: false),
-  );
+  Future<ScenarioGraph> _load() async {
+    final graph = widget.graph;
+    if (graph != null) {
+      graph.validate();
+      return graph;
+    }
+    return ScenarioGraph.fromJsonString(
+      await _bundle!.loadString(widget.assetPath, cache: false),
+    );
+  }
 
   @override
   void didChangeDependencies() {
@@ -35,7 +53,9 @@ class _ScenarioGraphScreenState extends State<ScenarioGraphScreen> {
   @override
   void didUpdateWidget(covariant ScenarioGraphScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.assetPath != widget.assetPath) _loading = _load();
+    if (oldWidget.assetPath != widget.assetPath || oldWidget.graph != widget.graph) {
+      _loading = _load();
+    }
   }
 
   @override
@@ -92,7 +112,12 @@ class _ScenarioGraphScreenState extends State<ScenarioGraphScreen> {
               ),
             );
           }
-          return _GraphView(graph: snapshot.data!);
+          return _GraphView(
+            graph: snapshot.data!,
+            sourceLabel: widget.graph == null
+                ? 'Elle hazırlanmış örnek'
+                : widget.sourceLabel ?? ScenarioGraphScreen.importedSourceLabel,
+          );
         },
       ),
     ),
@@ -277,8 +302,9 @@ void _showScene(
 }
 
 class _GraphView extends StatefulWidget {
-  const _GraphView({required this.graph});
+  const _GraphView({required this.graph, required this.sourceLabel});
   final ScenarioGraph graph;
+  final String sourceLabel;
   @override
   State<_GraphView> createState() => _GraphViewState();
 }
@@ -339,7 +365,7 @@ class _GraphViewState extends State<_GraphView> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Elle hazırlanmış örnek',
+                widget.sourceLabel,
                 style: _bodyStyle.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 3),

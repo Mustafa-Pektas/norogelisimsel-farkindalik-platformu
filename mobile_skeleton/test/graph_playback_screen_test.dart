@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neuro_awareness_app/models/scenario_clip_plan.dart';
@@ -30,12 +31,18 @@ void main() {
   late GraphPlaybackHarness harness;
   setUp(() { harness = GraphPlaybackHarness(graph, plan); });
 
-  Widget screen() => GraphPlaybackScreen(graph: graph, plan: plan,
+  Widget screen() => GraphPlaybackScreen(graph: harness.graph, plan: harness.plan,
       videoStore: harness.store, createPlayer: harness.create);
 
-  Future<void> mount(WidgetTester tester) async {
+  Future<void> mount(WidgetTester tester, {double scale = 1}) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pumpWidget(MaterialApp(home: screen()));
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
+        child: child!,
+      ),
+      home: screen(),
+    ));
     await tester.pumpAndSettle();
   }
 
@@ -50,6 +57,31 @@ void main() {
     harness.players.last.finish();
     await tester.pump();
     await tester.pumpAndSettle();
+  }
+
+  Future<void> toggleDetails(WidgetTester tester, int index) async {
+    final tile = find.byKey(ValueKey(
+      'graph-playback-choice-details:${harness.graph.startSceneId}:$index',
+    ));
+    final header = find.descendant(of: tile, matching: find.text('Geçiş ayrıntıları'));
+    await tester.ensureVisible(header);
+    await tester.tap(header);
+    await tester.pumpAndSettle();
+  }
+
+  ScenarioGraph withChoiceText({String? label, String? targetTitle}) {
+    final first = graph.transitions.firstWhere((edge) => edge.fromSceneId == graph.startSceneId);
+    return ScenarioGraph.fromJson({
+      ...graph.toJson(),
+      'transitions': [
+        for (final edge in graph.transitions)
+          {...edge.toJson(), if (identical(edge, first)) 'label': label},
+      ],
+      'scenes': [
+        for (final scene in graph.scenes)
+          {...scene.toJson(), if (scene.id == first.toSceneId) 'title': targetTitle},
+      ],
+    });
   }
 
   Future<void> unmount(WidgetTester tester) async {
@@ -85,8 +117,16 @@ void main() {
       expect(find.text('Senaryo tamamlandı'), findsNothing);
       await finish(tester);
       final choices = graph.transitions.where((edge) => edge.fromSceneId == graph.startSceneId).toList();
-      for (final edge in choices) {
+      for (var i = 0; i < choices.length; i++) {
+        final edge = choices[i];
+        final button = find.byKey(ValueKey('graph-playback-choice:$i'));
+        expect(find.descendant(of: button, matching: find.text(edge.label!)), findsOneWidget);
+        expect(find.descendant(of: button, matching: find.text(edge.description)), findsNothing);
+        expect(find.text(edge.description), findsNothing);
+        await toggleDetails(tester, i);
         expect(find.text(edge.description), findsOneWidget);
+        await toggleDetails(tester, i);
+        expect(find.text(edge.description), findsNothing);
       }
       expect(harness.live, 0);
       await tap(tester, 'graph-playback-choice:$branch');
@@ -107,6 +147,75 @@ void main() {
       await unmount(tester);
     });
   }
+
+  for (final variant in [
+    (name: 'kısa label başlığa tercih edilir', label: 'Kısa seçenek',
+      title: 'Hedef sahne başlığı', expected: 'Kısa seçenek'),
+    (name: 'label yoksa hedef başlığı kullanılır', label: null,
+      title: 'Hedef sahne başlığı', expected: 'Hedef sahne başlığı'),
+    (name: 'label ve başlık yoksa açıklama kullanılır', label: null,
+      title: null, expected: graph.transitions.first.description),
+    (name: 'boş label ve başlıkta açıklama kullanılır', label: '  ',
+      title: '  ', expected: graph.transitions.first.description),
+  ]) {
+    testWidgets(variant.name, (tester) async {
+      final fixture = withChoiceText(label: variant.label, targetTitle: variant.title);
+      harness = GraphPlaybackHarness(fixture, plan);
+      await mount(tester);
+      await tap(tester, 'graph-playback-start');
+      await finish(tester);
+      final button = find.byKey(const ValueKey('graph-playback-choice:0'));
+      expect(find.descendant(of: button, matching: find.text(variant.expected)), findsOneWidget);
+      final edge = fixture.transitions.firstWhere((item) => item.fromSceneId == fixture.startSceneId);
+      await toggleDetails(tester, 0);
+      expect(tester.widget<SelectableText>(find.byKey(
+        const ValueKey('graph-playback-choice-description:0'),
+      )).data, edge.description);
+      await tap(tester, 'graph-playback-choice:0');
+      expect(harness.players.last.id, plan.clipsForScene(edge.toSceneId).first.id);
+      await unmount(tester);
+    });
+  }
+
+  testWidgets('Dar ekran ve büyük yazıda seçenek sarılır; tam ayrıntı kaydırılıp kapatılır', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const label = 'Dar ekranda büyük yazıyla bütünü okunabilen uzun bir alternatif başlığı';
+    harness = GraphPlaybackHarness(withChoiceText(label: label), plan);
+    await mount(tester, scale: 2);
+    await tap(tester, 'graph-playback-start');
+    await finish(tester);
+    final button = find.byKey(const ValueKey('graph-playback-choice:0'));
+    await tester.ensureVisible(button);
+    expect(button.hitTestable(), findsOneWidget);
+    final text = tester.widget<Text>(find.descendant(of: button, matching: find.text(label)));
+    expect(text.softWrap, isTrue);
+    expect(text.maxLines, isNull);
+    expect(text.overflow, isNot(TextOverflow.ellipsis));
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.descendant(of: button, matching: find.byType(RichText)),
+    );
+    expect(paragraph.didExceedMaxLines, isFalse);
+    expect(tester.getSize(button).height, greaterThan(80));
+    expect(tester.getSize(button).width, lessThanOrEqualTo(320));
+    await toggleDetails(tester, 0);
+    final description = find.byKey(const ValueKey('graph-playback-choice-description:0'));
+    final fullText = tester.widget<SelectableText>(description);
+    expect(fullText.data, harness.graph.transitions.first.description);
+    expect(fullText.maxLines, isNull);
+    await tester.ensureVisible(find.byKey(const ValueKey('graph-playback-choice:1')));
+    expect(tester.takeException(), isNull);
+    await toggleDetails(tester, 0);
+    expect(description, findsNothing);
+    await tap(tester, 'graph-playback-choice:1');
+    final chosen = harness.graph.transitions.where(
+      (edge) => edge.fromSceneId == harness.graph.startSceneId,
+    ).elementAt(1);
+    expect(harness.players.last.id, plan.clipsForScene(chosen.toSceneId).first.id);
+    await unmount(tester);
+  });
 
   testWidgets('Eksik klip kimlikleriyle gösterilir, atlanmaz ve eşlemesi silinmez', (tester) async {
     final clip = plan.clipsForScene(graph.startSceneId).first;

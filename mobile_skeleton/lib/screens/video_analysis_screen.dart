@@ -12,7 +12,10 @@ import '../widgets/finding_notification_pill.dart';
 import 'institutions_screen.dart';
 
 class VideoAnalysisScreen extends StatefulWidget {
-  const VideoAnalysisScreen({super.key});
+  const VideoAnalysisScreen({super.key, this.pickVideo});
+
+  /// Testlerde galeri yerine kontrollü seçim; normal kullanımda ImagePicker.
+  final Future<XFile?> Function(ImageSource source)? pickVideo;
 
   @override
   State<VideoAnalysisScreen> createState() => _VideoAnalysisScreenState();
@@ -21,8 +24,6 @@ class VideoAnalysisScreen extends StatefulWidget {
 class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   final int _selectedCaseIndex = 0; // 0: Deniz Senaryosu
   VideoPlayerController? _controller;
-  bool _isAnalyzing = false;
-  int _analysisStep = 0;
   BehaviorFinding? _activeFinding;
   BehaviorFinding? _lastNonNullFinding;
 
@@ -33,7 +34,6 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   // Özel Video Yükleme Durumu
   bool _isCustomVideo = false;
   String? _customVideoName;
-  bool _customAnalysisDone = false;
 
   void _startHideControlsTimer() {
     _controlsTimer?.cancel();
@@ -212,9 +212,12 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   void _onVideoTick() {
     if (!mounted || _controller == null || !_controller!.value.isInitialized) return;
 
-    if (_isCustomVideo && !_customAnalysisDone) {
-      if (_activeFinding != null) {
-        setState(() => _activeFinding = null);
+    if (_isCustomVideo) {
+      if (_activeFinding != null || _lastNonNullFinding != null) {
+        setState(() {
+          _activeFinding = null;
+          _lastNonNullFinding = null;
+        });
       }
       return;
     }
@@ -267,8 +270,8 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
 
   Future<void> _pickVideo(ImageSource source) async {
     try {
-      final picker = ImagePicker();
-      final picked = await picker.pickVideo(source: source);
+      final picked = await (widget.pickVideo?.call(source) ??
+          ImagePicker().pickVideo(source: source));
       if (picked != null) {
         final file = File(picked.path);
         final oldController = _controller;
@@ -291,8 +294,8 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
         setState(() {
           _isCustomVideo = true;
           _customVideoName = picked.name;
-          _customAnalysisDone = false;
           _activeFinding = null;
+          _lastNonNullFinding = null;
         });
 
         if (mounted) {
@@ -314,8 +317,8 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
     setState(() {
       _isCustomVideo = false;
       _customVideoName = null;
-      _customAnalysisDone = false;
       _activeFinding = null;
+      _lastNonNullFinding = null;
     });
     await _loadVideoForCurrentCase();
   }
@@ -389,6 +392,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   }
 
   void _seekToSecond(int seconds) {
+    if (_isCustomVideo) return;
     if (_controller != null && _controller!.value.isInitialized) {
       _controller!.seekTo(Duration(seconds: seconds));
       _controller!.play();
@@ -416,41 +420,11 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
     }
   }
 
-  void _runPipelineAnalysis() async {
-    setState(() {
-      _isAnalyzing = true;
-      _analysisStep = 0;
-    });
-
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (mounted) setState(() => _analysisStep = 1);
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (mounted) setState(() => _analysisStep = 2);
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (mounted) setState(() => _analysisStep = 3);
-    await Future.delayed(const Duration(milliseconds: 400));
-
-    if (mounted) {
-      setState(() {
-        _isAnalyzing = false;
-        if (_isCustomVideo) {
-          _customAnalysisDone = true;
-        }
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Video analizi tamamlandı. Zaman çizelgesindeki kanıtları inceleyebilirsiniz.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
   void _openFullscreen() {
     if (_controller == null || !_controller!.value.isInitialized) return;
     final currentCase = _clinicalCases[_selectedCaseIndex];
     final findings = _isCustomVideo
-        ? (_customAnalysisDone ? currentCase['findings'] as List<BehaviorFinding> : <BehaviorFinding>[])
+        ? <BehaviorFinding>[]
         : currentCase['findings'] as List<BehaviorFinding>;
 
     Navigator.push(
@@ -458,7 +432,9 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
       MaterialPageRoute(
         builder: (context) => FullscreenVideoScreen(
           controller: _controller!,
-          title: _isCustomVideo ? (_customVideoName ?? 'Yüklenen Video') : 'Deniz — Doğal Gözlem Kaydı',
+          title: _isCustomVideo
+              ? '${_customVideoName ?? 'Yüklenen Video'} — analiz edilmedi'
+              : 'Deniz — Örnek video',
           badgeColor: const Color(0xFF10B981),
           findings: findings,
         ),
@@ -537,7 +513,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
                       ),
 
                       // DİNAMİK YÜZEN BİLDİRİM KAPSÜLÜ (KONTROLLER VARKEN YUKARIDA, YOKKEN EN ALTA İNER)
-                      AnimatedPositioned(
+                      if (!_isCustomVideo) AnimatedPositioned(
                         duration: const Duration(milliseconds: 260),
                         curve: Curves.easeOutCubic,
                         bottom: _showControls ? 58 : 12,
@@ -612,7 +588,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
             const SizedBox(height: 12),
 
             // ÖZEL VİDEO BİLGİSİ VEYA ZAMAN ÇİZELGESİ
-            if (_isCustomVideo && !_customAnalysisDone) ...[
+            if (_isCustomVideo) ...[
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
@@ -720,67 +696,27 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
               const SizedBox(height: 12),
             ],
 
-            // ANALİZ YÜRÜT BUTONU
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0F172A),
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 46),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 0,
+            Text(
+              _isCustomVideo
+                  ? 'Seçtiğiniz video analiz edilmedi. Bu ekranda yalnızca '
+                      'videoyu izleyebilirsiniz.'
+                  : 'Örnek rapor — sabit örnek bulgulardır; '
+                      'otomatik video analizi yapılmadı.',
+              key: ValueKey(
+                _isCustomVideo ? 'video-not-analyzed' : 'video-example-report',
               ),
-              onPressed: _isAnalyzing ? null : _runPipelineAnalysis,
-              icon: _isAnalyzing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.auto_graph_rounded),
-              label: Text(
-                _isAnalyzing
-                    ? 'Analiz Ediliyor...'
-                    : (_isCustomVideo && !_customAnalysisDone ? 'Videoyu Analiz Et' : 'Videoyu Yeniden Analiz Et'),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
 
-            // ANALİZ SÜRECİ ADIMLARI
-            if (_isAnalyzing) ...[
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Analiz Aşamaları',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
-                    ),
-                    const SizedBox(height: 10),
-                    _buildStepTile(0, 'Ses ve görüntü ayrıştırılıyor...'),
-                    _buildStepTile(1, 'Baş ve bakış hareketleri izleniyor...'),
-                    _buildStepTile(2, 'Tepki süresi hesaplanıyor...'),
-                    _buildStepTile(3, 'Rapor hazırlanıyor...'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            if (!_isCustomVideo || _customAnalysisDone) ...[
+            if (!_isCustomVideo) ...[
               // GENEL DEĞERLENDİRME KARTI (Traffic Light Pill)
               _buildResultCard(level, currentCase['summary'] as String),
               const SizedBox(height: 16),
 
               // AÇILIR-KAPANIR KANIT KARTLARI LİSTESİ (Expandable Accordion Cards)
               const Text(
-                'Gözlenen Davranışlar',
+                'Örnek rapordaki davranışlar',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 8),
@@ -815,40 +751,6 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildStepTile(int stepIdx, String label) {
-    final isDone = _analysisStep > stepIdx;
-    final isCurrent = _analysisStep == stepIdx;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          if (isDone)
-            const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 18)
-          else if (isCurrent)
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0F172A)),
-            )
-          else
-            const Icon(Icons.radio_button_unchecked_rounded, color: Color(0xFFCBD5E1), size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                color: isDone || isCurrent ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

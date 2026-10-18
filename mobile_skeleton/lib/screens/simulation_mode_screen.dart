@@ -41,9 +41,6 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
   int _easterEggTapCount = 0;
   DateTime? _lastEasterEggTap;
   bool _isResearcherMode = false;
-  bool _isValidating = false;
-  double _validationScore = 95.8;
-  double _validationDiffSec = 0.15;
 
   void _handleEasterEggTap() {
     final now = DateTime.now();
@@ -72,7 +69,7 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
               Expanded(
                 child: Text(
                   _isResearcherMode
-                      ? '🔓 Araştırmacı & Model Doğrulama Modu Açıldı (Ground-Truth & Prompt Stüdyosu Aktif)!'
+                      ? 'Araştırmacı alanı açıldı. Prompt taslakları görünür; model doğrulaması yapılmıyor.'
                       : '🔒 Standart Kullanıcı Moduna Dönüldü.',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
@@ -88,19 +85,6 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
     } else if (_easterEggTapCount >= 2) {
       HapticFeedback.lightImpact();
     }
-  }
-
-  void _runValidationSimulation() {
-    setState(() => _isValidating = true);
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (mounted) {
-        setState(() {
-          _isValidating = false;
-          _validationScore = 94.2 + (DateTime.now().millisecond % 50) / 10.0;
-          _validationDiffSec = 0.10 + (DateTime.now().millisecond % 15) / 100.0;
-        });
-      }
-    });
   }
 
   @override
@@ -790,7 +774,7 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
             ] else ...[
               // GİZLİ ARAŞTIRMACI MODU AKTİF (5 TIK İLE AÇILDI)
               _buildResearcherPromptCard(currentScenario, selectedAge),
-              _buildResearcherValidationCard(currentScenario, selectedAge),
+              _buildResearcherValidationCard(),
               const SizedBox(height: 16),
             ],
 
@@ -923,212 +907,16 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
     );
   }
 
-  Widget _buildResearcherValidationCard(ScenarioModel currentScenario, String selectedAge) {
-    final gtTimestamp = '00:03.20';
-    final diffMillis = (_validationDiffSec * 100).toInt();
-    final detSec = (20 - diffMillis).clamp(0, 99);
-    final detectedTimestamp = '00:03.${detSec.toString().padLeft(2, '0')}';
-
-    return Container(
-      margin: const EdgeInsets.only(top: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0284C7).withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+  Widget _buildResearcherValidationCard() => const Card(
+    key: ValueKey('unmeasured-validation'),
+    child: Padding(
+      padding: EdgeInsets.all(16),
+      child: Text(
+        'Model doğrulaması yapılmadı. Gerçek ölçüm olmadığı için doğruluk, '
+        'güven yüzdesi veya zamanlama sonucu gösterilmiyor.',
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0284C7).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.fact_check_rounded, color: Color(0xFF0284C7), size: 18),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text(
-                  'Model Doğrulama & Başarım Testi',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: Color(0xFF0F172A)),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFECFDF5),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFFA7F3D0)),
-                ),
-                child: const Text(
-                  'GROUND-TRUTH',
-                  style: TextStyle(color: Color(0xFF065F46), fontSize: 9.5, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.school_outlined, size: 16, color: Color(0xFF64748B)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Hocanın Kriteri: Sentetik video bilinen içeriği ile yapay zeka modelinin başarısını ölçen referans etikettir.',
-                    style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade800, height: 1.35),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // KARŞILAŞTIRMA KUTULARI (GROUND-TRUTH VS AI)
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFBFDBFE)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Ground-Truth (Gerçek)',
-                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Zaman: $gtTimestamp',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                      ),
-                      Text(
-                        'Etiket: ${currentScenario.code}',
-                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF475569)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF0FDF4),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFBBF7D0)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'AI Model Çıktısı',
-                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF166534)),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Zaman: $detectedTimestamp',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                      ),
-                      Text(
-                        'Güven: %${_validationScore.toStringAsFixed(1)}',
-                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF15803D), fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // BAŞARIM METRİK ÇİZELGESİ
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 16),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Zamanlama Sapması: ${_validationDiffSec.toStringAsFixed(2)} sn',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                    ),
-                  ],
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'TAM DOĞRULAMA',
-                    style: TextStyle(color: Color(0xFF047857), fontSize: 9.5, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _isValidating ? null : _runValidationSimulation,
-              icon: _isValidating
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.refresh_rounded, size: 18),
-              label: Text(
-                _isValidating ? 'Doğrulama Yapılıyor...' : 'Ground-Truth Testini Yeniden Çalıştır',
-                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0F172A),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+    ),
+  );
 
   Future<void> _generateCustomScenario() async {
     final scenarios = ScenariosRepository.allScenarios;

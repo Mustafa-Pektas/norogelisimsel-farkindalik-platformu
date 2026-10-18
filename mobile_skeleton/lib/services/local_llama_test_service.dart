@@ -37,7 +37,7 @@ class LocalLlamaTestState {
   }.contains(phase);
 }
 
-/// Bir yerel testin isteği ve sınırları. JSON/graf ya da gözlem etiketi değildir.
+/// Yerel çıkarım isteği ve sınırları; üretilen içeriğin uygunluğunu onaylamaz.
 class LocalLlamaTestRequest {
   const LocalLlamaTestRequest({
     required this.id,
@@ -73,6 +73,42 @@ class LocalLlamaTestRequest {
     prompt: 'Türkçe tek cümleyle merhaba de.',
     contextSize: 512,
     maxTokens: 32,
+  );
+
+  // Anlatı metni değil, bu küçük demoda uygulamanın sağladığı metadata.
+  // Kimlik oturum içi demo içindir; bu yol kalıcı kayıt oluşturmaz.
+  static const d01GraphDemoMetadata = <String, Object>{
+    'schemaVersion': '1.0',
+    'scenarioId': 'd01-qwen-yerel-demo',
+    'title': 'D01 yerel model senaryo taslağı',
+    'language': 'tr',
+    'ageMonths': 30,
+    'behaviorId': 'D01',
+    'cardVersion': '0.2',
+    'source': 'model_output',
+  };
+
+  static const d01GraphDemo = LocalLlamaTestRequest(
+    id: 'd01-scenario-graph-demo',
+    title: 'Yerel modelden senaryo taslağı',
+    actionLabel: 'Qwen ile senaryo taslağı üret',
+    description:
+        'Cihazdaki mevcut Qwen dosyasını kullanır; model indirmez. '
+        'Ham cevap korunur. JSON yapısının geçmesi içerik doğrulaması değildir.',
+    model: LocalModelOption.qwen3,
+    contextSize: 2048,
+    maxTokens: 768,
+    prompt: '''D01 kart 0.2 için Türkçe, kısa bir çocuk videosu senaryo taslağı üret.
+Yalnız bir JSON nesnesi yaz; Markdown, kod çiti veya ek açıklama yazma.
+ScenarioInput sözleşmesi: commonStart metni ve alternatives listesi.
+Bu demoda iki alternatif olsun. Her alternatif yalnız title (kısa başlık), continuation (devam metni), ending (açık bitiş metni) alanlarını içersin.
+commonStart: 30 aylık Deniz evde oyuncakla oynar ve annesine dönük değildir. Annesi doğal sesle bir kez “Deniz” der. Yetişkin çocuğa dokunmaz, işaret etmez, el sallamaz veya ek yönerge vermez. Bu ortak başlangıçta çocuğun çağrıya tepkisini anlatma.
+Birinci continuation: Deniz başını annesine çevirir; ending bu yolun sahnesini bitirir.
+İkinci continuation: Deniz annesine dönmeden oyununu sürdürür; ending bu ayrı yolun sahnesini bitirir.
+Her anlatı alanında bir kısa cümle kullan. Dallarda yeni çağrı veya ek uyaran ekleme. Bunlar aynı başlangıcın planlanan iki ayrı devamıdır; tanı, risk puanı veya klinik gecikme eşiği yazma.
+Sahne kimliği, kenar veya startSceneId üretme.
+Şu metadata uygulamaya aittir; bunları yazman gerekmez. Yazarsan aynı değerleri kullan: schemaVersion="1.0", scenarioId="d01-qwen-yerel-demo", title="D01 yerel model senaryo taslağı", language="tr", ageMonths=30, behaviorId="D01", cardVersion="0.2", source="model_output".
+Uygulama bu metadata ile senin commonStart ve alternatives içeriğini birleştirir; hiçbir eksik anlatı metnini tamamlamaz.''',
   );
 
   // Kaynak: proje üst klasöründeki belgeler/Davranis_Kartlari_v02.md, D01.

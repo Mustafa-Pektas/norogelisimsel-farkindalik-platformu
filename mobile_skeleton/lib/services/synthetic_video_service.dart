@@ -252,7 +252,7 @@ class SyntheticVideoPromptService {
     int ageMonths = 18,
     String ontologyCode = 'ONT-01',
     String riskProfile = 'atipik',
-    String engineUsed = '0 MB Yerel Klinik Motoru',
+    String engineUsed = 'Hazır şablon; model çıkarımı yapılmadı',
     String? customEnvironment,
     String? customMaterials,
   }) {
@@ -466,7 +466,7 @@ class SyntheticVideoPromptService {
 
     final ontLabel = targetOntologies.join(', ');
     return SyntheticVideoSession(
-      title: '$ageMonths Ay Klinik Gözlem Senaryosu ($ontLabel)',
+      title: '$ageMonths Ay Şablon Senaryo Taslağı ($ontLabel)',
       targetAgeMonths: ageMonths,
       totalDurationSec: currentSec,
       blockDurationSec: dur,

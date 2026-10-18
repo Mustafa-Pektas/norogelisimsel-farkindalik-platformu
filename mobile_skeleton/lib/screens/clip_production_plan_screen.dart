@@ -11,6 +11,7 @@ import '../models/scenario_graph.dart';
 import '../services/clip_video_store.dart';
 import 'clip_video_preview_screen.dart';
 import 'graph_playback_screen.dart';
+import 'scenario_graph_import_screen.dart';
 
 typedef _LoadedPlan = ({ScenarioGraph graph, ScenarioClipPlan plan});
 
@@ -280,19 +281,34 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                 const SizedBox(height: 8),
                 Text('${data.plan.clips.length} klip · her biri en fazla 8 saniye'),
                 if (kDebugMode)
-                  OutlinedButton.icon(
-                    key: const ValueKey('open-graph-playback'),
-                    onPressed: _busyClip != null ? null : () {
-                      Navigator.of(context).push(MaterialPageRoute<void>(
-                        builder: (_) => GraphPlaybackScreen(
-                          graph: data.graph,
-                          plan: data.plan,
-                          videoStore: _videoStore,
-                        ),
-                      ));
-                    },
-                    icon: const Icon(Icons.account_tree_outlined),
-                    label: const Text('Grafı dene'),
+                  Wrap(
+                    spacing: 8, runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        key: const ValueKey('open-graph-playback'),
+                        onPressed: _busyClip != null ? null : () {
+                          Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => GraphPlaybackScreen(
+                              graph: data.graph,
+                              plan: data.plan,
+                              videoStore: _videoStore,
+                            ),
+                          ));
+                        },
+                        icon: const Icon(Icons.account_tree_outlined),
+                        label: const Text('Grafı dene'),
+                      ),
+                      OutlinedButton.icon(
+                        key: const ValueKey('open-scenario-graph-import'),
+                        onPressed: () {
+                          Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => const ScenarioGraphImportScreen(),
+                          ));
+                        },
+                        icon: const Icon(Icons.input),
+                        label: const Text('Senaryo / graf içe aktar'),
+                      ),
+                    ],
                   ),
                 if (_bindingError != null) ...[
                   Text(_bindingError!),

@@ -82,7 +82,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               Expanded(
                 child: Text(
                   _isAdminMode
-                      ? '🔓 Admin Modu Açıldı! Saniyelik Klip Dilimleme, Runway/Sora Video Promptları ve Ground-Truth Testi Aktif.'
+                      ? 'Admin alanı açıldı. Klip ve prompt taslakları görünür; model doğrulaması yapılmıyor.'
                       : '🔒 Doktor Moduna Dönüldü (Saniyelik Klip ve Video Promptları Gizlendi).',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
@@ -98,25 +98,6 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     } else if (_easterEggTapCount >= 2) {
       HapticFeedback.lightImpact();
     }
-  }
-
-  // MODEL DOĞRULAMA (GROUND-TRUTH VS AI) METRİKLERİ
-  bool _isValidationExpanded = true;
-  bool _isValidating = false;
-  double _validationScore = 96.4;
-  double _validationDiffSec = 0.14;
-
-  void _runValidationSimulation() {
-    setState(() => _isValidating = true);
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (mounted) {
-        setState(() {
-          _isValidating = false;
-          _validationScore = 95.2 + (DateTime.now().millisecond % 45) / 10.0;
-          _validationDiffSec = 0.10 + (DateTime.now().millisecond % 15) / 100.0;
-        });
-      }
-    });
   }
 
   // LLAMA MODEL DURUMU
@@ -651,7 +632,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                     const SizedBox(width: 10),
                     const Expanded(
                       child: Text(
-                        'Admin Modu Aktif: Saniyelik klip parçalama (3-10 sn), Runway/Sora video promptları ve Ground-Truth testi görünür.',
+                        'Admin alanı: şablon klipleri ve video promptları görünür; ölçülmüş doğrulama sonucu yok.',
                         style: TextStyle(fontSize: 11.5, color: Colors.white, height: 1.3),
                       ),
                     ),
@@ -824,7 +805,8 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       CircularProgressIndicator(color: Color(0xFF0F172A)),
                       SizedBox(height: 14),
                       Text(
-                        'Klinik Gözlem Senaryosu Oluşturuluyor...',
+                        'Şablon senaryo taslağı hazırlanıyor...',
+                        key: ValueKey('template-scenario-loading'),
                         style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF475569)),
                       ),
                     ],
@@ -832,6 +814,17 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 ),
               )
             else if (_session != null) ...[
+              Text(
+                _session!.title,
+                key: const ValueKey('template-scenario-title'),
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const Text(
+                'Hazır şablondan oluşturulmuş taslaktır; gerçek model çıkarımı '
+                'yapılmadı. Planlanan olaylar video veya gözlem kanıtı değildir.',
+                key: ValueKey('template-scenario-source'),
+              ),
+              const SizedBox(height: 10),
               // GÖRÜNÜM SEÇENEĞİ (Adım Adım / Tek Metin Birleşik)
               _buildViewModeToggle(),
               const SizedBox(height: 10),
@@ -884,7 +877,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               Icon(Icons.tune_rounded, size: 18, color: Color(0xFF0F172A)),
               SizedBox(width: 8),
               Text(
-                'Üretim Motoru',
+                'Şablon üretim yolu',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Color(0xFF0F172A)),
               ),
             ],
@@ -918,7 +911,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Yerel Klinik Motor',
+                          'Hazır şablon',
                           style: TextStyle(
                             fontSize: 11.5,
                             fontWeight: FontWeight.bold,
@@ -965,7 +958,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Llama-3.2 On-Device',
+                          'Şablon (eski Llama seçeneği)',
                           style: TextStyle(
                             fontSize: 11.5,
                             fontWeight: FontWeight.bold,
@@ -973,7 +966,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                           ),
                         ),
                         Text(
-                          _isLlamaDownloaded ? 'Hazır ✅' : '~750 MB',
+                          'Gerçek çıkarım yapılmaz',
                           style: TextStyle(
                             fontSize: 10,
                             color: !isLocal ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
@@ -1571,10 +1564,11 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
               onPressed: _isGenerating ? null : _generateScenario,
+              key: const ValueKey('generate-template-scenario'),
               icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: Text(
-                _selectedEngine == 'llama' ? 'Llama 3.2 İle Senaryo Üret' : 'Klinik Senaryoyu Yenile',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              label: const Text(
+                'Şablondan senaryo oluştur',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
             ),
           ),
@@ -1714,222 +1708,16 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     );
   }
 
-  Widget _buildModelValidationCard() {
-    final diffMillis = (_validationDiffSec * 100).toInt();
-    final detMillis = (14 - diffMillis + 14).clamp(0, 99);
-    final detectedTimestamp = '00:08.${detMillis.toString().padLeft(2, '0')}';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0284C7).withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+  Widget _buildModelValidationCard() => const Card(
+    key: ValueKey('unmeasured-validation'),
+    child: Padding(
+      padding: EdgeInsets.all(16),
+      child: Text(
+        'Model doğrulaması yapılmadı. Gerçek ölçüm olmadığı için doğruluk, '
+        'güven yüzdesi veya zamanlama sonucu gösterilmiyor.',
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          InkWell(
-            onTap: () => setState(() => _isValidationExpanded = !_isValidationExpanded),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0284C7).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.fact_check_rounded, color: Color(0xFF0284C7), size: 18),
-                ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Model Doğrulama & Başarım Testi',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: Color(0xFF0F172A)),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFECFDF5),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFFA7F3D0)),
-                  ),
-                  child: const Text(
-                    'GROUND-TRUTH',
-                    style: TextStyle(color: Color(0xFF065F46), fontSize: 9.5, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Icon(
-                  _isValidationExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                  color: const Color(0xFF64748B),
-                ),
-              ],
-            ),
-          ),
-          if (_isValidationExpanded) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.school_outlined, size: 16, color: Color(0xFF64748B)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Hocanın Kriteri: Sentetik videodaki bilinen zaman ve davranış etiketleri, analiz modelinin başarımını ölçen referanstır.',
-                      style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade800, height: 1.35),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // KARŞILAŞTIRMA KUTULARI
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFBFDBFE)),
-                    ),
-                    child: const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Ground-Truth (Gerçek)',
-                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Zaman: 00:08.00',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                        ),
-                        Text(
-                          'Etiket: İsme Tepki Gözlemi',
-                          style: TextStyle(fontSize: 10.5, color: Color(0xFF475569)),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0FDF4),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFBBF7D0)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'AI Model Çıktısı',
-                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF166534)),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Zaman: $detectedTimestamp',
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                        ),
-                        Text(
-                          'Güven: %${_validationScore.toStringAsFixed(1)}',
-                          style: const TextStyle(fontSize: 10.5, color: Color(0xFF15803D), fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // BAŞARIM METRİK ÇİZELGESİ
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Zamanlama Sapması: ${_validationDiffSec.toStringAsFixed(2)} sn',
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                      ),
-                    ],
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Text(
-                      'DOĞRULANDI',
-                      style: TextStyle(color: Color(0xFF047857), fontSize: 9.5, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isValidating ? null : _runValidationSimulation,
-                icon: _isValidating
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.refresh_rounded, size: 18),
-                label: Text(
-                  _isValidating ? 'Doğrulama Yapılıyor...' : 'Ground-Truth Testini Yeniden Çalıştır',
-                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F172A),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
+    ),
+  );
 
   // ==========================================================
   // ADMİN GÖRÜNÜMÜ: SANİYELİK SENTETİK KLİP BAŞLIĞI
@@ -2317,7 +2105,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Sıralı Seans Senaryosu',
+                            'Sıralı şablon senaryo taslağı',
                             style: TextStyle(
                               fontSize: 14.5,
                               fontWeight: FontWeight.bold,

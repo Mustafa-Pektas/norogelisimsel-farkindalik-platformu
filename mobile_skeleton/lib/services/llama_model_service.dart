@@ -307,7 +307,7 @@ Generate the everyday observation scenario and guidelines in Turkish.
 ''';
   }
 
-  /// Doktorlar için Llama-3.2 on-device motoruyla saniyesiz klinik senaryo üretir
+  /// Eski giriş adı korunur; bu yol model çıkarımı değil hazır şablon kullanır.
   static Future<DoctorClinicalScenario> generateDoctorScenarioWithLlama({
     required int ageMonths,
     required String ontologyCode,
@@ -319,13 +319,13 @@ Generate the everyday observation scenario and guidelines in Turkish.
       ageMonths: ageMonths,
       ontologyCode: ontologyCode,
       riskProfile: riskProfile,
-      engineUsed: 'Llama-3.2 On-Device (GGUF)',
+      engineUsed: 'Hazır şablon; model çıkarımı yapılmadı',
       customEnvironment: clinicEnvironment,
       customMaterials: materials,
     );
   }
 
-  /// Llama motoruyla üretim yapar (Model cihazda varsa yerel Llama ile, yoksa hazır klinik şablonu zenginleştirerek)
+  /// Eski API adı korunur; gerçek model testinden bağımsız şablon üretimidir.
   static Future<SyntheticVideoSession> generateWithLlama({
     required int ageMonths,
     required int totalTargetSec,
@@ -334,29 +334,13 @@ Generate the everyday observation scenario and guidelines in Turkish.
     String? ontologyCode,
     List<String>? ontologyCodes,
   }) async {
-    // Model cihazda hazır ise veya test aşamasında ise Llama formatında senaryoyu üret
-    final session = SyntheticVideoPromptService.generateSession(
+    return SyntheticVideoPromptService.generateSession(
       ageMonths: ageMonths,
       totalTargetSec: totalTargetSec,
       blockDurationSec: blockDurationSec,
       riskProfile: riskProfile,
       ontologyCode: ontologyCode,
       ontologyCodes: ontologyCodes,
-    );
-
-    return SyntheticVideoSession(
-      title: session.title.replaceFirst(
-        'Klinik Gözlem Senaryosu',
-        'Llama-3.2 Klinik Gözlem Senaryosu',
-      ),
-      targetAgeMonths: ageMonths,
-      totalDurationSec: session.totalDurationSec,
-      blockDurationSec: session.blockDurationSec,
-      totalStepsCount: session.totalStepsCount,
-      riskProfile: riskProfile,
-      characterDescription: session.characterDescription,
-      environmentDescription: session.environmentDescription,
-      steps: session.steps,
     );
   }
 }

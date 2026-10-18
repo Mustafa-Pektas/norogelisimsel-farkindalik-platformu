@@ -88,6 +88,50 @@ class _GraphPlaybackScreenState extends State<GraphPlaybackScreen>
 
   void _changed() { if (mounted) setState(() {}); }
 
+  String _choiceLabel(ScenarioTransition transition) {
+    final label = transition.label;
+    if (label != null && label.trim().isNotEmpty) {
+      return label;
+    }
+    final target = widget.graph.scenes.firstWhere(
+      (scene) => scene.id == transition.toSceneId,
+    );
+    final title = target.title;
+    if (title != null && title.trim().isNotEmpty) {
+      return title;
+    }
+    return transition.description;
+  }
+
+  Widget _choice(int index, ScenarioTransition transition) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      OutlinedButton(
+        key: ValueKey('graph-playback-choice:$index'),
+        onPressed: () => _flow.choose(index),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          minimumSize: const Size(0, 48),
+        ),
+        child: Text(_choiceLabel(transition),
+            softWrap: true, textAlign: TextAlign.center),
+      ),
+      ExpansionTile(
+        key: ValueKey('graph-playback-choice-details:${transition.fromSceneId}:$index'),
+        title: const Text('Geçiş ayrıntıları'),
+        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: SelectableText(transition.description,
+                key: ValueKey('graph-playback-choice-description:$index')),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+    ],
+  );
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -154,11 +198,7 @@ class _GraphPlaybackScreenState extends State<GraphPlaybackScreen>
                 if (phase == GraphPlaybackPhase.choosing) ...[
                   const Text('Bir devam seçin:'),
                   for (var i = 0; i < _flow.choices.length; i++)
-                    OutlinedButton(
-                      key: ValueKey('graph-playback-choice:$i'),
-                      onPressed: () => _flow.choose(i),
-                      child: Text(_flow.choices[i].description),
-                    ),
+                    _choice(i, _flow.choices[i]),
                 ],
                 const SizedBox(height: 12),
                 Wrap(
