@@ -70,6 +70,9 @@ class _DemoService extends LocalLlamaTestService {
     if (_closed) return;
     _closed = true;
     disposals++;
+    if (_current.isBusy) {
+      cancel();
+    }
     if (!_gate.isCompleted) _gate.complete();
     await _events.close();
   }
@@ -112,11 +115,228 @@ void main() {
     find.byKey(const ValueKey('scenario-import-json')),
   ).controller!.text;
 
+  List<String?> summaryTexts(WidgetTester tester) => tester.widgetList<Text>(
+    find.descendant(
+      of: find.byKey(const ValueKey('scenario-import-summary')),
+      matching: find.byType(Text),
+    ),
+  ).map((text) => text.data).toList();
+
   void expectRaw(WidgetTester tester, String raw) {
     expect(tester.widget<SelectableText>(
       find.byKey(ValueKey('${request.id}-response')),
     ).data, raw);
   }
+
+  Future<void> mountRoute(WidgetTester tester, _DemoService service) async {
+    await tester.binding.setSurfaceSize(const Size(1100, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(DefaultAssetBundle(
+      bundle: _NoAssets(),
+      child: MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              key: const ValueKey('open-import'),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => ScenarioGraphImportScreen(scenarioService: service),
+              )),
+              child: const Text('İçe aktarmayı aç'),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tap(tester, 'open-import');
+  }
+
+  Future<void> appBarBack(WidgetTester tester) async {
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+  }
+
+  for (final systemBack in [false, true]) {
+    testWidgets('Boş ekranda ${systemBack ? 'sistem' : 'AppBar'} geri onaysız çıkar', (tester) async {
+      final service = _DemoService('');
+      await mountRoute(tester, service);
+      if (systemBack) {
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+      } else {
+        await appBarBack(tester);
+      }
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(ScenarioGraphImportScreen), findsNothing);
+      expect(find.byKey(const ValueKey('open-import')), findsOneWidget);
+      expect(service.disposals, 1);
+      expect(service.runs, 0);
+    });
+  }
+
+  testWidgets('AppBar ve sistem geri: kalmak metni ve doğrulama hatasını korur', (tester) async {
+    final service = _DemoService('');
+    await mountRoute(tester, service);
+    const text = '{"Eksik": "Kullanıcı taslağı"}';
+    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), text);
+    await tap(tester, 'scenario-import-validate');
+    final error = tester.widget<Text>(
+      find.byKey(const ValueKey('scenario-import-error')),
+    ).data;
+
+    await appBarBack(tester);
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(tester.widget<FilledButton>(
+      find.byKey(const ValueKey('scenario-import-stay')),
+    ).autofocus, isTrue);
+    await tap(tester, 'scenario-import-stay');
+    expect(editor(tester), text);
+    expect(tester.widget<Text>(
+      find.byKey(const ValueKey('scenario-import-error')),
+    ).data, error);
+    expect(service.disposals, 0);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    // Diyalogdayken ikinci geri yalnız diyaloğu kapatır; taslak terk edilmez.
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(editor(tester), text);
+    expect(tester.widget<Text>(
+      find.byKey(const ValueKey('scenario-import-error')),
+    ).data, error);
+    expect(service.disposals, 0);
+
+    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), '');
+    await tester.pump();
+    await appBarBack(tester);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(service.disposals, 1);
+  });
+
+  testWidgets('Diğer giriş türündeki taslak korunur; temizlenen etkin kopya çıkışı engellemez', (tester) async {
+    final service = _DemoService('');
+    await mountRoute(tester, service);
+    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), 'Graf taslağı');
+    await tap(tester, 'scenario-import-mode-scenario');
+    expect(editor(tester), isEmpty);
+    await appBarBack(tester);
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await tap(tester, 'scenario-import-stay');
+    await tap(tester, 'scenario-import-mode-graph');
+    expect(editor(tester), 'Graf taslağı');
+    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), '');
+    await tester.pump();
+    await appBarBack(tester);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(service.disposals, 1);
+  });
+
+  testWidgets('Grafı açmak çıkış değildir; kalmak ham cevap, düzenlenen JSON ve aynı grafı korur', (tester) async {
+    final service = _DemoService(content);
+    await mountRoute(tester, service);
+    await tap(tester, 'scenario-import-mode-scenario');
+    await tap(tester, '${request.id}-start');
+    final edited = jsonDecode(editor(tester)) as Map<String, dynamic>;
+    edited['commonStart'] = '${edited['commonStart']} Kullanıcının sahne notu.';
+    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), jsonEncode(edited));
+    await tap(tester, 'scenario-import-validate');
+    final savedJson = editor(tester);
+    expect(ScenarioInput.fromJsonString(savedJson).source,
+        ScenarioInputSource.editedModelOutput);
+    final summary = summaryTexts(tester);
+    await tap(tester, 'scenario-import-view');
+    expect(find.byType(AlertDialog), findsNothing);
+    final viewer = tester.widget<ScenarioGraphScreen>(find.byType(ScenarioGraphScreen));
+    final graph = viewer.graph!;
+    final sourceLabel = viewer.sourceLabel;
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    await appBarBack(tester);
+    await tap(tester, 'scenario-import-stay');
+    expectRaw(tester, content);
+    expect(editor(tester), savedJson);
+    expect(summaryTexts(tester), summary);
+    expect(service.disposals, 0);
+    expect(service.runs, 1);
+    await tap(tester, 'scenario-import-view');
+    final reopened = tester.widget<ScenarioGraphScreen>(find.byType(ScenarioGraphScreen));
+    expect(reopened.graph, same(graph));
+    expect(reopened.sourceLabel, sourceLabel);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await appBarBack(tester);
+    await tap(tester, 'scenario-import-exit');
+    expect(find.byType(ScenarioGraphImportScreen), findsNothing);
+    expect(service.disposals, 1);
+    expect(service.runs, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Yalnız ham kısmi cevap da çıkış onayı ister; hata ve boş editör korunur', (tester) async {
+    const raw = 'KISMİ HAM CEVAP';
+    final service = _DemoService(raw, failure: 'Kontrollü hata');
+    await mountRoute(tester, service);
+    await tap(tester, 'scenario-import-mode-scenario');
+    await tap(tester, '${request.id}-start');
+    expect(editor(tester), isEmpty);
+    final error = tester.widget<Text>(
+      find.byKey(const ValueKey('scenario-import-error')),
+    ).data;
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await tap(tester, 'scenario-import-stay');
+    expectRaw(tester, raw);
+    expect(editor(tester), isEmpty);
+    expect(tester.widget<Text>(
+      find.byKey(const ValueKey('scenario-import-error')),
+    ).data, error);
+    expect(service.disposals, 0);
+    await appBarBack(tester);
+    await tap(tester, 'scenario-import-exit');
+    expect(service.disposals, 1);
+  });
+
+  testWidgets('Boş cevaplı süren üretimde çift geri tek onay açar; yalnız bilinçli çıkış kapatır', (tester) async {
+    final service = _DemoService('', hold: true);
+    await mountRoute(tester, service);
+    await tap(tester, 'scenario-import-mode-scenario');
+    final start = find.byKey(ValueKey('${request.id}-start'));
+    await tester.ensureVisible(start);
+    await tester.tap(start);
+    await tester.pump();
+    expect(editor(tester), isEmpty);
+    expect(service.state.text, isEmpty);
+    expect(service.state.isBusy, isTrue);
+    final back = find.byType(BackButton);
+    await tester.tap(back);
+    // Aynı karedeki ikinci istek henüz çizilmemiş onayı çoğaltmamalı.
+    await tester.tap(back);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scenario-import-stay')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(service.cancellations, 0);
+    expect(service.disposals, 0);
+    expect(service.state.isBusy, isTrue);
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scenario-import-exit')));
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(find.byType(ScenarioGraphImportScreen), findsNothing);
+    expect(service.cancellations, 1);
+    expect(service.disposals, 1);
+    expect(service.runs, 1);
+    expect(tester.takeException(), isNull);
+  });
 
   test('Demo isteği mevcut Qwen, CPU runtime sınırları ve içerik sözleşmesini kullanır', () {
     expect(request.model, LocalModelOption.qwen3);

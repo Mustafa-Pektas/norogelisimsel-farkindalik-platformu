@@ -66,6 +66,8 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1200, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(const MaterialApp(home: SyntheticVideoStudioScreen()));
+    await tester.tap(find.text('Şablon örnekleri'));
+    await tester.pump();
     expect(find.byKey(const ValueKey('template-scenario-loading')), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
@@ -88,7 +90,7 @@ void main() {
   });
 
   for (final screen in [
-    (title: 'Klinik Senaryo & Simülasyon', widget: const SyntheticVideoStudioScreen()),
+    (title: 'Senaryo Stüdyosu', widget: const SyntheticVideoStudioScreen()),
     (title: 'Senaryo & Simülasyon', widget: const SimulationModeScreen()),
   ]) {
     testWidgets('${screen.title}: eski ölçümsüz kart güven/başarı sonucu sunmaz', (tester) async {
@@ -101,6 +103,12 @@ void main() {
         await tester.tap(find.text(screen.title));
       }
       await tester.pumpAndSettle();
+      if (screen.widget is SyntheticVideoStudioScreen) {
+        final templates = find.text('Şablon örnekleri');
+        await tester.ensureVisible(templates);
+        await tester.tap(templates);
+        await tester.pumpAndSettle();
+      }
       expect(find.byKey(const ValueKey('unmeasured-validation')), findsOneWidget);
       expect(find.textContaining('Gerçek ölçüm olmadığı için'), findsOneWidget);
       expect(find.textContaining('Güven: %'), findsNothing);

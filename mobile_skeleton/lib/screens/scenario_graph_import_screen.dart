@@ -17,7 +17,14 @@ enum _InputType { scenario, graph }
 
 /// Yalnız oturum içi JSON doğrulama ve görüntüleme; dosya veya eşleme yazmaz.
 class ScenarioGraphImportScreen extends StatefulWidget {
-  const ScenarioGraphImportScreen({super.key, this.scenarioService});
+  const ScenarioGraphImportScreen({
+    super.key,
+    this.scenarioService,
+    this.initialScenarioContent = false,
+  });
+
+  /// Doğrudan Stüdyo girişi içerikle başlar; eski hazır graf yolu korunur.
+  final bool initialScenarioContent;
 
   /// Kontrollü test bağımlılığı; ekran bu oturumun servisini kapatır.
   final LocalLlamaTestService? scenarioService;
@@ -45,13 +52,64 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
   bool _demoDraft = false;
   bool _demoEdited = false;
   String? _formatNormalization;
+  bool _confirmingExit = false;
+  bool _allowExit = false;
 
   bool get _isScenario => _type == _InputType.scenario;
   bool get _busy => _loadingExample || _modelDemo.state.isBusy;
+  bool get _hasDraft =>
+      _modelDemo.state.isBusy ||
+      _modelDemo.state.text.isNotEmpty ||
+      _json.text.trim().isNotEmpty ||
+      _drafts.entries.any((entry) =>
+          entry.key != _type && entry.value.trim().isNotEmpty);
+
+  Future<void> _requestExit() async {
+    if (_confirmingExit || _allowExit) return;
+    if (!_hasDraft) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _confirmingExit = true;
+    final route = ModalRoute.of(context);
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Taslağı bırakıp çıkılsın mı?'),
+        content: const Text(
+          'Bu ekrandaki taslak kaydedilmez. Süren üretim varsa iptal edilir.',
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('scenario-import-exit'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Çık'),
+          ),
+          FilledButton(
+            key: const ValueKey('scenario-import-stay'),
+            autofocus: true,
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Ekranda kal'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    _confirmingExit = false;
+    if (leave != true) return;
+    setState(() {
+      _allowExit = true;
+    });
+    // PopScope'un onaylanan çıkışa izin veren yeni değeri çizilsin.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || route?.isCurrent != true) return;
+    Navigator.of(context).pop();
+  }
 
   @override
   void initState() {
     super.initState();
+    _type = widget.initialScenarioContent ? _InputType.scenario : _InputType.graph;
     _modelDemo = widget.scenarioService ??
         LocalLlamaTestService(
           request: LocalLlamaTestRequest.d01GraphDemo,
@@ -142,14 +200,12 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
 
   void _edited(String _) {
     if (_isScenario && _demoDraft) _demoEdited = true;
-    if (_validated != null || _error != null || _formatNormalization != null) {
-      setState(() {
-        _validated = null;
-        _scenarioInput = null;
-        _error = null;
-        _formatNormalization = null;
-      });
-    }
+    setState(() {
+      _validated = null;
+      _scenarioInput = null;
+      _error = null;
+      _formatNormalization = null;
+    });
   }
 
   void _validate() {
@@ -274,9 +330,12 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
   Widget build(BuildContext context) {
     final graph = _validated;
     final input = _scenarioInput;
-    return Scaffold(
+    final screen = Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+        leading: ModalRoute.of(context)?.canPop == true
+            ? BackButton(onPressed: _requestExit)
+            : null,
         title: const Text('Senaryo / graf içe aktar'),
         backgroundColor: const Color(0xFF142540),
         foregroundColor: Colors.white,
@@ -437,6 +496,15 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
           ),
         ),
       ),
+    );
+    return PopScope<void>(
+      canPop: _allowExit || !_hasDraft,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          unawaited(_requestExit());
+        }
+      },
+      child: screen,
     );
   }
 }

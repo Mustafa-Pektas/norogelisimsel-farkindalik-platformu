@@ -313,7 +313,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Stüdyodaki Senaryo Grafı girişi örnek ekranı açar', (
+  testWidgets('Stüdyodaki Hazır D01 örneği girişi örnek grafı açar', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -323,7 +323,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('open-scenario-graph')));
+    final entry = find.byKey(const ValueKey('open-scenario-graph'));
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
     await tester.pumpAndSettle();
     expect(find.textContaining('Elle hazırlanmış örnek'), findsOneWidget);
     expect(find.byType(InteractiveViewer), findsOneWidget);

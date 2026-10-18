@@ -34,6 +34,13 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   // Özel Video Yükleme Durumu
   bool _isCustomVideo = false;
   String? _customVideoName;
+  bool _openingVideo = false;
+  String? _videoError;
+  int _selectionRequest = 0;
+  int _openRequest = 0;
+  Completer<void>? _cancelOpen;
+  final _candidates = <VideoPlayerController>{};
+  final _releases = <VideoPlayerController, Future<void>>{};
 
   void _startHideControlsTimer() {
     _controlsTimer?.cancel();
@@ -206,7 +213,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   @override
   void initState() {
     super.initState();
-    _loadVideoForCurrentCase();
+    unawaited(_loadVideoForCurrentCase());
   }
 
   void _onVideoTick() {
@@ -244,84 +251,116 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   }
 
   Future<void> _loadVideoForCurrentCase() async {
-    final oldController = _controller;
-    if (oldController != null) {
-      oldController.removeListener(_onVideoTick);
+    if (!mounted) return;
+    ++_selectionRequest;
+    final assetPath = _clinicalCases[_selectedCaseIndex]['videoAsset'] as String;
+    await _openCandidate(VideoPlayerController.asset(assetPath), isCustom: false);
+  }
+
+  Future<void> _release(VideoPlayerController controller) =>
+      _releases.putIfAbsent(controller, () async {
+        try {
+          await controller.dispose();
+        } catch (_) {
+          debugPrint('Video oynatıcısı kapatılırken hata oluştu.');
+        }
+      });
+
+  Future<void> _openCandidate(
+    VideoPlayerController candidate, {
+    required bool isCustom,
+    String? fileName,
+  }) async {
+    final request = ++_openRequest;
+    final previousCancel = _cancelOpen;
+    if (previousCancel != null && !previousCancel.isCompleted) {
+      previousCancel.complete();
     }
-
-    final currentCase = _clinicalCases[_selectedCaseIndex];
-    final assetPath = currentCase['videoAsset'] as String;
-
-    _controller = VideoPlayerController.asset(assetPath);
+    for (final stale in _candidates.toList()) {
+      unawaited(_release(stale));
+    }
+    final cancelled = Completer<void>();
+    _cancelOpen = cancelled;
+    _candidates.add(candidate);
+    setState(() {
+      _openingVideo = true;
+      _videoError = null;
+    });
     try {
-      await _controller!.initialize();
-      _controller!.addListener(_onVideoTick);
-      _showControls = true;
-      _startHideControlsTimer();
-      setState(() {});
-    } catch (e) {
-      debugPrint('Video oynatıcı yükleme hatası: $e');
-    }
-
-    if (oldController != null) {
-      await oldController.dispose();
+      // dispose() bekleyen initialize Future'ını tamamlamak zorunda değildir.
+      // Yeni seçim/ekran kapanışı bu beklemeyi de sonlandırır.
+      await Future.any<void>([candidate.initialize(), cancelled.future]);
+      if (!mounted || request != _openRequest || cancelled.isCompleted) return;
+      if (!candidate.value.isInitialized || candidate.value.hasError) {
+        throw StateError('Video başlatılamadı.');
+      }
+      final previous = _controller;
+      previous?.removeListener(_onVideoTick);
+      _controlsTimer?.cancel();
+      _candidates.remove(candidate);
+      setState(() {
+        _controller = candidate;
+        _isCustomVideo = isCustom;
+        _customVideoName = fileName;
+        _activeFinding = null;
+        _lastNonNullFinding = null;
+        _showControls = true;
+        _openingVideo = false;
+      });
+      candidate.addListener(_onVideoTick);
+      if (previous != null) {
+        await _release(previous);
+      }
+      if (!mounted || request != _openRequest) return;
+      if (isCustom) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Video yüklendi.'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted || request != _openRequest) return;
+      setState(() {
+        _openingVideo = false;
+        _videoError = isCustom
+            ? 'Video açılamadı. Başka bir video seçip tekrar deneyin.'
+            : 'Örnek video açılamadı. Bir video seçebilir veya yeniden deneyebilirsiniz.';
+      });
+    } finally {
+      if (identical(_cancelOpen, cancelled)) {
+        _cancelOpen = null;
+      }
+      if (_candidates.remove(candidate)) {
+        await _release(candidate);
+      }
     }
   }
 
   Future<void> _pickVideo(ImageSource source) async {
+    final request = ++_selectionRequest;
     try {
       final picked = await (widget.pickVideo?.call(source) ??
           ImagePicker().pickVideo(source: source));
-      if (picked != null) {
-        final file = File(picked.path);
-        final oldController = _controller;
-        if (oldController != null) {
-          oldController.removeListener(_onVideoTick);
-        }
-
-        _controller = VideoPlayerController.file(file);
-        try {
-          await _controller!.initialize();
-          _controller!.addListener(_onVideoTick);
-        } catch (e) {
-          debugPrint('Video başlatma hatası: $e');
-        }
-
-        if (oldController != null) {
-          await oldController.dispose();
-        }
-
-        setState(() {
-          _isCustomVideo = true;
-          _customVideoName = picked.name;
-          _activeFinding = null;
-          _lastNonNullFinding = null;
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Video yüklendi.'),
-              behavior: SnackBarBehavior.floating,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Video seçme hatası: $e');
+      if (!mounted || request != _selectionRequest || picked == null) return;
+      await _openCandidate(
+        VideoPlayerController.file(File(picked.path)),
+        isCustom: true,
+        fileName: picked.name,
+      );
+    } catch (_) {
+      if (!mounted || request != _selectionRequest) return;
+      setState(() {
+        _videoError = _controller == null
+            ? 'Video seçilemedi. Tekrar deneyin.'
+            : 'Video seçilemedi. Mevcut videonuz korundu; tekrar deneyin.';
+      });
     }
   }
 
-  Future<void> _resetToDefaultVideo() async {
-    setState(() {
-      _isCustomVideo = false;
-      _customVideoName = null;
-      _activeFinding = null;
-      _lastNonNullFinding = null;
-    });
-    await _loadVideoForCurrentCase();
-  }
+  Future<void> _resetToDefaultVideo() => _loadVideoForCurrentCase();
 
   void _showVideoSourceSheet() {
     showModalBottomSheet(
@@ -421,7 +460,8 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   }
 
   void _openFullscreen() {
-    if (_controller == null || !_controller!.value.isInitialized) return;
+    final controller = _controller;
+    if (_openingVideo || controller == null || !controller.value.isInitialized) return;
     final currentCase = _clinicalCases[_selectedCaseIndex];
     final findings = _isCustomVideo
         ? <BehaviorFinding>[]
@@ -431,7 +471,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => FullscreenVideoScreen(
-          controller: _controller!,
+          controller: controller,
           title: _isCustomVideo
               ? '${_customVideoName ?? 'Yüklenen Video'} — analiz edilmedi'
               : 'Deniz — Örnek video',
@@ -444,9 +484,22 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
 
   @override
   void dispose() {
+    ++_selectionRequest;
+    ++_openRequest;
+    final cancel = _cancelOpen;
+    if (cancel != null && !cancel.isCompleted) {
+      cancel.complete();
+    }
     _controlsTimer?.cancel();
-    _controller?.removeListener(_onVideoTick);
-    _controller?.dispose();
+    final controller = _controller;
+    _controller = null;
+    controller?.removeListener(_onVideoTick);
+    if (controller != null) {
+      unawaited(_release(controller));
+    }
+    for (final candidate in _candidates.toList()) {
+      unawaited(_release(candidate));
+    }
     super.dispose();
   }
 
@@ -506,8 +559,11 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
                             ? VideoPlayer(_controller!)
                             : Container(
                                 color: const Color(0xFF0F172A),
-                                child: const Center(
-                                  child: CircularProgressIndicator(color: Colors.white),
+                                child: Center(
+                                  child: _openingVideo
+                                      ? const CircularProgressIndicator(color: Colors.white)
+                                      : const Text('Video açılamadı.',
+                                          style: TextStyle(color: Colors.white)),
                                 ),
                               ),
                       ),
@@ -539,7 +595,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
                               ignoring: !_showControls,
                               child: FloatingVideoControls(
                                 controller: _controller!,
-                                onFullscreenToggle: _openFullscreen,
+                                onFullscreenToggle: _openingVideo ? null : _openFullscreen,
                               ),
                             ),
                           ),
@@ -550,6 +606,22 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
               ),
             ),
             const SizedBox(height: 12),
+
+            if (_videoError != null) ...[
+              Text(_videoError!, key: const ValueKey('video-open-error')),
+              if (_controller == null)
+                OutlinedButton.icon(
+                  key: const ValueKey('video-retry-example'),
+                  onPressed: _openingVideo ? null : _loadVideoForCurrentCase,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Örnek videoyu yeniden dene'),
+                ),
+              const SizedBox(height: 12),
+            ],
+            if (_openingVideo && _controller != null) ...[
+              const Text('Yeni video açılıyor…', key: ValueKey('video-opening')),
+              const SizedBox(height: 12),
+            ],
 
             // VİDEO YÜKLEME VE KAYNAK SEÇİMİ
             Row(

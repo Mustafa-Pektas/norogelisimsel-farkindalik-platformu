@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class AgeSliderCard extends StatelessWidget {
   final double currentMonth;
   final ValueChanged<double> onChanged;
+  final String title;
 
   const AgeSliderCard({
     super.key,
     required this.currentMonth,
     required this.onChanged,
+    this.title = 'Gelişimsel Yaş Ayarı',
   });
 
   @override
@@ -46,9 +48,9 @@ class AgeSliderCard extends StatelessWidget {
                     child: const Icon(Icons.child_care_rounded, size: 20, color: Color(0xFF0F172A)),
                   ),
                   const SizedBox(width: 10),
-                  const Text(
-                    'Gelişimsel Yaş Ayarı',
-                    style: TextStyle(
+                  Text(
+                    title,
+                    style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF0F172A),

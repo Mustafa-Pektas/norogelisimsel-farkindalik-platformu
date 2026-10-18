@@ -148,7 +148,8 @@ void main() {
     await tester.pumpWidget(_app(_PlanBundle(read), home: const SyntheticVideoStudioScreen()));
     await tester.pumpAndSettle();
     final entry = find.byKey(const ValueKey('open-clip-production-plan'));
-    expect(find.text('Geliştirici: Klip Üretim Planı'), findsOneWidget);
+    expect(find.text('Hazır D01 örneği'), findsOneWidget);
+    expect(find.text('Klip planı ve videolu deneme'), findsOneWidget);
     await tester.ensureVisible(entry);
     await tester.tap(entry);
     await tester.pumpAndSettle();

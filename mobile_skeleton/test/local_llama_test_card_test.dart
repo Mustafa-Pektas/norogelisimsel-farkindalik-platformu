@@ -17,6 +17,10 @@ void main() {
         const MaterialApp(home: SyntheticVideoStudioScreen()),
       );
       await tester.pumpAndSettle();
+      final technical = find.text('Teknik model denemeleri');
+      await tester.ensureVisible(technical);
+      await tester.tap(technical);
+      await tester.pumpAndSettle();
       expect(find.byType(LocalLlamaTestCard), findsNWidgets(5));
       final selector = find.byKey(const ValueKey('comparison-model-selector'));
       await tester.ensureVisible(selector);
@@ -428,6 +432,10 @@ void main() {
     await tester.pumpWidget(
       const MaterialApp(home: SyntheticVideoStudioScreen()),
     );
+    await tester.pumpAndSettle();
+    final technical = find.text('Teknik model denemeleri');
+    await tester.ensureVisible(technical);
+    await tester.tap(technical);
     await tester.pumpAndSettle();
     expect(find.text('Qwen D01 karşılaştırma'), findsOneWidget);
     expect(find.text('Qwen — Ortak başlangıç testi'), findsOneWidget);

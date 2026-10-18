@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../models/scenarios_data.dart';
+import '../models/behavior_cards.dart';
 import 'ontology_detail_screen.dart';
 import 'video_analysis_screen.dart';
 import 'institutions_screen.dart';
@@ -18,14 +18,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentTabIndex = 0;
   double _currentMonth = 18.0;
-  String? _studioOntologyCode;
   DateTime? _lastBackPressTime;
-
-  String get _currentAgeGroup {
-    if (_currentMonth < 18) return '12–18 Ay';
-    if (_currentMonth < 24) return '18–24 Ay';
-    return '24–36 Ay';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -98,7 +91,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _buildDashboardTab(),
             const VideoAnalysisScreen(),
             SyntheticVideoStudioScreen(
-              initialOntologyCode: _studioOntologyCode,
               initialAgeMonths: _currentMonth.toInt(),
             ),
           ],
@@ -147,7 +139,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 NavigationDestination(
                   icon: Icon(Icons.analytics_outlined),
                   selectedIcon: Icon(Icons.analytics_rounded, color: Color(0xFF0F172A)),
-                  label: 'Video\u00A0Analiz',
+                  label: 'Video izle',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.movie_creation_outlined),
@@ -171,12 +163,18 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           // SÜRÜKLEMELİ YAŞ AYARI KARTI
           AgeSliderCard(
+            title: 'Şablon yaşı',
             currentMonth: _currentMonth,
             onChanged: (val) {
               setState(() {
                 _currentMonth = val;
               });
             },
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Yaş seçimi yalnız Şablon örnekleri içindir; güncel kartları '
+            've 30 aylık D01 model demosunu değiştirmez.',
           ),
           const SizedBox(height: 16),
 
@@ -211,119 +209,45 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 10),
 
           _buildModeCard(
-            title: '1. Video Analiz Modu',
-            subtitle: 'Kamera veya video yükleyerek otomatik zaman damgalı kanıt analizi',
+            title: 'Video izle',
+            subtitle: 'Bir video seçip izleyin.',
             icon: Icons.analytics_outlined,
             onTap: () => setState(() => _currentTabIndex = 1),
           ),
           const SizedBox(height: 8),
 
           _buildModeCard(
-            title: '2. Senaryo & Simülasyon Stüdyosu',
-            subtitle: 'Klinik davranış akışı, seans kurgulama ve sentetik video prompt stüdyosu',
+            title: 'Senaryo Stüdyosu',
+            subtitle: 'Senaryo taslaklarını ve hazır örnekleri inceleyin. Yapay zekâ denemeleri ayrı çalışır.',
             icon: Icons.movie_creation_outlined,
             onTap: () => setState(() => _currentTabIndex = 2),
           ),
           const SizedBox(height: 22),
 
-          // 12 HEDEF DAVRANIŞ VE YAŞ NORMLARI
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                '12 Hedef Davranış & Yaş Normları',
-                style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  _currentAgeGroup,
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                ),
-              ),
-            ],
+          const Text(
+            '10 davranış kartı',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold,
+                color: Color(0xFF0F172A)),
           ),
+          const SizedBox(height: 6),
+          const Text('Kart sürümü ${BehaviorCards.version} · İlk teknik pilot: 30–36 ay'),
+          const Text('Yaşa göre ayrı beceri beklentisi veya puan gösterilmez.'),
           const SizedBox(height: 12),
-
-          ...ScenariosRepository.allScenarios.map((scenario) {
-            final expectedBehavior = scenario.ageBreakdowns[_currentAgeGroup] ?? scenario.antecedent;
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
-                ],
-              ),
-              child: Material(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  leading: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFCBD5E1)),
-                    ),
-                    child: Text(
-                      scenario.code,
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-                    ),
-                  ),
-                  title: Text(
-                    scenario.title,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Color(0xFF0F172A)),
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 4.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Beklenen: $expectedBehavior',
-                          style: const TextStyle(fontSize: 12, color: Color(0xFF475569), height: 1.3),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          'Gözlem Eşiği: ${scenario.riskThreshold}',
-                          style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade700, fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ),
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF94A3B8)),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => OntologyDetailScreen(
-                          scenario: scenario,
-                          currentAgeGroup: _currentAgeGroup,
-                          currentAgeMonths: _currentMonth.toInt(),
-                          onNavigateToTab: (targetTab, ontCode) {
-                            setState(() {
-                              _currentTabIndex = targetTab;
-                              if (ontCode != null) {
-                                _studioOntologyCode = ontCode;
-                              }
-                            });
-                          },
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            );
-          }),
+          ...BehaviorCards.all.map((card) => Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            color: Colors.white,
+            child: ListTile(
+              key: ValueKey('behavior-card:${card.id}'),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              leading: Text(card.id, style: const TextStyle(fontWeight: FontWeight.bold)),
+              title: Text(card.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text(card.summary),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => OntologyDetailScreen(card: card),
+              )),
+            ),
+          )),
           const SizedBox(height: 16),
 
           // YETKİLİ SAĞLIK MERKEZLERİ BUTONU

@@ -14,15 +14,19 @@ import '../services/d01_evaluation_service.dart';
 import '../widgets/local_llama_test_card.dart';
 import 'scenario_graph_screen.dart';
 import 'clip_production_plan_screen.dart';
+import 'scenario_graph_import_screen.dart';
 
 class SyntheticVideoStudioScreen extends StatefulWidget {
   final String? initialOntologyCode;
   final int? initialAgeMonths;
+  /// Kontrollü widget testi için; bu ekran verilen servisi de kapatır.
+  final LocalLlamaTestService? modelTestService;
 
   const SyntheticVideoStudioScreen({
     super.key,
     this.initialOntologyCode,
     this.initialAgeMonths,
+    this.modelTestService,
   });
 
   @override
@@ -105,10 +109,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   bool _isLlamaDownloading = false;
   LlamaDownloadStatus _downloadStatus = LlamaDownloadStatus();
   StreamSubscription<LlamaDownloadStatus>? _downloadSub;
-  final _modelTest = LocalLlamaTestService(
-    resolveModel: LlamaModelService.getModelFile,
-    createRuntime: LlamadartTestRuntime.new,
-  );
+  late final LocalLlamaTestService _modelTest;
   final _d01Test = LocalLlamaTestService(
     request: LocalLlamaTestRequest.d01,
     resolveModel: LlamaModelService.getModelFile,
@@ -157,6 +158,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   @override
   void initState() {
     super.initState();
+    _modelTest = widget.modelTestService ?? LocalLlamaTestService(
+      resolveModel: LlamaModelService.getModelFile,
+      createRuntime: LlamadartTestRuntime.new,
+    );
     _evaluationSub = _d01Evaluation.states.listen((_) {
       if (mounted) setState(() {});
     });
@@ -554,7 +559,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
             children: [
               const Flexible(
                 child: Text(
-                  'Klinik Senaryo & Simülasyon',
+                  'Senaryo Stüdyosu',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -579,85 +584,52 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          if (_session != null)
-            IconButton(
-              icon: const Icon(Icons.copy_all_outlined, size: 20),
-              tooltip: _isAdminMode ? 'Tüm Video Promptlarını Kopyala (Admin)' : 'Senaryoyu Kopyala',
-              onPressed: () {
-                if (_isAdminMode) {
-                  _copyToClipboard(
-                    _session!.exportEnglishPromptsOnly(),
-                    'Tüm video promptları panoya kopyalandı!',
-                  );
-                } else {
-                  _copyToClipboard(
-                    _session!.exportDoctorCleanScenario(),
-                    'Klinik gözlem senaryosu panoya kopyalandı!',
-                  );
-                }
-              },
-            ),
-          if (_isAdminMode && _session != null) ...[
-            IconButton(
-              icon: const Icon(Icons.data_object_outlined, size: 20),
-              tooltip: 'JSON Dışa Aktar (Admin)',
-              onPressed: () {
-                _copyToClipboard(
-                  _session!.exportGroundTruthJson(),
-                  'Senaryo JSON formatında kopyalandı!',
-                );
-              },
-            ),
-          ],
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ADMİN BİLGİLENDİRME ŞERİDİ (SADECE ADMİNDE GÖRÜNÜR)
-            if (_isAdminMode) ...[
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF334155)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.admin_panel_settings_rounded, color: Color(0xFF38BDF8), size: 20),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Admin alanı: şablon klipleri ve video promptları görünür; ölçülmüş doğrulama sonucu yok.',
-                        style: TextStyle(fontSize: 11.5, color: Colors.white, height: 1.3),
+            // Derleme görünürlüğüdür; gerçek kullanıcı yetkilendirmesi değildir.
+            if (kDebugMode) ...[
+              Card(
+                margin: EdgeInsets.zero,
+                child: ListTile(
+                  key: const ValueKey('open-scenario-content'),
+                  leading: const Icon(Icons.edit_note),
+                  title: const Text('Senaryodan graf oluştur'),
+                  subtitle: const Text(
+                    'Senaryo içeriğini girin veya model demosuyla taslak alın. '
+                    'Yalnız debug görünürlüğü; yetkilendirme değildir.',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ScenarioGraphImportScreen(
+                        initialScenarioContent: true,
                       ),
                     ),
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFF38BDF8),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      onPressed: () {
-                        setState(() => _isAdminMode = false);
-                      },
-                      child: const Text('Kapat', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 8),
+              const Text(
+                'Oluşan graf, hazır D01 klip planına ve videolarına bağlı değildir.',
+              ),
+              const SizedBox(height: 20),
             ],
-
+            const Text(
+              'Hazır D01 örneği',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const Text('Elle hazırlanmış akış ve ona ait klip/video denemesi.'),
+            const SizedBox(height: 8),
             Card(
               margin: EdgeInsets.zero,
               child: ListTile(
                 key: const ValueKey('open-scenario-graph'),
                 leading: const Icon(Icons.account_tree_outlined),
-                title: const Text('Senaryo Grafı'),
+                title: const Text('Örnek akışı görüntüle'),
                 subtitle: const Text('Elle hazırlanmış D01 örneğini incele'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(
@@ -676,7 +648,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 child: ListTile(
                   key: const ValueKey('open-clip-production-plan'),
                   leading: const Icon(Icons.developer_mode),
-                  title: const Text('Geliştirici: Klip Üretim Planı'),
+                  title: const Text('Klip planı ve videolu deneme'),
                   subtitle: const Text(
                     'Yalnız debug görünürlüğü; kullanıcı yetkilendirmesi değildir.',
                   ),
@@ -691,161 +663,248 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               const SizedBox(height: 14),
             ],
 
-            // 1. MODEL DURUMU VE İNDİRME KARTI (HER ZAMAN GÖRÜNÜR)
-            StreamBuilder<LocalLlamaTestState>(
-              stream: _modelTest.states,
-              initialData: _modelTest.state,
-              builder: (context, hello) => StreamBuilder<LocalLlamaTestState>(
-                stream: _d01Test.states,
-                initialData: _d01Test.state,
-                builder: (context, d01) => StreamBuilder<LocalLlamaTestState>(
-                  stream: _d01EnglishTest.states,
-                  initialData: _d01EnglishTest.state,
-                  builder: (context, english) =>
-                      StreamBuilder<LocalLlamaTestState>(
-                        stream: _qwenTest.states,
-                        initialData: _qwenTest.state,
-                        builder: (context, qwen) =>
-                            StreamBuilder<LocalLlamaTestState>(
-                              stream: _qwenStartTest.states,
-                              initialData: _qwenStartTest.state,
-                              builder: (context, start) => Column(
-                                children: [
-                                  AbsorbPointer(
-                                    absorbing:
-                                        hello.data!.isBusy ||
-                                        d01.data!.isBusy ||
-                                        english.data!.isBusy ||
-                                        qwen.data!.isBusy ||
-                                        start.data!.isBusy ||
-                                        _d01Evaluation.state.isBusy ||
-                                        _isComparisonDownloading,
-                                    child: _buildLlamaManagementCard(),
+            ExpansionTile(
+              key: const ValueKey('studio-technical-tests'),
+              title: const Text('Teknik model denemeleri'),
+              initiallyExpanded: false,
+              maintainState: true,
+              childrenPadding: const EdgeInsets.only(top: 12, bottom: 12),
+              children: [
+                // Mevcut model yönetimi ve testler; kapanınca state korunur.
+                StreamBuilder<LocalLlamaTestState>(
+                  stream: _modelTest.states,
+                  initialData: _modelTest.state,
+                  builder: (context, hello) => StreamBuilder<LocalLlamaTestState>(
+                    stream: _d01Test.states,
+                    initialData: _d01Test.state,
+                    builder: (context, d01) => StreamBuilder<LocalLlamaTestState>(
+                      stream: _d01EnglishTest.states,
+                      initialData: _d01EnglishTest.state,
+                      builder: (context, english) =>
+                          StreamBuilder<LocalLlamaTestState>(
+                            stream: _qwenTest.states,
+                            initialData: _qwenTest.state,
+                            builder: (context, qwen) =>
+                                StreamBuilder<LocalLlamaTestState>(
+                                  stream: _qwenStartTest.states,
+                                  initialData: _qwenStartTest.state,
+                                  builder: (context, start) => Column(
+                                    children: [
+                                      AbsorbPointer(
+                                        absorbing:
+                                            hello.data!.isBusy ||
+                                            d01.data!.isBusy ||
+                                            english.data!.isBusy ||
+                                            qwen.data!.isBusy ||
+                                            start.data!.isBusy ||
+                                            _d01Evaluation.state.isBusy ||
+                                            _isComparisonDownloading,
+                                        child: _buildLlamaManagementCard(),
+                                      ),
+                                      const SizedBox(height: 14),
+                                      LocalLlamaTestCard(
+                                        service: _modelTest,
+                                        enabled:
+                                            !_isLlamaDownloading &&
+                                            !_isComparisonDownloading &&
+                                            !_d01Evaluation.state.isBusy,
+                                        disabledReason: _evaluationDisabledReason,
+                                      ),
+                                      const SizedBox(height: 14),
+                                      LocalLlamaTestCard(
+                                        service: _d01Test,
+                                        enabled:
+                                            !_isLlamaDownloading &&
+                                            !_isComparisonDownloading &&
+                                            !_d01Evaluation.state.isBusy,
+                                        disabledReason: _evaluationDisabledReason,
+                                      ),
+                                      const SizedBox(height: 14),
+                                      LocalLlamaTestCard(
+                                        service: _d01EnglishTest,
+                                        enabled:
+                                            !_isLlamaDownloading &&
+                                            !_isComparisonDownloading &&
+                                            !_d01Evaluation.state.isBusy,
+                                        disabledReason: _evaluationDisabledReason,
+                                      ),
+                                      const SizedBox(height: 14),
+                                      _buildComparisonDownloadCard(),
+                                      const SizedBox(height: 14),
+                                      LocalLlamaTestCard(
+                                        service: _qwenTest,
+                                        enabled:
+                                            !_isLlamaDownloading &&
+                                            !_isComparisonDownloading &&
+                                            !_d01Evaluation.state.isBusy,
+                                        disabledReason: _evaluationDisabledReason,
+                                      ),
+                                      const SizedBox(height: 14),
+                                      LocalLlamaTestCard(
+                                        service: _qwenStartTest,
+                                        footer: _buildD01EvaluationControls(),
+                                        enabled:
+                                            !_isLlamaDownloading &&
+                                            !_isComparisonDownloading &&
+                                            !_d01Evaluation.state.isBusy,
+                                        disabledReason: _evaluationDisabledReason,
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 14),
-                                  LocalLlamaTestCard(
-                                    service: _modelTest,
-                                    enabled:
-                                        !_isLlamaDownloading &&
-                                        !_isComparisonDownloading &&
-                                        !_d01Evaluation.state.isBusy,
-                                    disabledReason: _evaluationDisabledReason,
-                                  ),
-                                  const SizedBox(height: 14),
-                                  LocalLlamaTestCard(
-                                    service: _d01Test,
-                                    enabled:
-                                        !_isLlamaDownloading &&
-                                        !_isComparisonDownloading &&
-                                        !_d01Evaluation.state.isBusy,
-                                    disabledReason: _evaluationDisabledReason,
-                                  ),
-                                  const SizedBox(height: 14),
-                                  LocalLlamaTestCard(
-                                    service: _d01EnglishTest,
-                                    enabled:
-                                        !_isLlamaDownloading &&
-                                        !_isComparisonDownloading &&
-                                        !_d01Evaluation.state.isBusy,
-                                    disabledReason: _evaluationDisabledReason,
-                                  ),
-                                  const SizedBox(height: 14),
-                                  _buildComparisonDownloadCard(),
-                                  const SizedBox(height: 14),
-                                  LocalLlamaTestCard(
-                                    service: _qwenTest,
-                                    enabled:
-                                        !_isLlamaDownloading &&
-                                        !_isComparisonDownloading &&
-                                        !_d01Evaluation.state.isBusy,
-                                    disabledReason: _evaluationDisabledReason,
-                                  ),
-                                  const SizedBox(height: 14),
-                                  LocalLlamaTestCard(
-                                    service: _qwenStartTest,
-                                    footer: _buildD01EvaluationControls(),
-                                    enabled:
-                                        !_isLlamaDownloading &&
-                                        !_isComparisonDownloading &&
-                                        !_d01Evaluation.state.isBusy,
-                                    disabledReason: _evaluationDisabledReason,
-                                  ),
-                                ],
-                              ),
-                            ),
-                      ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // 2. HİBRİT MOTOR SEÇİCİ (0 MB YEREL vs LLAMA 3.2 ON-DEVICE)
-            _buildEngineSelectorCard(),
-            const SizedBox(height: 14),
-
-            // 3. DOKTOR PARAMETRE AYARLARI KARTI (SANİYESİZ, KLİNİK ODAKLI)
-            _buildDoctorConfigCard(),
-            const SizedBox(height: 14),
-
-            // 4. ADMİN: SANİYELİK VİDEO DİLİMLEME VE GROUND-TRUTH TESTİ (SADECE ADMİNDE AÇILIR)
-            if (_isAdminMode) ...[
-              _buildAdminVideoSlicingCard(),
-              const SizedBox(height: 14),
-              _buildModelValidationCard(),
-              const SizedBox(height: 16),
-            ],
-
-            // 5. ÜRETİLEN SENARYO VE KLİNİK AKIŞ
-            if (_isGenerating)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 36),
-                  child: Column(
-                    children: [
-                      CircularProgressIndicator(color: Color(0xFF0F172A)),
-                      SizedBox(height: 14),
-                      Text(
-                        'Şablon senaryo taslağı hazırlanıyor...',
-                        key: ValueKey('template-scenario-loading'),
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF475569)),
-                      ),
-                    ],
+                                ),
+                          ),
+                    ),
                   ),
                 ),
-              )
-            else if (_session != null) ...[
-              Text(
-                _session!.title,
-                key: const ValueKey('template-scenario-title'),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const Text(
-                'Hazır şablondan oluşturulmuş taslaktır; gerçek model çıkarımı '
-                'yapılmadı. Planlanan olaylar video veya gözlem kanıtı değildir.',
-                key: ValueKey('template-scenario-source'),
-              ),
-              const SizedBox(height: 10),
-              // GÖRÜNÜM SEÇENEĞİ (Adım Adım / Tek Metin Birleşik)
-              _buildViewModeToggle(),
-              const SizedBox(height: 10),
-
-              if (_scenarioViewMode == 'steps') ...[
-                if (_isAdminMode) ...[
-                  _buildAdminClipsHeader(),
-                  const SizedBox(height: 12),
-                ],
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _session!.steps.length,
-                  itemBuilder: (context, index) {
-                    return _buildStepCard(_session!.steps[index]);
-                  },
-                ),
-              ] else ...[
-                _buildUnifiedScenarioCard(),
+                const SizedBox(height: 14),
               ],
-            ],
+            ),
+            const SizedBox(height: 14),
+            ExpansionTile(
+              key: const ValueKey('studio-template-examples'),
+              title: const Text('Şablon örnekleri'),
+              initiallyExpanded: false,
+              maintainState: true,
+              childrenPadding: const EdgeInsets.only(top: 12, bottom: 12),
+              children: [
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    if (_session != null)
+                      IconButton(
+                        icon: const Icon(Icons.copy_all_outlined, size: 20),
+                        tooltip: _isAdminMode ? 'Tüm Video Promptlarını Kopyala (Admin)' : 'Senaryoyu Kopyala',
+                        onPressed: () {
+                          if (_isAdminMode) {
+                            _copyToClipboard(
+                              _session!.exportEnglishPromptsOnly(),
+                              'Tüm video promptları panoya kopyalandı!',
+                            );
+                          } else {
+                            _copyToClipboard(
+                              _session!.exportDoctorCleanScenario(),
+                              'Klinik gözlem senaryosu panoya kopyalandı!',
+                            );
+                          }
+                        },
+                      ),
+                    if (_isAdminMode && _session != null) ...[
+                      IconButton(
+                        icon: const Icon(Icons.data_object_outlined, size: 20),
+                        tooltip: 'JSON Dışa Aktar (Admin)',
+                        onPressed: () {
+                          _copyToClipboard(
+                            _session!.exportGroundTruthJson(),
+                            'Senaryo JSON formatında kopyalandı!',
+                          );
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+                // ADMİN BİLGİLENDİRME ŞERİDİ (SADECE ADMİNDE GÖRÜNÜR)
+                if (_isAdminMode) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF334155)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.admin_panel_settings_rounded, color: Color(0xFF38BDF8), size: 20),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Admin alanı: şablon klipleri ve video promptları görünür; ölçülmüş doğrulama sonucu yok.',
+                            style: TextStyle(fontSize: 11.5, color: Colors.white, height: 1.3),
+                          ),
+                        ),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFF38BDF8),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          onPressed: () {
+                            setState(() => _isAdminMode = false);
+                          },
+                          child: const Text('Kapat', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                // 2. HİBRİT MOTOR SEÇİCİ (0 MB YEREL vs LLAMA 3.2 ON-DEVICE)
+                _buildEngineSelectorCard(),
+                const SizedBox(height: 14),
+
+                // 3. DOKTOR PARAMETRE AYARLARI KARTI (SANİYESİZ, KLİNİK ODAKLI)
+                _buildDoctorConfigCard(),
+                const SizedBox(height: 14),
+
+                // 4. ADMİN: SANİYELİK VİDEO DİLİMLEME VE GROUND-TRUTH TESTİ (SADECE ADMİNDE AÇILIR)
+                if (_isAdminMode) ...[
+                  _buildAdminVideoSlicingCard(),
+                  const SizedBox(height: 14),
+                  _buildModelValidationCard(),
+                  const SizedBox(height: 16),
+                ],
+
+                // 5. ÜRETİLEN SENARYO VE KLİNİK AKIŞ
+                if (_isGenerating)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 36),
+                      child: Column(
+                        children: [
+                          CircularProgressIndicator(color: Color(0xFF0F172A)),
+                          SizedBox(height: 14),
+                          Text(
+                            'Şablon senaryo taslağı hazırlanıyor...',
+                            key: ValueKey('template-scenario-loading'),
+                            style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (_session != null) ...[
+                  Text(
+                    _session!.title,
+                    key: const ValueKey('template-scenario-title'),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const Text(
+                    'Hazır şablondan oluşturulmuş taslaktır; gerçek model çıkarımı '
+                    'yapılmadı. Planlanan olaylar video veya gözlem kanıtı değildir.',
+                    key: ValueKey('template-scenario-source'),
+                  ),
+                  const SizedBox(height: 10),
+                  // GÖRÜNÜM SEÇENEĞİ (Adım Adım / Tek Metin Birleşik)
+                  _buildViewModeToggle(),
+                  const SizedBox(height: 10),
+
+                  if (_scenarioViewMode == 'steps') ...[
+                    if (_isAdminMode) ...[
+                      _buildAdminClipsHeader(),
+                      const SizedBox(height: 12),
+                    ],
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _session!.steps.length,
+                      itemBuilder: (context, index) {
+                        return _buildStepCard(_session!.steps[index]);
+                      },
+                    ),
+                  ] else ...[
+                    _buildUnifiedScenarioCard(),
+                  ],
+                ],
+              ],
+            ),
           ],
         ),
       ),
