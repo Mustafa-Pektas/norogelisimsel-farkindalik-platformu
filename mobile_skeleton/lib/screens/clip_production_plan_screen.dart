@@ -11,9 +11,8 @@ import '../models/scenario_graph.dart';
 import '../services/clip_video_store.dart';
 import 'clip_video_preview_screen.dart';
 import 'graph_playback_screen.dart';
-import 'scenario_graph_import_screen.dart';
 
-typedef _LoadedPlan = ({ScenarioGraph graph, ScenarioClipPlan plan});
+typedef LoadedClipPlan = ({ScenarioGraph graph, ScenarioClipPlan plan});
 
 /// Yerel üretim hazırlığı; kullanıcı yetkilendirmesi veya video doğrulaması değildir.
 class ClipProductionPlanScreen extends StatefulWidget {
@@ -27,6 +26,23 @@ class ClipProductionPlanScreen extends StatefulWidget {
 
   static const d01GraphAssetPath = 'assets/scenarios/d01_scenario_graph.json';
   static const d01PlanAssetPath = 'assets/scenarios/d01_clip_plan.json';
+
+  /// Üretim alanı ve doğrudan D01 oynatma girişi aynı doğrulamayı kullanır.
+  static Future<LoadedClipPlan> loadPlanAssets(
+    AssetBundle bundle, {
+    String graphAssetPath = d01GraphAssetPath,
+    String planAssetPath = d01PlanAssetPath,
+  }) async {
+    final sources = await Future.wait([
+      bundle.loadString(graphAssetPath, cache: false),
+      bundle.loadString(planAssetPath, cache: false),
+    ]);
+    final graph = ScenarioGraph.fromJsonString(sources[0]);
+    final plan = ScenarioClipPlan.fromJsonString(sources[1]);
+    plan.validateAgainst(graph);
+    return (graph: graph, plan: plan);
+  }
+
   final String graphAssetPath;
   final String planAssetPath;
   final ClipVideoStore? videoStore;
@@ -38,7 +54,7 @@ class ClipProductionPlanScreen extends StatefulWidget {
 
 class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
   AssetBundle? _bundle;
-  late Future<_LoadedPlan> _loading;
+  late Future<LoadedClipPlan> _loading;
   late ClipVideoStore _videoStore;
   Map<String, ClipVideoBinding> _bindings = {};
   Map<String, bool> _videoExists = {};
@@ -55,15 +71,13 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
     _videoStore = widget.videoStore ?? ClipVideoStore(documentsDirectory: getApplicationDocumentsDirectory);
   }
 
-  Future<_LoadedPlan> _load() async {
+  Future<LoadedClipPlan> _load() async {
     final epoch = ++_loadEpoch;
-    final sources = await Future.wait([
-      _bundle!.loadString(widget.graphAssetPath, cache: false),
-      _bundle!.loadString(widget.planAssetPath, cache: false),
-    ]);
-    final graph = ScenarioGraph.fromJsonString(sources[0]);
-    final plan = ScenarioClipPlan.fromJsonString(sources[1]);
-    plan.validateAgainst(graph);
+    final data = await ClipProductionPlanScreen.loadPlanAssets(
+      _bundle!, graphAssetPath: widget.graphAssetPath, planAssetPath: widget.planAssetPath,
+    );
+    final graph = data.graph;
+    final plan = data.plan;
     try {
       final bindings = await _videoStore.loadPlan(plan.planId);
       final exists = <String, bool>{};
@@ -230,7 +244,7 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
       foregroundColor: Colors.white,
     ),
     body: SafeArea(
-      child: FutureBuilder<_LoadedPlan>(
+      child: FutureBuilder<LoadedClipPlan>(
         future: _loading,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -297,16 +311,6 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                         },
                         icon: const Icon(Icons.account_tree_outlined),
                         label: const Text('Grafı dene'),
-                      ),
-                      OutlinedButton.icon(
-                        key: const ValueKey('open-scenario-graph-import'),
-                        onPressed: () {
-                          Navigator.of(context).push(MaterialPageRoute<void>(
-                            builder: (_) => const ScenarioGraphImportScreen(),
-                          ));
-                        },
-                        icon: const Icon(Icons.input),
-                        label: const Text('Senaryo / graf içe aktar'),
                       ),
                     ],
                   ),

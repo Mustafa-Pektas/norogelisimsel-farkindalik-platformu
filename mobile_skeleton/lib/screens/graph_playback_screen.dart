@@ -55,12 +55,16 @@ class GraphPlaybackScreen extends StatefulWidget {
     required this.plan,
     required this.videoStore,
     this.createPlayer,
+    this.title = 'Grafı dene',
+    this.notice = 'Geliştirici denemesi; video içeriği ve sürekliliği doğrulanmadı',
   });
 
   final ScenarioGraph graph;
   final ScenarioClipPlan plan;
   final ClipVideoStore videoStore;
   final GraphClipPlayer Function(File)? createPlayer;
+  final String title;
+  final String notice;
 
   @override
   State<GraphPlaybackScreen> createState() => _GraphPlaybackScreenState();
@@ -168,7 +172,7 @@ class _GraphPlaybackScreenState extends State<GraphPlaybackScreen>
       child: Scaffold(
         backgroundColor: Colors.white,
         appBar: AppBar(
-          title: const Text('Grafı dene'),
+          title: Text(widget.title),
           backgroundColor: const Color(0xFF142540),
           foregroundColor: Colors.white,
         ),
@@ -178,7 +182,7 @@ class _GraphPlaybackScreenState extends State<GraphPlaybackScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('Geliştirici denemesi; video içeriği ve sürekliliği doğrulanmadı'),
+                Text(widget.notice),
                 const SizedBox(height: 12),
                 Text(scene.title ?? scene.id,
                     style: const TextStyle(fontWeight: FontWeight.bold)),

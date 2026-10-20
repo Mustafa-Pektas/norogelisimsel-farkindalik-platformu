@@ -93,7 +93,7 @@ void main() {
     expect(tester.takeException(), isNull);
   }
 
-  testWidgets('Giriş yalnız mevcut debug üretim alanından ayrı ekranı açar', (tester) async {
+  testWidgets('Mevcut debug üretim girişi geliştirici oynatma yolunu korur', (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(DefaultAssetBundle(bundle: _Bundle(sources),
       child: MaterialApp(home: ClipProductionPlanScreen(videoStore: harness.store))));

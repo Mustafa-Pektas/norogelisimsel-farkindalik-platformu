@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:neuro_awareness_app/models/behavior_cards.dart';
 import 'package:neuro_awareness_app/models/scenario_graph.dart';
 import 'package:neuro_awareness_app/screens/clip_production_plan_screen.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_import_screen.dart';
@@ -45,6 +47,7 @@ Widget _app(_ImportBundle bundle, {Widget home = const ScenarioGraphImportScreen
     DefaultAssetBundle(bundle: bundle, child: MaterialApp(home: home));
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   // Salt okunur asset fixture'ları test başlamadan belleğe alınır; async IO yok.
   final originalText = File(ScenarioGraphScreen.d01AssetPath).readAsStringSync();
   final original = ScenarioGraph.fromJsonString(originalText);
@@ -71,10 +74,139 @@ void main() {
   }
 
   Future<void> tap(WidgetTester tester, String key) async {
-    final target = find.byKey(ValueKey(key));
+    final title = switch (key) {
+      'scenario-import-format-details' => 'Biçim ve kaynak ayrıntıları',
+      'scenario-import-request-form' => 'Senaryo üretim isteği',
+      _ => null,
+    };
+    final target = title != null
+        ? find.descendant(of: find.byKey(ValueKey(key)), matching: find.text(title))
+        : find.byKey(ValueKey(key));
     await tester.ensureVisible(target);
     await tester.tap(target);
     await tester.pumpAndSettle();
+  }
+
+  for (final scenario in [false, true]) {
+    testWidgets('320 piksel ve büyük yazı: ${scenario ? 'senaryo' : 'graf'} ana eylemleri erişilir', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final bundle = _ImportBundle({});
+      await tester.pumpWidget(DefaultAssetBundle(
+        bundle: bundle,
+        child: MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: ScenarioGraphImportScreen(initialScenarioContent: scenario),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Teknik geliştirici arayüzü:'), findsNothing);
+      expect(find.textContaining('D01 demo metadata’sını uygulama sağlar:'), findsNothing);
+      expect(tester.widget<ExpansionTile>(
+        find.byKey(const ValueKey('scenario-import-format-details')),
+      ).initiallyExpanded, isFalse);
+      final editor = find.byKey(const ValueKey('scenario-import-json'));
+      await tester.ensureVisible(editor);
+      expect(editor.hitTestable(), findsOneWidget);
+      final text = scenario ? scenarioText : validText;
+      await enter(tester, text);
+      await tap(tester, 'scenario-import-validate');
+      expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
+      final field = tester.widget<TextField>(editor).controller!;
+      await tap(tester, 'scenario-import-format-details');
+      expect(find.textContaining('Teknik geliştirici arayüzü:'), findsOneWidget);
+      if (scenario) {
+        expect(find.textContaining('Kaynak (girdi beyanı):'), findsOneWidget);
+      }
+      await tap(tester, 'scenario-import-format-details');
+      expect(field.text, text);
+      expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
+      if (scenario) {
+        await tap(tester, 'scenario-import-request-form');
+        await tap(tester, 'scenario-request-behavior');
+        final item = find.text(BehaviorCards.all.first.title).last;
+        await tester.scrollUntilVisible(item, 100, scrollable: find.byType(Scrollable).last);
+        await tester.tap(item);
+        await tester.pumpAndSettle();
+        for (final entry in [('age', '12'), ('context', 'Evde oyuncaklarla.'),
+          ('instructions', 'Gün ışığında.')]) {
+          final input = find.byKey(ValueKey('scenario-request-${entry.$1}'));
+          await tester.ensureVisible(input);
+          expect(input.hitTestable(), findsOneWidget);
+          await tester.enterText(input, entry.$2);
+          await tester.pumpAndSettle();
+        }
+        final validate = find.byKey(const ValueKey('scenario-request-validate'));
+        await tester.ensureVisible(validate);
+        expect(validate.hitTestable(), findsOneWidget);
+        await tap(tester, 'scenario-request-validate');
+        expect(find.byKey(const ValueKey('scenario-request-summary')), findsOneWidget);
+        expect(find.text('Karakter yaşı: 12 ay'), findsOneWidget);
+        expect(field.text, text);
+        expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
+        await tap(tester, 'scenario-import-request-form');
+      } else {
+        expect(find.byKey(const ValueKey('scenario-import-request-form')), findsNothing);
+      }
+      final view = find.byKey(const ValueKey('scenario-import-view'));
+      await tester.ensureVisible(view);
+      expect(view.hitTestable(), findsOneWidget);
+      expect(tester.widget<OutlinedButton>(view).onPressed, isNotNull);
+      await tap(tester, 'scenario-import-view');
+      final viewer = tester.widget<ScenarioGraphScreen>(find.byType(ScenarioGraphScreen));
+      final graph = viewer.graph!;
+      expect(graph.scenarioId, scenario ? scenarioJson['scenarioId'] : expected.scenarioId);
+      final graphArea = find.byType(InteractiveViewer);
+      expect(tester.getSize(graphArea).height, greaterThan(0));
+      final transform = tester.widget<InteractiveViewer>(graphArea).transformationController!;
+      final fitted = transform.value.clone();
+      final source = find.byKey(const ValueKey('scenario-graph-source-scroll'));
+      expect(find.descendant(of: source, matching: find.text(
+        viewer.sourceLabel ?? ScenarioGraphScreen.importedSourceLabel,
+      )), findsOneWidget);
+      if (scenario) {
+        final scrollable = find.descendant(of: source, matching: find.byType(Scrollable));
+        final position = tester.state<ScrollableState>(scrollable).position;
+        expect(position.maxScrollExtent, greaterThan(0));
+        await tester.drag(source, Offset(0, -position.maxScrollExtent - 100));
+        await tester.pumpAndSettle();
+        expect(position.pixels, closeTo(position.maxScrollExtent, 1));
+        expect(transform.value, fitted);
+      }
+      final zoomIn = find.byTooltip('Yakınlaştır');
+      final zoomOut = find.byTooltip('Uzaklaştır');
+      final showAll = find.byKey(const ValueKey('show-all'));
+      for (final control in [zoomIn, zoomOut, showAll]) {
+        expect(control.hitTestable(), findsOneWidget);
+      }
+      await tester.tap(zoomIn);
+      await tester.pumpAndSettle();
+      expect(transform.value.getMaxScaleOnAxis(), greaterThan(fitted.getMaxScaleOnAxis()));
+      final zoomed = transform.value.clone();
+      await tester.drag(graphArea, const Offset(20, 20));
+      await tester.pumpAndSettle();
+      expect(transform.value, isNot(equals(zoomed)));
+      await tester.tap(zoomOut);
+      await tester.pumpAndSettle();
+      await tester.tap(showAll);
+      await tester.pumpAndSettle();
+      expect(transform.value, fitted);
+      final firstScene = graph.scenes.firstWhere((scene) => scene.id == graph.startSceneId);
+      await tester.tap(find.byKey(ValueKey('scene:${firstScene.id}')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.byKey(const ValueKey('scene-full-description'))).data,
+          firstScene.description);
+      await tester.tap(find.byTooltip('Ayrıntıları kapat'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('scene-details')), findsNothing);
+      expect(bundle.reads, isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    });
   }
 
   testWidgets('Geçerli JSON özetlenir; doğrulanmış nesne asset okumadan doğru kaynakla açılır', (tester) async {
@@ -176,7 +308,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Debug geliştirici üretim alanı içe aktarma ekranına gider; eşleme yüklemesi tekrarlanmaz', (tester) async {
+  testWidgets('Klip planında tekrarlayan içe aktarma girişi yoktur; eşleme yüklemesi korunur', (tester) async {
     final store = _NoVideos();
     final bundle = _ImportBundle({
       ClipProductionPlanScreen.d01GraphAssetPath: originalText,
@@ -185,9 +317,11 @@ void main() {
     await tester.pumpWidget(_app(bundle, home: ClipProductionPlanScreen(videoStore: store)));
     await tester.pumpAndSettle();
     expect(store.reads, 1);
-    await tap(tester, 'open-scenario-graph-import');
-    expect(find.byType(ScenarioGraphImportScreen), findsOneWidget);
-    expect(find.text(ScenarioGraphScreen.importedSourceLabel), findsOneWidget);
+    expect(find.byKey(const ValueKey('open-scenario-graph-import')), findsNothing);
+    expect(find.text('Senaryo / graf içe aktar'), findsNothing);
+    expect(find.byKey(const ValueKey('open-graph-playback')), findsOneWidget);
+    expect(find.byType(ClipProductionPlanScreen), findsOneWidget);
+    expect(find.byType(ScenarioGraphImportScreen), findsNothing);
     expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
     expect(store.reads, 1);
     expect(bundle.reads, hasLength(2));
@@ -204,6 +338,8 @@ void main() {
       await tester.pumpWidget(_app(bundle));
       await tap(tester, 'scenario-import-mode-scenario');
       expect(find.text('Graf oluştur'), findsOneWidget);
+      expect(find.textContaining('Teknik geliştirici arayüzü:'), findsNothing);
+      await tap(tester, 'scenario-import-format-details');
       expect(find.textContaining('Teknik geliştirici arayüzü:'), findsOneWidget);
       await enter(tester, text);
       await tap(tester, 'scenario-import-validate');
@@ -261,6 +397,7 @@ void main() {
         isNull);
     await tap(tester, 'scenario-import-validate');
     expect(find.text('Alternatif: 2'), findsOneWidget);
+    await tap(tester, 'scenario-import-format-details');
     expect(find.text('Kaynak (girdi beyanı): Elle hazırlanmış örnek (manual_example)'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

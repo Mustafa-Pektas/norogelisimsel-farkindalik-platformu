@@ -1,16 +1,19 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neuro_awareness_app/main.dart';
 import 'package:neuro_awareness_app/models/behavior_cards.dart';
+import 'package:neuro_awareness_app/screens/home_screen.dart';
 import 'package:neuro_awareness_app/screens/ontology_detail_screen.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_import_screen.dart';
 import 'package:neuro_awareness_app/screens/synthetic_video_studio_screen.dart';
 import 'package:neuro_awareness_app/screens/video_analysis_screen.dart';
 import 'package:neuro_awareness_app/services/local_llama_test_service.dart';
 import 'package:neuro_awareness_app/widgets/local_llama_test_card.dart';
+import 'package:neuro_awareness_app/widgets/floating_video_controls.dart';
 import 'package:neuro_awareness_app/widgets/age_slider_card.dart';
 // Mevcut testlerdeki platform sınırları; gerçek dosya/model/video motoru yok.
 // ignore: depend_on_referenced_packages
@@ -27,6 +30,8 @@ class _NoDocuments extends PathProviderPlatform {
 class _VideoPlatform extends VideoPlayerPlatform {
   int players = 0;
   int plays = 0;
+  int pauses = 0;
+  final positions = <int, Duration>{};
 
   @override
   Future<void> init() async {}
@@ -43,11 +48,13 @@ class _VideoPlatform extends VideoPlayerPlatform {
   @override
   Future<void> play(int playerId) async { plays++; }
   @override
-  Future<void> pause(int playerId) async {}
+  Future<void> pause(int playerId) async { pauses++; }
   @override
-  Future<void> seekTo(int playerId, Duration position) async {}
+  Future<void> seekTo(int playerId, Duration position) async {
+    positions[playerId] = position;
+  }
   @override
-  Future<Duration> getPosition(int playerId) async => Duration.zero;
+  Future<Duration> getPosition(int playerId) async => positions[playerId] ?? Duration.zero;
   @override
   Future<void> setLooping(int playerId, bool looping) async {}
   @override
@@ -83,8 +90,6 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1200, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(const NeuroAwarenessApp());
-    // Mevcut açılış şablonunun 250 ms beklemesini bitir; çıkarım başlatılmaz.
-    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
   }
 
@@ -113,7 +118,7 @@ void main() {
     }
   }
 
-  Future<void> close(WidgetTester tester) async {
+  Future<void> close(WidgetTester tester, {int expectedPlays = 0}) async {
     final cards = tester.widgetList<LocalLlamaTestCard>(
       find.byType(LocalLlamaTestCard, skipOffstage: false),
     ).toList();
@@ -123,7 +128,7 @@ void main() {
           reason: 'Gezinme gerçek model çıkarımı başlatmamalı.');
     }
     expect(video.players, 1);
-    expect(video.plays, 0);
+    expect(video.plays, expectedPlays);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -137,6 +142,61 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+
+  for (final exit in ['alt sekme', 'sistem geri', 'aynı karede geri dönüş']) {
+    testWidgets('Video Analizi: $exit duraklatır; dönüş aynı oynatıcı ve konumu korur', (tester) async {
+      await mount(tester);
+      await tester.tap(destination('Video Analizi'));
+      await tester.pumpAndSettle();
+      final videoScreen = tester.state(find.byType(VideoAnalysisScreen));
+      final current = tester.widget<FloatingVideoControls>(
+        find.byType(FloatingVideoControls),
+      ).controller;
+      await current.seekTo(const Duration(seconds: 6));
+      await current.play();
+      await tester.pump();
+      expect(current.value.isPlaying, isTrue);
+      final plays = video.plays;
+      final pauses = video.pauses;
+      if (exit == 'sistem geri') {
+        await tester.binding.handlePopRoute();
+      } else if (exit == 'aynı karede geri dönüş') {
+        final nav = tester.widget<NavigationBar>(find.byType(NavigationBar));
+        nav.onDestinationSelected!(0);
+        nav.onDestinationSelected!(1);
+      } else {
+        await tester.tap(destination('Ana\u00A0Panel'));
+      }
+      await tester.pumpAndSettle();
+      expect(current.value.isPlaying, isFalse);
+      expect(current.value.position, const Duration(seconds: 6));
+      expect(video.pauses, greaterThan(pauses));
+      expect(video.plays, plays);
+      if (exit != 'aynı karede geri dönüş') {
+        expectTab(tester, 0);
+        await tester.tap(destination('Video Analizi'));
+        await tester.pumpAndSettle();
+      }
+      expectTab(tester, 1);
+      expect(tester.state(find.byType(VideoAnalysisScreen)), same(videoScreen));
+      expect(tester.widget<FloatingVideoControls>(
+        find.byType(FloatingVideoControls),
+      ).controller, same(current));
+      expect(current.value.isPlaying, isFalse);
+      expect(current.value.position, const Duration(seconds: 6));
+      expect(video.players, 1);
+      expect(video.plays, plays);
+      final play = find.widgetWithIcon(IconButton, Icons.play_arrow_rounded);
+      await tester.ensureVisible(play);
+      await tester.tap(play);
+      await tester.pump();
+      expect(current.value.isPlaying, isTrue);
+      expect(video.plays, plays + 1);
+      await current.pause();
+      await close(tester, expectedPlays: plays + 1);
+    });
+  }
+
   testWidgets('Ana panelde tam olarak D01–D10 gösterilir; eski eşik ve norm kartları yoktur', (tester) async {
     await mount(tester);
     final tiles = tester.widgetList<ListTile>(find.byWidgetPredicate(
@@ -145,7 +205,11 @@ void main() {
           (widget.key! as ValueKey<String>).value.startsWith('behavior-card:'),
     )).toList();
     expect(tiles, hasLength(10));
-    expect(find.text('10 davranış kartı'), findsOneWidget);
+    expect(find.text('Davranışları tanıyın'), findsOneWidget);
+    expect(find.text('Videolarda incelenen davranışlar hakkında bilgi edinin.'), findsOneWidget);
+    expect(find.textContaining('Kart sürümü'), findsNothing);
+    expect(find.textContaining(BehaviorCards.sourceName), findsNothing);
+    expect(find.textContaining('İlk teknik pilot'), findsNothing);
     for (var i = 0; i < 10; i++) {
       final card = BehaviorCards.all[i];
       expect(tiles[i].key, ValueKey('behavior-card:D${(i + 1).toString().padLeft(2, '0')}'));
@@ -156,12 +220,54 @@ void main() {
     expect(find.textContaining('Gözlem Eşiği:'), findsNothing);
     expect(find.textContaining('Beklenen:'), findsNothing);
     expect(find.textContaining('ONT-'), findsNothing);
-    expect(find.text('Şablon yaşı'), findsOneWidget);
+    expect(find.text('Şablon yaşı'), findsNothing);
+    expect(find.byType(AgeSliderCard), findsNothing);
+    expect(find.textContaining('Yaş seçimi yalnız Şablon örnekleri içindir'), findsNothing);
+    expect(dashboardEntry('Video Analizi'), findsOneWidget);
+    expect(dashboardEntry('Simülasyon ve Eğitim'), findsOneWidget);
+    await close(tester);
+  });
+
+  testWidgets('Sekme dönüşü ve Home rebuildi şablon üretmez; Stüdyo state ve servisleri korunur', (tester) async {
+    await mount(tester);
+    await tester.tap(destination('Simülasyon ve Eğitim'));
+    await tester.pumpAndSettle();
+    final studio = tester.state(find.byType(SyntheticVideoStudioScreen));
+    final original = tester.widgetList<LocalLlamaTestCard>(
+      find.byType(LocalLlamaTestCard, skipOffstage: false),
+    ).map((card) => card.service).toList();
+
+    void expectRetained() {
+      expect(tester.state(find.byType(SyntheticVideoStudioScreen)), same(studio));
+      expect(find.text('Eski şablon araçları', skipOffstage: false), findsNothing);
+      for (final key in ['studio-template-examples', 'generate-template-scenario',
+        'template-scenario-loading', 'template-scenario-title']) {
+        expect(find.byKey(ValueKey(key), skipOffstage: false), findsNothing);
+      }
+      final current = tester.widgetList<LocalLlamaTestCard>(
+        find.byType(LocalLlamaTestCard, skipOffstage: false),
+      ).map((card) => card.service).toList();
+      expect(current, hasLength(original.length));
+      for (var i = 0; i < original.length; i++) {
+        expect(current[i], same(original[i]));
+      }
+    }
+
+    expectRetained();
+    await tester.tap(destination('Ana\u00A0Panel'));
+    await tester.pumpAndSettle();
+    expectTab(tester, 0);
+    await tester.tap(destination('Simülasyon ve Eğitim'));
+    await tester.pumpAndSettle();
+    expectRetained();
+    tester.element(find.byType(HomeScreen)).markNeedsBuild();
+    await tester.pumpAndSettle();
+    expectRetained();
     await close(tester);
   });
 
   for (final card in BehaviorCards.all) {
-    testWidgets('${card.id}: doğru kart ayrıntısı açılır; eski ONT üretimine geçiş yoktur', (tester) async {
+    testWidgets('${card.id}: kullanıcı içeriği doğru karttır; tam gözlem bilgisi debug ekip bölümündedir', (tester) async {
       await mount(tester);
       final entry = find.byKey(ValueKey('behavior-card:${card.id}'));
       await tester.ensureVisible(entry);
@@ -169,6 +275,10 @@ void main() {
       await tester.pumpAndSettle();
       final detail = tester.widget<OntologyDetailScreen>(find.byType(OntologyDetailScreen));
       expect(detail.card, same(card));
+      final title = tester.widget<AppBar>(find.byType(AppBar)).title! as Text;
+      expect(title.data, card.title);
+      expect(title.maxLines, 1);
+      expect(title.overflow, TextOverflow.ellipsis);
       expect(tester.widget<Text>(
         find.byKey(const ValueKey('behavior-detail-title')),
       ).data, card.title);
@@ -179,36 +289,40 @@ void main() {
       ]) {
         expect(tester.widget<Text>(find.byKey(ValueKey(field.$1))).data, field.$2);
       }
-      expect(find.text('Bilgilendirme amaçlıdır; tanı veya puanlama yapılmaz.'), findsOneWidget);
-      final rules = find.byKey(ValueKey('behavior-observation-rules:${card.id}'));
-      final technical = find.byKey(ValueKey('behavior-technical-info:${card.id}'));
-      for (final section in [rules, technical]) {
-        expect(tester.widget<ExpansionTile>(section).initiallyExpanded, isFalse);
-      }
-      for (var i = 0; i < card.conditions.length; i++) {
-        expect(find.byKey(ValueKey('behavior-condition:${card.id}:$i')), findsNothing);
-      }
+      expect(find.text('Bu bilgiler davranışları tanımak içindir; tanı veya '
+          'yaşa göre gelişim değerlendirmesi değildir.'), findsOneWidget);
+      expect(find.byKey(const ValueKey('open-d01-model-demo'), skipOffstage: false), findsNothing);
+      expect(find.byKey(const ValueKey('d01-demo-scope'), skipOffstage: false), findsNothing);
+      expect(find.textContaining('Şablon yaşı'), findsNothing);
+      expect(find.byType(FilledButton), findsNothing);
+      expect(find.byType(ElevatedButton), findsNothing);
+      expect(find.byType(OutlinedButton), findsNothing);
+      expect(find.byType(ScenarioGraphImportScreen), findsNothing);
+
+      expect(kDebugMode, isTrue); // Widget koşusu release görünürlüğü kanıtı değildir.
+      final team = find.byKey(ValueKey('behavior-team-details:${card.id}'));
+      expect(team, findsOneWidget);
+      expect(find.byType(ExpansionTile), findsOneWidget);
+      expect(tester.widget<ExpansionTile>(team).initiallyExpanded, isFalse);
+      expect(tester.widget<ExpansionTile>(team).maintainState, isTrue);
+      expect(find.textContaining('yetkilendirme değildir'), findsOneWidget);
       final source = 'Kart sürümü: ${card.cardVersion} · Kaynak: ${BehaviorCards.sourceName}';
       expect(find.text(source), findsNothing);
+      expect(find.textContaining(BehaviorCards.sourceName), findsNothing);
       expect(find.text(BehaviorCards.scope), findsNothing);
       expect(find.text(BehaviorCards.ageScope), findsNothing);
       expect(find.byKey(const ValueKey('behavior-window')), findsNothing);
       expect(find.text(BehaviorCards.windowNotice), findsNothing);
-      if (card.id == 'D01') {
-        final demo = find.byKey(const ValueKey('open-d01-model-demo'));
-        expect(demo, findsOneWidget);
-        expect(tester.getTopLeft(demo).dy, lessThan(tester.getTopLeft(rules).dy));
-        expect(tester.getTopLeft(demo).dy, lessThan(tester.getTopLeft(technical).dy));
-        expect(tester.widget<Text>(
-          find.byKey(const ValueKey('d01-demo-scope')),
-        ).data, '30 aylık Deniz için sabit demo; oluşan akış hazır videolara bağlı değildir.');
+      for (var i = 0; i < card.conditions.length; i++) {
+        expect(find.byKey(ValueKey('behavior-condition:${card.id}:$i')), findsNothing);
       }
-      await toggleBehaviorSection(tester, 'Ayrıntılı gözlem kuralları');
+
+      await toggleBehaviorSection(tester, 'Ekip için gözlem ayrıntıları');
       for (var i = 0; i < card.conditions.length; i++) {
         expect(find.text(BehaviorCards.conditionLabels[i]), findsOneWidget);
-        expect(tester.widget<Text>(
-          find.byKey(ValueKey('behavior-condition:${card.id}:$i')),
-        ).data, card.conditions[i]);
+        final condition = find.byKey(ValueKey('behavior-condition:${card.id}:$i'));
+        expect(condition, findsOneWidget);
+        expect(tester.widget<Text>(condition).data, card.conditions[i]);
       }
       final lastRule = find.byKey(ValueKey(
         'behavior-condition:${card.id}:${card.conditions.length - 1}',
@@ -216,8 +330,6 @@ void main() {
       await tester.ensureVisible(lastRule);
       await tester.pumpAndSettle();
       expect(lastRule.hitTestable(), findsOneWidget);
-      expect(find.text(BehaviorCards.ageScope), findsNothing);
-      await toggleBehaviorSection(tester, 'Teknik bilgiler');
       expect(find.text(source), findsOneWidget);
       expect(find.text(BehaviorCards.scope), findsOneWidget);
       expect(find.text(BehaviorCards.ageScope), findsOneWidget);
@@ -233,13 +345,6 @@ void main() {
       await tester.ensureVisible(windowNotice);
       await tester.pumpAndSettle();
       expect(windowNotice.hitTestable(), findsOneWidget);
-      if (card.id == 'D01') {
-        expect(tester.widget<Text>(
-          find.byKey(const ValueKey('d01-demo-technical-scope')),
-        ).data, 'Mevcut D01 model demosu 30 aylık Deniz ile sınırlıdır. '
-            'Şablon yaşı bu demoyu değiştirmez. Oluşan graf hazır D01 '
-            'klip planına veya videolarına bağlı değildir.');
-      }
       expect(find.textContaining('Gözlem Eşiği'), findsNothing);
       expect(find.textContaining('Bu Yaşta Ne Beklenir'), findsNothing);
       expect(find.textContaining('Tipik'), findsNothing);
@@ -247,18 +352,8 @@ void main() {
       expect(find.textContaining('%'), findsNothing);
       expect(find.text('Bu Davranış İçin Senaryo Üret'), findsNothing);
       expect(find.text('Videodan Analiz Et'), findsNothing);
-      if (card.id == 'D01') {
-        expect(find.byKey(const ValueKey('open-d01-model-demo')), findsOneWidget);
-        expect(find.byKey(const ValueKey('behavior-not-connected')), findsNothing);
-      } else {
-        expect(find.byKey(const ValueKey('behavior-not-connected')), findsOneWidget);
-        expect(find.byType(FilledButton), findsNothing);
-        expect(find.byType(ElevatedButton), findsNothing);
-        expect(find.byType(OutlinedButton), findsNothing);
-      }
-      expect(find.byType(ScenarioGraphImportScreen), findsNothing);
-      await toggleBehaviorSection(tester, 'Ayrıntılı gözlem kuralları');
-      await toggleBehaviorSection(tester, 'Teknik bilgiler');
+      await toggleBehaviorSection(tester, 'Ekip için gözlem ayrıntıları');
+      expect(find.text(source), findsNothing);
       expect(find.text(BehaviorCards.ageScope), findsNothing);
       expect(find.text(BehaviorCards.windowNotice), findsNothing);
       expect(find.byKey(ValueKey('behavior-condition:${card.id}:0')), findsNothing);
@@ -272,51 +367,106 @@ void main() {
     });
   }
 
-  for (final age in [12.0, 36.0]) {
-    testWidgets('Şablon yaşı $age iken D01 mevcut demoyu sabit 30 ayla açar', (tester) async {
-      await mount(tester);
-      tester.widget<AgeSliderCard>(find.byType(AgeSliderCard)).onChanged(age);
-      await tester.pump(const Duration(milliseconds: 300));
+  for (final id in ['D08', 'D10']) {
+    testWidgets('$id: 320 piksel ve büyük yazıda tam ad, temel içerik ve geri kontrolü erişilebilir', (tester) async {
+      final card = BehaviorCards.all.firstWhere((card) => card.id == id);
+      await tester.binding.setSurfaceSize(const Size(320, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: Builder(builder: (context) => Scaffold(
+          body: Center(child: TextButton(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => OntologyDetailScreen(card: card),
+            )),
+            child: const Text('Ayrıntıyı aç'),
+          )),
+        )),
+      ));
+      await tester.tap(find.text('Ayrıntıyı aç'));
       await tester.pumpAndSettle();
-      final entry = find.byKey(const ValueKey('behavior-card:D01'));
-      await tester.ensureVisible(entry);
-      await tester.tap(entry);
+      expect(tester.takeException(), isNull);
+      final back = find.byType(BackButton);
+      expect(back.hitTestable(), findsOneWidget);
+      final backBounds = tester.getRect(back);
+      expect(backBounds.left, greaterThanOrEqualTo(0));
+      expect(backBounds.right, lessThanOrEqualTo(320));
+      final appTitle = tester.widget<AppBar>(find.byType(AppBar)).title! as Text;
+      expect(appTitle.data, card.title);
+      expect(appTitle.maxLines, 1);
+      expect(appTitle.overflow, TextOverflow.ellipsis);
+      final fullTitle = tester.widget<Text>(
+        find.byKey(const ValueKey('behavior-detail-title')),
+      );
+      expect(fullTitle.data, card.title);
+      expect(fullTitle.maxLines, isNull);
+      expect(fullTitle.overflow, isNot(TextOverflow.ellipsis));
+      for (final field in [
+        ('behavior-purpose', card.purpose),
+        ('behavior-preparation', card.preparation),
+        ('behavior-instruction', card.instruction),
+      ]) {
+        final content = find.byKey(ValueKey(field.$1));
+        await tester.ensureVisible(content);
+        await tester.pumpAndSettle();
+        expect(tester.widget<Text>(content).data, field.$2);
+        expect(content.hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      expect(back.hitTestable(), findsOneWidget);
+      await tester.tap(back);
       await tester.pumpAndSettle();
-      expect(tester.widget<Text>(
-        find.byKey(const ValueKey('d01-demo-scope')),
-      ).data, contains('30 aylık Deniz'));
-      final demo = find.byKey(const ValueKey('open-d01-model-demo'));
-      await tester.ensureVisible(demo);
-      await tester.tap(demo);
+      expect(find.byType(OntologyDetailScreen), findsNothing);
+      expect(find.text('Ayrıntıyı aç'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
-      expect(find.byType(ScenarioGraphImportScreen), findsOneWidget);
-      expect(tester.widget<ChoiceChip>(
-        find.byKey(const ValueKey('scenario-import-mode-scenario')),
-      ).selected, isTrue);
-      final request = tester.widget<LocalLlamaTestCard>(
-        find.byType(LocalLlamaTestCard),
-      ).service.request;
-      expect(request, same(LocalLlamaTestRequest.d01GraphDemo));
-      expect(request.prompt, contains('30 aylık Deniz'));
-      expect(LocalLlamaTestRequest.d01GraphDemoMetadata['ageMonths'], 30);
-      expect(LocalLlamaTestRequest.d01GraphDemoMetadata['behaviorId'], 'D01');
-      expect(LocalLlamaTestRequest.d01GraphDemoMetadata['cardVersion'], '0.2');
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
-      expect(find.byType(OntologyDetailScreen), findsOneWidget);
-      await close(tester);
+      expect(tester.takeException(), isNull);
+      expect(video.players, 0);
     });
   }
+
+  testWidgets('D01 model demosu ayrıntıdan değil Stüdyo girişinden sabit 30 ayla açılır', (tester) async {
+    await mount(tester);
+    await tester.pumpAndSettle();
+    await tester.tap(destination('Simülasyon ve Eğitim'));
+    await tester.pumpAndSettle();
+    final demo = find.byKey(const ValueKey('open-scenario-content'));
+    await tester.ensureVisible(demo);
+    await tester.tap(demo);
+    await tester.pumpAndSettle();
+    expect(find.byType(ScenarioGraphImportScreen), findsOneWidget);
+    expect(tester.widget<ChoiceChip>(
+      find.byKey(const ValueKey('scenario-import-mode-scenario')),
+    ).selected, isTrue);
+    await toggleBehaviorSection(tester, 'Modelden taslak al — D01, 30 ay');
+    final request = tester.widget<LocalLlamaTestCard>(
+      find.byType(LocalLlamaTestCard),
+    ).service.request;
+    expect(request, same(LocalLlamaTestRequest.d01GraphDemo));
+    expect(request.prompt, contains('30 aylık Deniz'));
+    expect(LocalLlamaTestRequest.d01GraphDemoMetadata['ageMonths'], 30);
+    expect(LocalLlamaTestRequest.d01GraphDemoMetadata['behaviorId'], 'D01');
+    expect(LocalLlamaTestRequest.d01GraphDemoMetadata['cardVersion'], '0.2');
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(SyntheticVideoStudioScreen), findsOneWidget);
+    await close(tester);
+  });
 
   testWidgets('Ana panel girişleri bugünkü işlevleri anlatır; video adı sekmeyle tutarlıdır', (tester) async {
     await mount(tester);
     expect(find.text('Nörogelişimsel Farkındalık Platformu'), findsOneWidget);
-    expect(dashboardEntry('Video izle'), findsOneWidget);
-    expect(destination('Video izle'), findsOneWidget);
-    expect(find.text('Bir video seçip izleyin.'), findsOneWidget);
-    expect(dashboardEntry('Senaryo Stüdyosu'), findsOneWidget);
-    expect(find.text('Senaryo taslaklarını ve hazır örnekleri inceleyin. Yapay zekâ denemeleri ayrı çalışır.'),
+    expect(find.byTooltip('Gemini API Anahtarı'), findsNothing);
+    expect(find.byIcon(Icons.key_outlined), findsNothing);
+    expect(dashboardEntry('Video Analizi'), findsOneWidget);
+    expect(destination('Video Analizi'), findsOneWidget);
+    expect(find.text('Video seçip izleyin. Otomatik analiz bağlantısı henüz tamamlanmadı.'), findsOneWidget);
+    expect(dashboardEntry('Simülasyon ve Eğitim'), findsOneWidget);
+    expect(find.text('Hazır D01 örneğinin akışını inceleyin.'),
         findsOneWidget);
     expect(find.textContaining('otomatik zaman damgalı kanıt analizi'), findsNothing);
     expect(find.textContaining('Klinik davranış akışı, seans kurgulama'), findsNothing);
@@ -325,8 +475,8 @@ void main() {
   });
 
   for (final entry in [
-    (title: 'Video izle', tabLabel: 'Video izle', index: 1),
-    (title: 'Senaryo Stüdyosu', tabLabel: 'Senaryo\u00A0Stüdyosu', index: 2),
+    (title: 'Video Analizi', tabLabel: 'Video Analizi', index: 1),
+    (title: 'Simülasyon ve Eğitim', tabLabel: 'Simülasyon ve Eğitim', index: 2),
   ]) {
     testWidgets('${entry.title}: ana panel kartı doğru sekmeyi açar', (tester) async {
       await mount(tester);
@@ -335,6 +485,14 @@ void main() {
       await tester.tap(card);
       await tester.pumpAndSettle();
       expectTab(tester, entry.index);
+      if (entry.index == 1) {
+        expect(find.widgetWithText(AppBar, 'Video Analizi'), findsOneWidget);
+        expect(find.byTooltip('Gemini API Anahtarı'), findsNothing);
+        expect(find.text('Video seç'), findsOneWidget);
+        expect(find.text('Bu video analiz edilmedi. Video seçip izleyebilirsiniz; '
+            'otomatik analiz bağlantısı henüz tamamlanmadı.'), findsOneWidget);
+        expect(find.textContaining('Risk Saptanmadı'), findsNothing);
+      }
       await close(tester);
     });
 

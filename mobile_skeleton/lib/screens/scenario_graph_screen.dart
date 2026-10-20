@@ -356,187 +356,196 @@ class _GraphViewState extends State<_GraphView> {
   Widget build(BuildContext context) {
     final graph = widget.graph;
     final layout = _GraphLayout(graph, MediaQuery.textScalerOf(context));
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.sourceLabel,
-                style: _bodyStyle.copyWith(fontWeight: FontWeight.w600),
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ConstrainedBox(
+            // Uzun kaynak metni graf alanını tüketmesin; tamamı kaydırılabilir.
+            constraints: BoxConstraints(maxHeight: constraints.maxHeight * .4),
+            child: SingleChildScrollView(
+              key: const ValueKey('scenario-graph-source-scroll'),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.sourceLabel,
+                      style: _bodyStyle.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${graph.behaviorId} · Planlanan senaryo; gözlem değildir.',
+                      style: _edgeStyle,
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 3),
-              Text(
-                '${graph.behaviorId} · Planlanan senaryo; gözlem değildir.',
-                style: _edgeStyle,
+            ),
+          ),
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              IconButton(
+                tooltip: 'Uzaklaştır',
+                onPressed: () => _zoom(1 / 1.25),
+                icon: const Icon(Icons.remove, color: _navy),
+              ),
+              IconButton(
+                tooltip: 'Yakınlaştır',
+                onPressed: () => _zoom(1.25),
+                icon: const Icon(Icons.add, color: _navy),
+              ),
+              TextButton.icon(
+                key: const ValueKey('show-all'),
+                onPressed: () {
+                  if (_lastViewport != null) _fit(layout.size, _lastViewport!);
+                },
+                icon: const Icon(Icons.fit_screen),
+                label: const Text('Tümünü göster'),
+                style: TextButton.styleFrom(foregroundColor: _navy),
               ),
             ],
           ),
-        ),
-        Wrap(
-          alignment: WrapAlignment.center,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            IconButton(
-              tooltip: 'Uzaklaştır',
-              onPressed: () => _zoom(1 / 1.25),
-              icon: const Icon(Icons.remove, color: _navy),
-            ),
-            IconButton(
-              tooltip: 'Yakınlaştır',
-              onPressed: () => _zoom(1.25),
-              icon: const Icon(Icons.add, color: _navy),
-            ),
-            TextButton.icon(
-              key: const ValueKey('show-all'),
-              onPressed: () {
-                if (_lastViewport != null) _fit(layout.size, _lastViewport!);
-              },
-              icon: const Icon(Icons.fit_screen),
-              label: const Text('Tümünü göster'),
-              style: TextButton.styleFrom(foregroundColor: _navy),
-            ),
-          ],
-        ),
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final viewport = constraints.biggest;
-              if (_lastCanvas != layout.size || _lastViewport != viewport) {
-                _lastCanvas = layout.size;
-                _lastViewport = viewport;
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) _fit(layout.size, viewport);
-                });
-              }
-              return ColoredBox(
-                color: _background,
-                child: InteractiveViewer(
-                  key: const ValueKey('scenario-graph-viewer'),
-                  transformationController: _transform,
-                  constrained: false,
-                  boundaryMargin: const EdgeInsets.all(160),
-                  minScale: .1,
-                  maxScale: 3,
-                  child: SizedBox(
-                    width: layout.size.width,
-                    height: layout.size.height,
-                    child: CustomPaint(
-                      painter: _ConnectionsPainter(layout),
-                      child: Stack(
-                        children: [
-                          for (final scene in graph.scenes)
-                            Positioned.fromRect(
-                              rect: layout.nodes[scene.id]!,
-                              child: Semantics(
-                                button: true,
-                                label:
-                                    '${_title(graph, scene)}, ayrıntıları aç',
-                                child: Material(
-                                  key: ValueKey('scene:${scene.id}'),
-                                  color: Colors.white,
-                                  elevation: 1,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    side: const BorderSide(
-                                      color: Color(0xFFBAC4D0),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final viewport = constraints.biggest;
+                if (_lastCanvas != layout.size || _lastViewport != viewport) {
+                  _lastCanvas = layout.size;
+                  _lastViewport = viewport;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _fit(layout.size, viewport);
+                  });
+                }
+                return ColoredBox(
+                  color: _background,
+                  child: InteractiveViewer(
+                    key: const ValueKey('scenario-graph-viewer'),
+                    transformationController: _transform,
+                    constrained: false,
+                    boundaryMargin: const EdgeInsets.all(160),
+                    minScale: .1,
+                    maxScale: 3,
+                    child: SizedBox(
+                      width: layout.size.width,
+                      height: layout.size.height,
+                      child: CustomPaint(
+                        painter: _ConnectionsPainter(layout),
+                        child: Stack(
+                          children: [
+                            for (final scene in graph.scenes)
+                              Positioned.fromRect(
+                                rect: layout.nodes[scene.id]!,
+                                child: Semantics(
+                                  button: true,
+                                  label:
+                                      '${_title(graph, scene)}, ayrıntıları aç',
+                                  child: Material(
+                                    key: ValueKey('scene:${scene.id}'),
+                                    color: Colors.white,
+                                    elevation: 1,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      side: const BorderSide(
+                                        color: Color(0xFFBAC4D0),
+                                      ),
                                     ),
-                                  ),
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(12),
-                                    onTap: () =>
-                                        _showScene(context, graph, scene),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(12),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            _title(graph, scene),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: _headingStyle,
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            _summary(scene),
-                                            key: ValueKey(
-                                              'summary:${scene.id}',
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(12),
+                                      onTap: () =>
+                                          _showScene(context, graph, scene),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(12),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _title(graph, scene),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: _headingStyle,
                                             ),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: _bodyStyle,
-                                          ),
-                                          if (_role(
-                                            graph,
-                                            scene.id,
-                                          ).isNotEmpty) ...[
                                             const SizedBox(height: 6),
-                                            Row(
-                                              children: [
-                                                Icon(
-                                                  scene.id == graph.startSceneId
-                                                      ? Icons
-                                                            .play_circle_outline
-                                                      : Icons.outlined_flag,
-                                                  size: 18,
-                                                  color: _navy,
-                                                ),
-                                                const SizedBox(width: 4),
-                                                Expanded(
-                                                  child: Text(
-                                                    _role(graph, scene.id),
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: _edgeStyle,
-                                                  ),
-                                                ),
-                                              ],
+                                            Text(
+                                              _summary(scene),
+                                              key: ValueKey(
+                                                'summary:${scene.id}',
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: _bodyStyle,
                                             ),
+                                            if (_role(
+                                              graph,
+                                              scene.id,
+                                            ).isNotEmpty) ...[
+                                              const SizedBox(height: 6),
+                                              Row(
+                                                children: [
+                                                  Icon(
+                                                    scene.id == graph.startSceneId
+                                                        ? Icons
+                                                              .play_circle_outline
+                                                        : Icons.outlined_flag,
+                                                    size: 18,
+                                                    color: _navy,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Expanded(
+                                                    child: Text(
+                                                      _role(graph, scene.id),
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: _edgeStyle,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
                                           ],
-                                        ],
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          for (var i = 0; i < layout.edges.length; i++)
-                            Positioned.fromRect(
-                              rect: layout.edges[i].label,
-                              child: DecoratedBox(
-                                key: ValueKey('transition:$i'),
-                                decoration: BoxDecoration(
-                                  color: _background,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(4),
-                                  child: Text(
-                                    _label(graph, graph.transitions[i]),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: _edgeStyle,
+                            for (var i = 0; i < layout.edges.length; i++)
+                              Positioned.fromRect(
+                                rect: layout.edges[i].label,
+                                child: DecoratedBox(
+                                  key: ValueKey('transition:$i'),
+                                  decoration: BoxDecoration(
+                                    color: _background,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(4),
+                                    child: Text(
+                                      _label(graph, graph.transitions[i]),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: _edgeStyle,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

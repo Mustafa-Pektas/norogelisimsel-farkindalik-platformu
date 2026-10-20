@@ -5,8 +5,6 @@ import 'ontology_detail_screen.dart';
 import 'video_analysis_screen.dart';
 import 'institutions_screen.dart';
 import 'synthetic_video_studio_screen.dart';
-import '../widgets/api_key_dialog.dart';
-import '../widgets/age_slider_card.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,8 +15,20 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentTabIndex = 0;
-  double _currentMonth = 18.0;
   DateTime? _lastBackPressTime;
+  final _videoTabVisibility = ValueNotifier<bool>(false);
+
+  void _selectTab(int index) {
+    // Bildirim build'i beklemez; aynı karede ayrılıp dönme de duraklatır.
+    _videoTabVisibility.value = index == 1;
+    setState(() { _currentTabIndex = index; });
+  }
+
+  @override
+  void dispose() {
+    _videoTabVisibility.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,9 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         // 1. Eğer başka bir sekmedeyse (Video Analiz veya Senaryo Stüdyosu), Ana Panel'e dön
         if (_currentTabIndex != 0) {
-          setState(() {
-            _currentTabIndex = 0;
-          });
+          _selectTab(0);
           return;
         }
 
@@ -76,23 +84,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 elevation: 0,
                 backgroundColor: const Color(0xFF0F172A),
                 foregroundColor: Colors.white,
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.key_outlined, size: 20),
-                    tooltip: 'Gemini API Anahtarı',
-                    onPressed: () => ApiKeyDialog.show(context),
-                  ),
-                ],
               )
             : null,
         body: IndexedStack(
           index: _currentTabIndex,
           children: [
             _buildDashboardTab(),
-            const VideoAnalysisScreen(),
-            SyntheticVideoStudioScreen(
-              initialAgeMonths: _currentMonth.toInt(),
-            ),
+            VideoAnalysisScreen(tabVisibility: _videoTabVisibility),
+            const SyntheticVideoStudioScreen(),
           ],
         ),
         bottomNavigationBar: Container(
@@ -121,11 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             child: NavigationBar(
               selectedIndex: _currentTabIndex,
-              onDestinationSelected: (idx) {
-                setState(() {
-                  _currentTabIndex = idx;
-                });
-              },
+              onDestinationSelected: _selectTab,
               backgroundColor: Colors.white,
               indicatorColor: const Color(0xFF0F172A).withValues(alpha: 0.08),
               elevation: 0,
@@ -139,12 +134,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 NavigationDestination(
                   icon: Icon(Icons.analytics_outlined),
                   selectedIcon: Icon(Icons.analytics_rounded, color: Color(0xFF0F172A)),
-                  label: 'Video izle',
+                  label: 'Video Analizi',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.movie_creation_outlined),
                   selectedIcon: Icon(Icons.movie_creation_rounded, color: Color(0xFF0F172A)),
-                  label: 'Senaryo\u00A0Stüdyosu',
+                  label: 'Simülasyon ve Eğitim',
                 ),
               ],
             ),
@@ -161,23 +156,6 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // SÜRÜKLEMELİ YAŞ AYARI KARTI
-          AgeSliderCard(
-            title: 'Şablon yaşı',
-            currentMonth: _currentMonth,
-            onChanged: (val) {
-              setState(() {
-                _currentMonth = val;
-              });
-            },
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Yaş seçimi yalnız Şablon örnekleri içindir; güncel kartları '
-            've 30 aylık D01 model demosunu değiştirmez.',
-          ),
-          const SizedBox(height: 16),
-
           // KLİNİK SORUMLULUK REDDİ
           Container(
             padding: const EdgeInsets.all(12),
@@ -209,29 +187,28 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 10),
 
           _buildModeCard(
-            title: 'Video izle',
-            subtitle: 'Bir video seçip izleyin.',
+            title: 'Video Analizi',
+            subtitle: 'Video seçip izleyin. Otomatik analiz bağlantısı henüz tamamlanmadı.',
             icon: Icons.analytics_outlined,
-            onTap: () => setState(() => _currentTabIndex = 1),
+            onTap: () => _selectTab(1),
           ),
           const SizedBox(height: 8),
 
           _buildModeCard(
-            title: 'Senaryo Stüdyosu',
-            subtitle: 'Senaryo taslaklarını ve hazır örnekleri inceleyin. Yapay zekâ denemeleri ayrı çalışır.',
+            title: 'Simülasyon ve Eğitim',
+            subtitle: 'Hazır D01 örneğinin akışını inceleyin.',
             icon: Icons.movie_creation_outlined,
-            onTap: () => setState(() => _currentTabIndex = 2),
+            onTap: () => _selectTab(2),
           ),
           const SizedBox(height: 22),
 
           const Text(
-            '10 davranış kartı',
+            'Davranışları tanıyın',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold,
                 color: Color(0xFF0F172A)),
           ),
           const SizedBox(height: 6),
-          const Text('Kart sürümü ${BehaviorCards.version} · İlk teknik pilot: 30–36 ay'),
-          const Text('Yaşa göre ayrı beceri beklentisi veya puan gösterilmez.'),
+          const Text('Videolarda incelenen davranışlar hakkında bilgi edinin.'),
           const SizedBox(height: 12),
           ...BehaviorCards.all.map((card) => Card(
             margin: const EdgeInsets.only(bottom: 10),

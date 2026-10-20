@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../models/behavior_cards.dart';
-import 'scenario_graph_import_screen.dart';
 
 /// Mevcut ayrıntı ekranı; güncel kart okur, eski ONT şablonlarına yönlendirmez.
 class OntologyDetailScreen extends StatelessWidget {
@@ -30,7 +29,12 @@ class OntologyDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: const Color(0xFFF8FAFC),
     appBar: AppBar(
-      title: Text(card.id),
+      title: Text(
+        card.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 17),
+      ),
       backgroundColor: const Color(0xFF0F172A),
       foregroundColor: Colors.white,
     ),
@@ -43,7 +47,10 @@ class OntologyDetailScreen extends StatelessWidget {
           Text(card.title, key: const ValueKey('behavior-detail-title'),
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text('Bilgilendirme amaçlıdır; tanı veya puanlama yapılmaz.'),
+          const Text(
+            'Bu bilgiler davranışları tanımak içindir; tanı veya '
+            'yaşa göre gelişim değerlendirmesi değildir.',
+          ),
           const SizedBox(height: 14),
           _section('Amaç', [
             Text(card.purpose, key: const ValueKey('behavior-purpose')),
@@ -54,101 +61,58 @@ class OntologyDetailScreen extends StatelessWidget {
           _section('Yapılacak işlem', [
             Text(card.instruction, key: const ValueKey('behavior-instruction')),
           ]),
-          if (card.id == 'D01') ...[
-            const Text(
-              '30 aylık Deniz için sabit demo; oluşan akış hazır videolara bağlı değildir.',
-              key: ValueKey('d01-demo-scope'),
-            ),
-            const SizedBox(height: 10),
-            if (kDebugMode)
-              FilledButton.icon(
-                key: const ValueKey('open-d01-model-demo'),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const ScenarioGraphImportScreen(
-                      initialScenarioContent: true,
-                    ),
-                  ),
+          if (kDebugMode)
+            Card(
+              margin: const EdgeInsets.only(bottom: 14),
+              color: Colors.white,
+              child: ExpansionTile(
+                key: ValueKey('behavior-team-details:${card.id}'),
+                title: const Text('Ekip için gözlem ayrıntıları'),
+                subtitle: const Text(
+                  'Yalnız debug derlemede görünür; yetkilendirme değildir.',
                 ),
-                icon: const Icon(Icons.edit_note),
-                label: const Text('D01 model demosunu aç (30 ay)'),
-              )
-            else
-              const Text('Model demosu yalnız debug geliştirici derlemesinde görünür.'),
-          ] else
-            const Text(
-              'Bu davranış için modelden üretim veya video bağlantısı henüz yok.',
-              key: ValueKey('behavior-not-connected'),
-            ),
-          const SizedBox(height: 14),
-          Card(
-            margin: const EdgeInsets.only(bottom: 14),
-            color: Colors.white,
-            child: ExpansionTile(
-              key: ValueKey('behavior-observation-rules:${card.id}'),
-              title: const Text('Ayrıntılı gözlem kuralları'),
-              initiallyExpanded: false,
-              maintainState: true,
-              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-              childrenPadding: const EdgeInsets.all(16),
-              children: [
-                const Text('Bunlar gözlem kurallarıdır; bu ekranda bir sonuç hesaplanmaz.'),
-                for (var i = 0; i < card.conditions.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(BehaviorCards.conditionLabels[i],
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        Text(card.conditions[i],
-                            key: ValueKey('behavior-condition:${card.id}:$i')),
-                      ],
+                initiallyExpanded: false,
+                maintainState: true,
+                expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+                childrenPadding: const EdgeInsets.all(16),
+                children: [
+                  const Text('Bunlar gözlem kurallarıdır; bu ekranda bir sonuç hesaplanmaz.'),
+                  for (var i = 0; i < card.conditions.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(BehaviorCards.conditionLabels[i],
+                              style: const TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text(card.conditions[i],
+                              key: ValueKey('behavior-condition:${card.id}:$i')),
+                        ],
+                      ),
                     ),
-                  ),
-              ],
-            ),
-          ),
-          Card(
-            margin: const EdgeInsets.only(bottom: 14),
-            color: Colors.white,
-            child: ExpansionTile(
-              key: ValueKey('behavior-technical-info:${card.id}'),
-              title: const Text('Teknik bilgiler'),
-              initiallyExpanded: false,
-              maintainState: true,
-              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-              childrenPadding: const EdgeInsets.all(16),
-              children: [
-                Text('Kart sürümü: ${card.cardVersion} · Kaynak: ${BehaviorCards.sourceName}'),
-                const SizedBox(height: 12),
-                const Text(BehaviorCards.scope),
-                const SizedBox(height: 8),
-                const Text(BehaviorCards.ageScope),
-                const SizedBox(height: 14),
-                _section('Pilot gözlem penceresi', [
-                  Text(
-                    card.pilotWindowSeconds == 10
-                        ? 'Uyaran veya gösterilen hareket tamamlandıktan sonra 10 saniyelik '
-                            'kesintisiz gözlem planlanır. Uyaran sırasında başlayan yanıtlar da kaydedilir.'
-                        : 'Koşullar hazır olduktan sonra 20 saniyelik gözlem fırsatı planlanır. '
-                            'Malzemeye ilgi ve erişim ayrıca dikkate alınır.',
-                    key: const ValueKey('behavior-window'),
-                  ),
+                  const SizedBox(height: 14),
+                  Text('Kart sürümü: ${card.cardVersion} · Kaynak: ${BehaviorCards.sourceName}'),
+                  const SizedBox(height: 12),
+                  const Text(BehaviorCards.scope),
                   const SizedBox(height: 8),
-                  const Text(BehaviorCards.windowNotice),
-                ]),
-                if (card.id == 'D01')
-                  const Text(
-                    'Mevcut D01 model demosu 30 aylık Deniz ile sınırlıdır. '
-                    'Şablon yaşı bu demoyu değiştirmez. Oluşan graf hazır D01 '
-                    'klip planına veya videolarına bağlı değildir.',
-                    key: ValueKey('d01-demo-technical-scope'),
-                  ),
-              ],
+                  const Text(BehaviorCards.ageScope),
+                  const SizedBox(height: 14),
+                  _section('Pilot gözlem penceresi', [
+                    Text(
+                      card.pilotWindowSeconds == 10
+                          ? 'Uyaran veya gösterilen hareket tamamlandıktan sonra 10 saniyelik '
+                              'kesintisiz gözlem planlanır. Uyaran sırasında başlayan yanıtlar da kaydedilir.'
+                          : 'Koşullar hazır olduktan sonra 20 saniyelik gözlem fırsatı planlanır. '
+                              'Malzemeye ilgi ve erişim ayrıca dikkate alınır.',
+                      key: const ValueKey('behavior-window'),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(BehaviorCards.windowNotice),
+                  ]),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     ),

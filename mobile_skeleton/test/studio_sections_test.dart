@@ -117,9 +117,10 @@ void main() {
     final bundle = _StudioBundle(fixtures);
     await tester.pumpWidget(DefaultAssetBundle(
       bundle: bundle,
-      child: MaterialApp(home: SyntheticVideoStudioScreen(modelTestService: service)),
+      child: MaterialApp(home: SyntheticVideoStudioScreen(
+        modelTestService: service,
+      )),
     ));
-    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
     return bundle;
   }
@@ -146,25 +147,82 @@ void main() {
     expect(tester.takeException(), isNull);
   }
 
-  testWidgets('Stüdyo girişleri ayrıdır; teknik denemeler ve şablonlar ilk açılışta kapalıdır', (tester) async {
+  void expectNoLegacyTemplate() {
+    expect(find.text('Eski şablon araçları', skipOffstage: false), findsNothing);
+    for (final key in ['studio-template-examples', 'generate-template-scenario',
+      'template-scenario-loading', 'template-scenario-title',
+      'template-scenario-source', 'show-template-clip-details']) {
+      expect(find.byKey(ValueKey(key), skipOffstage: false), findsNothing);
+    }
+    expect(find.byTooltip('Senaryoyu Kopyala', skipOffstage: false), findsNothing);
+    expect(find.byTooltip('Şablon JSON’unu kopyala', skipOffstage: false), findsNothing);
+  }
+
+  testWidgets('Stüdyo yeniden kurulunca eski şablon işi başlamaz; teknik servisler korunur', (tester) async {
+    final service = _ControlledService();
+    final bundle = await mount(tester, service: service);
+    final studio = tester.state(find.byType(SyntheticVideoStudioScreen));
+    final original = services(tester);
+    final reads = paths.reads;
+    expectNoLegacyTemplate();
+    await tester.pumpWidget(DefaultAssetBundle(
+      bundle: bundle,
+      child: MaterialApp(home: SyntheticVideoStudioScreen(modelTestService: service)),
+    ));
+    await tester.pumpAndSettle();
+    expect(tester.state(find.byType(SyntheticVideoStudioScreen)), same(studio));
+    expectNoLegacyTemplate();
+    final updated = services(tester);
+    expect(updated, hasLength(original.length));
+    for (var i = 0; i < original.length; i++) {
+      expect(updated[i], same(original[i]));
+    }
+    expect(paths.reads, reads);
+    expect(bundle.reads, isEmpty);
+    expect(service.runs, 0);
+    expect(service.cancellations, 0);
+    expect(service.disposals, 0);
+    await close(tester);
+    expect(service.disposals, 1);
+  });
+
+  testWidgets('Hazır örnek ayrıdır; hazırlama debug bölümünde, teknik denemeler kapalıdır', (tester) async {
     final service = _ControlledService();
     final bundle = await mount(tester, service: service);
     expect(kDebugMode, isTrue); // Widget testi release görünürlüğü kanıtı değildir.
-    expect(find.text('Senaryo Stüdyosu'), findsOneWidget);
+    expect(find.text('Simülasyon ve Eğitim'), findsOneWidget);
+    final preparation = find.byKey(const ValueKey('studio-content-preparation'));
+    expect(preparation, kDebugMode ? findsOneWidget : findsNothing);
+    expect(find.text('İçerik hazırlama'), findsOneWidget);
+    final section = tester.widget<ExpansionTile>(preparation);
+    expect(section.initiallyExpanded, isTrue);
+    expect(section.maintainState, isTrue);
+    expect(find.textContaining('Kimlik doğrulaması sağlamaz'), findsOneWidget);
     final entry = find.byKey(const ValueKey('open-scenario-content'));
     expect(entry, findsOneWidget);
+    for (final key in ['open-scenario-content', 'open-clip-production-plan',
+      'studio-technical-tests']) {
+      expect(find.descendant(of: preparation, matching: find.byKey(ValueKey(key))),
+          findsOneWidget);
+    }
+    expect(find.descendant(of: preparation,
+      matching: find.byKey(const ValueKey('open-scenario-graph'))), findsNothing);
+    expect(find.byKey(const ValueKey('open-d01-playback')), findsOneWidget);
+    expect(find.descendant(of: preparation,
+      matching: find.byKey(const ValueKey('open-d01-playback'))), findsNothing);
     expect(tester.getTopLeft(entry).dy,
-        lessThan(tester.getTopLeft(find.text('Hazır D01 örneği')).dy));
-    for (final key in ['studio-technical-tests', 'studio-template-examples']) {
+        greaterThan(tester.getTopLeft(find.text('Hazır D01 örneği')).dy));
+    for (final key in ['studio-technical-tests']) {
       final tile = tester.widget<ExpansionTile>(find.byKey(ValueKey(key)));
       expect(tile.initiallyExpanded, isFalse);
       expect(tile.maintainState, isTrue);
     }
     expect(find.byType(LocalLlamaTestCard), findsNothing);
     expect(services(tester), hasLength(5));
+    expectNoLegacyTemplate();
     expect(find.byKey(const ValueKey('generate-template-scenario')), findsNothing);
     expect(find.byTooltip('Senaryoyu Kopyala'), findsNothing);
-    expect(find.byTooltip('JSON Dışa Aktar (Admin)'), findsNothing);
+    expect(find.byTooltip('Şablon JSON’unu kopyala'), findsNothing);
     expect(find.text('Örnek akışı görüntüle'), findsOneWidget);
     expect(find.text('Klip planı ve videolu deneme'), findsOneWidget);
     expect(find.textContaining('hazır D01 klip planına ve videolarına bağlı değildir'), findsOneWidget);
@@ -173,6 +231,43 @@ void main() {
     await close(tester);
     expect(service.disposals, 1);
   });
+
+  testWidgets('Başlığa beş dokunuş gizli mod açmaz; hazırlama kapanınca yalnız örnek kalır', (tester) async {
+    final service = _ControlledService();
+    await mount(tester, service: service);
+    final original = services(tester);
+    expect(tester.widget<AppBar>(find.byType(AppBar)).title, isA<Text>());
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(find.text('Simülasyon ve Eğitim'));
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('ADMİN'), findsNothing);
+    expect(find.textContaining('Admin alanı açıldı'), findsNothing);
+    expect(find.textContaining('Doktor Moduna'), findsNothing);
+    expect(find.byKey(const ValueKey('show-template-clip-details')), findsNothing);
+    final reads = paths.reads;
+    await tap(tester, find.text('İçerik hazırlama'));
+    expect(find.byKey(const ValueKey('open-scenario-content')), findsNothing);
+    expect(find.byKey(const ValueKey('open-clip-production-plan')), findsNothing);
+    expect(find.text('Teknik model denemeleri'), findsNothing);
+    expect(find.text('Eski şablon araçları'), findsNothing);
+    expect(find.byKey(const ValueKey('open-scenario-graph')), findsOneWidget);
+    final hidden = services(tester);
+    expect(hidden, hasLength(original.length));
+    for (var i = 0; i < original.length; i++) {
+      expect(hidden[i], same(original[i]));
+    }
+    await tap(tester, find.text('İçerik hazırlama'));
+    expect(find.byKey(const ValueKey('open-scenario-content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('open-clip-production-plan')), findsOneWidget);
+    expect(paths.reads, reads);
+    expect(service.runs, 0);
+    expect(service.cancellations, 0);
+    expect(service.disposals, 0);
+    await close(tester);
+    expect(service.disposals, 1);
+  });
+
 
   testWidgets('Doğrudan giriş klip planını açmadan ortak ekranda senaryo içeriğiyle başlar', (tester) async {
     final bundle = await mount(tester);
@@ -185,6 +280,10 @@ void main() {
     expect(tester.widget<ChoiceChip>(
       find.byKey(const ValueKey('scenario-import-mode-graph')),
     ).selected, isFalse);
+    final modelDemo = find.byKey(const ValueKey('scenario-import-model-demo'));
+    expect(tester.widget<ExpansionTile>(modelDemo).initiallyExpanded, isFalse);
+    expect(find.byKey(ValueKey('${LocalLlamaTestRequest.d01GraphDemo.id}-start')), findsNothing);
+    await tap(tester, modelDemo);
     expect(find.byKey(ValueKey('${LocalLlamaTestRequest.d01GraphDemo.id}-start')), findsOneWidget);
     expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
     expect(bundle.reads, isEmpty);
@@ -206,6 +305,7 @@ void main() {
     await tap(tester, find.byKey(const ValueKey('open-clip-production-plan')));
     expect(find.byType(ClipProductionPlanScreen), findsOneWidget);
     expect(find.byKey(const ValueKey('open-graph-playback')), findsOneWidget);
+    expect(find.byKey(const ValueKey('open-scenario-graph-import')), findsNothing);
     expect(find.byType(ScenarioGraphImportScreen), findsNothing);
     expect(bundle.reads, containsAll([
       ClipProductionPlanScreen.d01GraphAssetPath,
@@ -233,8 +333,15 @@ void main() {
     expect(service.runs, 1);
     expect(service.cancellations, 0);
     expect(service.disposals, 0);
+    await tap(tester, find.text('İçerik hazırlama'), settle: false);
+    expect(find.byKey(const ValueKey('open-scenario-content')), findsNothing);
+    expect(service.state.isBusy, isTrue);
+    expect(service.state.text, 'TEST KISMİ CEVAP');
+    expect(service.cancellations, 0);
+    expect(service.disposals, 0);
     service.finish();
     await tester.pumpAndSettle();
+    await tap(tester, find.text('İçerik hazırlama'));
     await tap(tester, find.text('Teknik model denemeleri'));
     await tap(tester, find.byKey(const ValueKey('open-scenario-content')));
     await tester.pageBack();
@@ -254,30 +361,5 @@ void main() {
     await close(tester);
     expect(service.disposals, 1);
     expect(service.cancellations, 0);
-  });
-
-  testWidgets('Şablon bölümü kapanıp açıldığında metin ve tek metin görünümü korunur', (tester) async {
-    final service = _ControlledService();
-    await mount(tester, service: service);
-    await tap(tester, find.text('Şablon örnekleri'));
-    final title = tester.widget<Text>(
-      find.byKey(const ValueKey('template-scenario-title')),
-    ).data;
-    expect(find.byKey(const ValueKey('generate-template-scenario')), findsOneWidget);
-    expect(find.byTooltip('Senaryoyu Kopyala'), findsOneWidget);
-    expect(find.byTooltip('JSON Dışa Aktar (Admin)'), findsNothing);
-    await tap(tester, find.text('Tek Metin (Birleşik)'));
-    expect(find.text('Sıralı şablon senaryo taslağı'), findsOneWidget);
-    await tap(tester, find.text('Şablon örnekleri'));
-    expect(find.byKey(const ValueKey('template-scenario-title')), findsNothing);
-    await tap(tester, find.text('Şablon örnekleri'));
-    expect(tester.widget<Text>(
-      find.byKey(const ValueKey('template-scenario-title')),
-    ).data, title);
-    expect(find.text('Sıralı şablon senaryo taslağı'), findsOneWidget);
-    expect(find.byKey(const ValueKey('template-scenario-loading')), findsNothing);
-    expect(find.byType(LocalLlamaTestCard), findsNothing);
-    expect(service.runs, 0);
-    await close(tester);
   });
 }

@@ -50,6 +50,7 @@ void main() {
     expect(legacy.exportDoctorCleanScenario(), local.exportDoctorCleanScenario());
     expect(legacy.exportDoctorCleanScenario(), contains('Şablon Senaryo Taslağı'));
     expect(legacy.exportGroundTruthJson(), local.exportGroundTruthJson());
+    expect(legacy.exportEnglishPromptsOnly(), local.exportEnglishPromptsOnly());
   });
 
   test('Eski doktor şablonu da Llama çıkarımı kaynağı iddia etmez', () async {
@@ -62,35 +63,31 @@ void main() {
     expect(result.exportDoctorMarkdown(), isNot(contains('On-Device (GGUF)')));
   });
 
-  testWidgets('Şablon düğmesi, yükleme ve çıktı gerçek kaynaklarını gösterir', (tester) async {
+  testWidgets('Aktif Stüdyo eski şablon üretim ve export arayüzünü içermez', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(const MaterialApp(home: SyntheticVideoStudioScreen()));
-    await tester.tap(find.text('Şablon örnekleri'));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('template-scenario-loading')), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
-    final button = find.byKey(const ValueKey('generate-template-scenario'));
-    expect(find.widgetWithText(ElevatedButton, 'Şablondan senaryo oluştur'), findsOneWidget);
-    expect(tester.widget<Text>(find.byKey(const ValueKey('template-scenario-title'))).data,
-        contains('Şablon Senaryo Taslağı'));
-    expect(find.textContaining('Hazır şablondan oluşturulmuş taslaktır'), findsOneWidget);
-    expect(find.text('Llama 3.2 İle Senaryo Üret'), findsNothing);
-    await tester.ensureVisible(button);
-    await tester.tap(button);
-    await tester.pump();
-    expect(find.text('Şablon senaryo taslağı hazırlanıyor...'), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('template-scenario-source')), findsOneWidget);
+    expect(find.text('Eski şablon araçları', skipOffstage: false), findsNothing);
+    for (final key in ['studio-template-examples', 'generate-template-scenario',
+      'template-scenario-loading', 'template-scenario-title',
+      'template-scenario-source', 'show-template-clip-details', 'unmeasured-validation']) {
+      expect(find.byKey(ValueKey(key), skipOffstage: false), findsNothing);
+    }
+    expect(find.byTooltip('Senaryoyu Kopyala', skipOffstage: false), findsNothing);
+    expect(find.byTooltip('Şablon JSON’unu kopyala', skipOffstage: false), findsNothing);
+    expect(find.textContaining('Şablon Senaryo Taslağı', skipOffstage: false), findsNothing);
+    expect(find.textContaining('Güven: %'), findsNothing);
+    expect(find.text('DOĞRULANDI'), findsNothing);
+    expect(find.byKey(const ValueKey('open-scenario-graph')), findsOneWidget);
+    expect(find.byKey(const ValueKey('open-scenario-content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('open-clip-production-plan')), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });
 
   for (final screen in [
-    (title: 'Senaryo Stüdyosu', widget: const SyntheticVideoStudioScreen()),
     (title: 'Senaryo & Simülasyon', widget: const SimulationModeScreen()),
   ]) {
     testWidgets('${screen.title}: eski ölçümsüz kart güven/başarı sonucu sunmaz', (tester) async {
@@ -99,16 +96,11 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: screen.widget));
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
+      // Eski Simülasyon ekranının mekanizması bu görevin kapsamında değil.
       for (var i = 0; i < 5; i++) {
         await tester.tap(find.text(screen.title));
       }
       await tester.pumpAndSettle();
-      if (screen.widget is SyntheticVideoStudioScreen) {
-        final templates = find.text('Şablon örnekleri');
-        await tester.ensureVisible(templates);
-        await tester.tap(templates);
-        await tester.pumpAndSettle();
-      }
       expect(find.byKey(const ValueKey('unmeasured-validation')), findsOneWidget);
       expect(find.textContaining('Gerçek ölçüm olmadığı için'), findsOneWidget);
       expect(find.textContaining('Güven: %'), findsNothing);
