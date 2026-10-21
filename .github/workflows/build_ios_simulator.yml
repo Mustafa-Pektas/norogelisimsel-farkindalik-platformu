@@ -1,0 +1,43 @@
+name: Build iOS Simulator (Appetize.io)
+
+on:
+  workflow_dispatch: # Sadece GitHub web arayüzünden "Run workflow" butonuna basıldığında manuel çalışır
+
+jobs:
+  build-ios:
+    name: Build iOS Simulator App
+    runs-on: macos-latest
+
+    steps:
+      - name: Kodu Çek (Checkout)
+        uses: actions/checkout@v4
+
+      - name: Flutter Ortamını Hazırla
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter iOS Ön Belleğini Hazırla
+        working-directory: mobile_skeleton
+        run: |
+          flutter precache --ios
+          flutter pub get
+
+      - name: CocoaPods Bağımlılıklarını Senkronize Et
+        working-directory: mobile_skeleton/ios
+        run: pod install
+
+      - name: iOS Simülatör Uygulamasını Derle (--simulator --no-codesign)
+        working-directory: mobile_skeleton
+        run: flutter build ios --simulator --no-codesign
+
+      - name: Appetize.io Uyumlu Zip Oluştur
+        working-directory: mobile_skeleton/build/ios/iphonesimulator
+        run: zip -r Runner.app.zip Runner.app
+
+      - name: Runner.app.zip Çıktısını Yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-runner-app
+          path: mobile_skeleton/build/ios/iphonesimulator/Runner.app.zip

@@ -9,6 +9,7 @@ import '../widgets/expandable_finding_card.dart';
 import '../widgets/fullscreen_video_screen.dart';
 import '../widgets/api_key_dialog.dart';
 import '../widgets/finding_notification_pill.dart';
+import '../services/server_api_service.dart';
 import 'institutions_screen.dart';
 
 class VideoAnalysisScreen extends StatefulWidget {
@@ -33,7 +34,11 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   // Özel Video Yükleme Durumu
   bool _isCustomVideo = false;
   String? _customVideoName;
+  File? _customVideoFile;
   bool _customAnalysisDone = false;
+  List<BehaviorFinding> _customFindings = [];
+  String? _customSummary;
+  AwarenessLevel _customLevel = AwarenessLevel.yellow;
 
   void _startHideControlsTimer() {
     _controlsTimer?.cancel();
@@ -206,7 +211,11 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   @override
   void initState() {
     super.initState();
-    _loadVideoForCurrentCase();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadVideoForCurrentCase();
+      }
+    });
   }
 
   void _onVideoTick() {
@@ -220,7 +229,9 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
     }
 
     final currentSec = _controller!.value.position.inSeconds;
-    final findings = _clinicalCases[_selectedCaseIndex]['findings'] as List<BehaviorFinding>;
+    final findings = _isCustomVideo && _customFindings.isNotEmpty
+        ? _customFindings
+        : _clinicalCases[_selectedCaseIndex]['findings'] as List<BehaviorFinding>;
 
     BehaviorFinding? matched;
     for (final f in findings) {
@@ -291,7 +302,10 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
         setState(() {
           _isCustomVideo = true;
           _customVideoName = picked.name;
+          _customVideoFile = file;
           _customAnalysisDone = false;
+          _customFindings = [];
+          _customSummary = null;
           _activeFinding = null;
         });
 
@@ -314,7 +328,10 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
     setState(() {
       _isCustomVideo = false;
       _customVideoName = null;
+      _customVideoFile = null;
       _customAnalysisDone = false;
+      _customFindings = [];
+      _customSummary = null;
       _activeFinding = null;
     });
     await _loadVideoForCurrentCase();
@@ -422,13 +439,69 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
       _analysisStep = 0;
     });
 
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (mounted) setState(() => _analysisStep = 1);
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (mounted) setState(() => _analysisStep = 2);
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (mounted) setState(() => _analysisStep = 3);
-    await Future.delayed(const Duration(milliseconds: 400));
+    if (_isCustomVideo && _customVideoFile != null) {
+      try {
+        if (mounted) setState(() => _analysisStep = 1);
+        final aiResult = await ServerApiService.analyzeVideo(_customVideoFile!);
+        if (mounted) setState(() => _analysisStep = 2);
+
+        final rawFindings = aiResult['findings'] as List? ?? [];
+        final parsedFindings = <BehaviorFinding>[];
+        for (final item in rawFindings) {
+          if (item is Map) {
+            AwarenessLevel lvl = AwarenessLevel.yellow;
+            final lStr = (item['level'] ?? '').toString().toLowerCase();
+            if (lStr == 'green') lvl = AwarenessLevel.green;
+            if (lStr == 'red') lvl = AwarenessLevel.red;
+            parsedFindings.add(BehaviorFinding(
+              code: item['code'] ?? 'ONT-01',
+              name: item['name'] ?? 'Klinik Gösterge',
+              detected: item['detected'] == true,
+              latencySec: (item['latencySec'] is num) ? (item['latencySec'] as num).toDouble() : null,
+              evidenceTimeframe: item['evidenceTimeframe'] ?? '00:00 – 00:05',
+              level: lvl,
+              explanation: item['explanation'] ?? '',
+            ));
+          }
+        }
+        if (mounted) setState(() => _analysisStep = 3);
+        await Future.delayed(const Duration(milliseconds: 300));
+
+        if (mounted) {
+          setState(() {
+            _customFindings = parsedFindings;
+            _customSummary = aiResult['summary'] as String?;
+            final overall = (aiResult['overallLevel'] ?? '').toString().toLowerCase();
+            if (overall == 'green') {
+              _customLevel = AwarenessLevel.green;
+            } else if (overall == 'red') {
+              _customLevel = AwarenessLevel.red;
+            } else {
+              _customLevel = AwarenessLevel.yellow;
+            }
+          });
+        }
+      } catch (e) {
+        debugPrint('Sunucu video analiz hatası: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Yerel sunucuya bağlanılamadı: $e\nKural tabanlı simülasyon analizi uygulandı.'),
+              backgroundColor: const Color(0xFFF59E0B),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+    } else {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (mounted) setState(() => _analysisStep = 1);
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mounted) setState(() => _analysisStep = 2);
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (mounted) setState(() => _analysisStep = 3);
+      await Future.delayed(const Duration(milliseconds: 400));
+    }
 
     if (mounted) {
       setState(() {
@@ -450,7 +523,11 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
     if (_controller == null || !_controller!.value.isInitialized) return;
     final currentCase = _clinicalCases[_selectedCaseIndex];
     final findings = _isCustomVideo
-        ? (_customAnalysisDone ? currentCase['findings'] as List<BehaviorFinding> : <BehaviorFinding>[])
+        ? (_customAnalysisDone
+            ? (_customFindings.isNotEmpty
+                ? _customFindings
+                : currentCase['findings'] as List<BehaviorFinding>)
+            : <BehaviorFinding>[])
         : currentCase['findings'] as List<BehaviorFinding>;
 
     Navigator.push(
@@ -477,9 +554,16 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   @override
   Widget build(BuildContext context) {
     final currentCase = _clinicalCases[_selectedCaseIndex];
-    final findings = currentCase['findings'] as List<BehaviorFinding>;
+    final findings = _isCustomVideo && _customFindings.isNotEmpty
+        ? _customFindings
+        : currentCase['findings'] as List<BehaviorFinding>;
     final bookmarks = currentCase['bookmarks'] as List<Map<String, dynamic>>;
-    final level = currentCase['level'] as AwarenessLevel;
+    final level = _isCustomVideo && _customAnalysisDone
+        ? _customLevel
+        : currentCase['level'] as AwarenessLevel;
+    final summary = _isCustomVideo && _customSummary != null
+        ? _customSummary!
+        : currentCase['summary'] as String;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -775,7 +859,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
 
             if (!_isCustomVideo || _customAnalysisDone) ...[
               // GENEL DEĞERLENDİRME KARTI (Traffic Light Pill)
-              _buildResultCard(level, currentCase['summary'] as String),
+              _buildResultCard(level, summary),
               const SizedBox(height: 16),
 
               // AÇILIR-KAPANIR KANIT KARTLARI LİSTESİ (Expandable Accordion Cards)

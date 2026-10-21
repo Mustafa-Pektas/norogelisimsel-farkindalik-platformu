@@ -2,6 +2,14 @@ import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Framework hatalarının uygulamayı aniden kapatmasını engelle
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('Yakalanamayan Flutter Hatası: ${details.exception}');
+  };
+
   runApp(const NeuroAwarenessApp());
 }
 

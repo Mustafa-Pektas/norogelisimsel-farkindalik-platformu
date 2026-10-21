@@ -40,6 +40,7 @@ dependencies:
   image_picker: ^1.1.2
   path_provider: ^2.1.5
 
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -63,6 +64,10 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/scenarios/d01_scenario_graph.json
+    - assets/scenarios/d01_scenario_input.json
+    - assets/scenarios/d01_clip_plan.json
+    - assets/evaluations/d01_qwen_v1.json
     - assets/videos/
     - assets/videos/ont_01_isme_tepki/
     - assets/videos/ont_02_ortak_dikkat/

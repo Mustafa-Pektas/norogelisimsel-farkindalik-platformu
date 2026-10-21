@@ -245,22 +245,343 @@ class SyntheticVideoSession {
   }
 }
 
+/// Klinik aktivite, materyal ve davranışsal çeşitlilik profili
+class ClinicalActivityProfile {
+  final String id;
+  final String toyNameTr;
+  final String materialsTr;
+  final String materialsEn;
+  final String basePlayTitle;
+  final String basePlayActionTr;
+  final String basePlayP1En;
+  final String basePlayP2En;
+  final String basePlayP3En;
+  final String basePlayStep2Title;
+  final String basePlayStep2ActionTr;
+  final String basePlayStep2P1En;
+  final String basePlayStep2P2En;
+  final String basePlayStep2P3En;
+  final String ont01StimulusActionTr;
+  final String ont01StimulusP1En;
+  final String ont01StimulusP2En;
+  final String ont01StimulusP3En;
+  final String ont01AtypicalActionTr;
+  final String ont01AtypicalP1En;
+  final String ont01AtypicalP2En;
+  final String ont01AtypicalP3En;
+  final String ont01DelayedActionTr;
+  final String ont01DelayedP1En;
+  final String ont01TypicalActionTr;
+  final String ont01TypicalP1En;
+  final String ont01TransitionActionTr;
+  final String ont01TransitionP1En;
+  final String ont01TransitionP2En;
+  final String cooldownActionTr;
+  final String cooldownP1En;
+  final String cooldownP2En;
+  final String environmentTr;
+  final String environmentPropsEn;
+
+  const ClinicalActivityProfile({
+    required this.id,
+    required this.toyNameTr,
+    required this.materialsTr,
+    required this.materialsEn,
+    required this.basePlayTitle,
+    required this.basePlayActionTr,
+    required this.basePlayP1En,
+    required this.basePlayP2En,
+    required this.basePlayP3En,
+    required this.basePlayStep2Title,
+    required this.basePlayStep2ActionTr,
+    required this.basePlayStep2P1En,
+    required this.basePlayStep2P2En,
+    required this.basePlayStep2P3En,
+    required this.ont01StimulusActionTr,
+    required this.ont01StimulusP1En,
+    required this.ont01StimulusP2En,
+    required this.ont01StimulusP3En,
+    required this.ont01AtypicalActionTr,
+    required this.ont01AtypicalP1En,
+    required this.ont01AtypicalP2En,
+    required this.ont01AtypicalP3En,
+    required this.ont01DelayedActionTr,
+    required this.ont01DelayedP1En,
+    required this.ont01TypicalActionTr,
+    required this.ont01TypicalP1En,
+    required this.ont01TransitionActionTr,
+    required this.ont01TransitionP1En,
+    required this.ont01TransitionP2En,
+    required this.cooldownActionTr,
+    required this.cooldownP1En,
+    required this.cooldownP2En,
+    required this.environmentTr,
+    required this.environmentPropsEn,
+  });
+}
+
 /// 0 İNTERNET, 0 KOTA İLE ÇALIŞAN EVRENSEL SENTETİK VİDEO VE SENARYO MOTORU
 class SyntheticVideoPromptService {
-  /// DOKTORLAR VE KLİNİK DEĞERLENDİRİCİLER İÇİN SANİYESİZ SEANS SENARYOSU
+  /// Farklı seanslarda tekrarı önleyen zengin klinik aktivite kütüphanesi
+  static const List<ClinicalActivityProfile> clinicalProfiles = [
+    // 0: Klasik Bloklar ve Kırmızı Ahşap Araba (Teker çevirme fiksasyonu)
+    ClinicalActivityProfile(
+      id: 'CAR_WHEEL',
+      toyNameTr: 'Kırmızı Ahşap Araba ve Kayın Bloklar',
+      materialsTr: 'Standart Klinik Test Seti: 2-3 adet pürüzsüz ahşap blok, kırmızı ahşap araba, duvarda renkli görsel, şeffaf kilitli kutu.',
+      materialsEn: 'smooth beechwood cubic blocks, cherry-red wooden convertible toy car, pastel-blue stacking cups, clear acrylic toy box',
+      basePlayTitle: 'Bloklarla Doğal Oyun Başlangıcı',
+      basePlayActionTr: 'Çocuk halıda bağdaş kurmuş iki ahşap bloğu ritmik şekilde birbirine hafifçe vurur.',
+      basePlayP1En: 'Toddler sits on the plush cream geometric rug, holding one beechwood block in each hand, gently tapping them together.',
+      basePlayP2En: 'Concentrates on the tactile sound, shifting balance slightly, fingers naturally adjusting grip on smooth wooden grain.',
+      basePlayP3En: 'Slowly places the left block down onto the rug while keeping eyes focused downward in calm independent play.',
+      basePlayStep2Title: 'İkinci Bloğu Üst Üste Koyma Denemesi',
+      basePlayStep2ActionTr: 'Çocuk yerdeki bloğun üstüne elindeki diğer bloğu dikkatlice koymaya çalışır.',
+      basePlayStep2P1En: 'Toddler holds the second beechwood cube directly above the base block, wrist steadying with fine motor concentration.',
+      basePlayStep2P2En: 'Carefully balances top cube onto bottom cube, releasing fingers slowly with focused caution.',
+      basePlayStep2P3En: 'Pulls hands back gently to thighs, watching the two-block tower stand stably.',
+      ont01StimulusActionTr: 'Çocuk arabayla ilgilenirken, arkasındaki yetişkin net bir sesle adını seslenir (t₀).',
+      ont01StimulusP1En: 'Toddler remains seated examining the car hood. Behind the child, adult leans forward slightly without physical contact.',
+      ont01StimulusP2En: 'Adult delivers clear verbal auditory stimulus: calls the child\'s name in a firm, warm voice: "Ali!".',
+      ont01StimulusP3En: 'Adult pauses 2 seconds, then repeats the name clearly: "Ali!". Child\'s hands remain on the red car.',
+      ont01AtypicalActionTr: 'Çocuk ismine hiç tepki vermez (Δt > 3.0s). Başını kaldırmaz, arabanın tekerini döndürmeye devam eder.',
+      ont01AtypicalP1En: 'Despite clear vocal call, toddler exhibits complete absence of head orienting; head yaw angle stays under 5 degrees.',
+      ont01AtypicalP2En: 'Eyes remain rigidly glued to the red car wheel; index finger repeatedly spins wheel with zero social glance.',
+      ont01AtypicalP3En: 'Total absence of eye contact or head orienting; unperturbed solitary fixation.',
+      ont01DelayedActionTr: 'Çocuk çağrıldıktan 2.5 saniye sonra yavaşça başını hafifçe yana çevirir, kısa bakar.',
+      ont01DelayedP1En: 'Toddler stays looking at car for 2 seconds, then slowly begins a sluggish, delayed head rotation toward the voice.',
+      ont01TypicalActionTr: 'Çocuk seslenildiği anda (1.2 saniye içinde) başını hızla yetişkine çevirir ve gülümseyerek göz teması kurar.',
+      ont01TypicalP1En: 'Within 1.2 seconds of hearing name, toddler smoothly rotates head 65 degrees toward the adult voice.',
+      ont01TransitionActionTr: 'Kamera geniş açıya çekilir, çocuk arabayı halıda hafifçe ileri iter, serbest oyuna döner.',
+      ont01TransitionP1En: 'Toddler places palm flat on the geometric rug pile next to the car.',
+      ont01TransitionP2En: 'Pushes the red wooden car forward 25 cm, watching wheels roll across the floor.',
+      cooldownActionTr: 'Çocuk peluş oyuncağı iki eliyle göğsüne bastırır, sakin oturur.',
+      cooldownP1En: 'Toddler gently wraps arms around small plush teddy bear resting beside blocks, pressing fur against clothing.',
+      cooldownP2En: 'Strokes plush ear with thumb, looking quietly toward sunlight across ash wood floor.',
+      environmentTr: 'Sakin ve yapılandırılmış klinik gözlem odası; dikkat dağıtıcı harici ekranlar kapalı, yerde geometrik desenli halı.',
+      environmentPropsEn: 'Props: smooth beechwood cubic blocks, cherry-red wooden convertible toy car, pastel-blue stacking cups, clear acrylic toy box.',
+    ),
+
+    // 1: Manyetik Ahşap Tren ve Dairesel Ray Seti (Lokomotif tekeri göz hizasında hipnotik döndürme)
+    ClinicalActivityProfile(
+      id: 'TRAIN_TRACK',
+      toyNameTr: 'Ahşap Lokomotif ve Dairesel Ray Seti',
+      materialsTr: 'Klinik Tren Seti: Doğal kayın ağacı ray parçaları, manyetik bağlantılı kırmızı lokomotif ve kömür vagonu, şeffaf kilitli kutu.',
+      materialsEn: 'curved beechwood interlocking train tracks, cherry-red wooden steam locomotive with magnetic coupling, coal tender wagon with miniature black wheels, clear acrylic observation box',
+      basePlayTitle: 'Rayları Birleştirme ve Lokomotif Sürüşü',
+      basePlayActionTr: 'Çocuk halıda iki ahşap ray parçasını birbirine geçirmeye çalışır ve lokomotifi rayın üstüne koyar.',
+      basePlayP1En: 'Toddler sits comfortably on the cream rug, fitting two curved beechwood train track segments together with both hands.',
+      basePlayP2En: 'Picks up the cherry-red wooden locomotive, feeling the magnetic coupler click gently against the palm.',
+      basePlayP3En: 'Carefully aligns locomotive wheels onto the wooden groove of the circular track.',
+      basePlayStep2Title: 'Lokomotifi Ray Boyunca İtme',
+      basePlayStep2ActionTr: 'Çocuk lokomotifi rayların kıvrımında parmağıyla dikkatlice ileri doğru sürer.',
+      basePlayStep2P1En: 'Toddler gently pushes the red locomotive around the curved track section, wrist following the wooden curve.',
+      basePlayStep2P2En: 'Listens to the rhythmic tactile wooden click as the magnetic wagon glides smoothly behind.',
+      basePlayStep2P3En: 'Pauses at the curve apex, tilting head downward to inspect the alignment with high focus.',
+      ont01StimulusActionTr: 'Çocuk lokomotifle ilgilenirken, arkasındaki yetişkin net bir sesle adını seslenir (t₀).',
+      ont01StimulusP1En: 'Toddler remains seated examining the train engine. Behind child, adult leans forward slightly without physical contact.',
+      ont01StimulusP2En: 'Adult delivers clear auditory stimulus: calls the child\'s name in a firm, warm voice: "Ali!".',
+      ont01StimulusP3En: 'Adult pauses 2 seconds, then repeats the name clearly: "Ali!". Child\'s fingers remain clamped on the locomotive.',
+      ont01AtypicalActionTr: 'Çocuk ismine hiç tepki vermez (Δt > 3.0s). Lokomotifi tam göz hizasına kaldırarak küçük tekerini takıntılı şekilde hızlıca döndürür.',
+      ont01AtypicalP1En: 'Despite clear vocal call, toddler exhibits complete absence of head orienting; lifts the red locomotive to eye level.',
+      ont01AtypicalP2En: 'Index finger rapidly and repetitively spins the black locomotive wheel 2 inches from eyes in narrow visual fixation.',
+      ont01AtypicalP3En: 'Total lack of social awareness; gaze completely absorbed by the spinning wheel rim, oblivious to surrounding voice.',
+      ont01DelayedActionTr: 'Çocuk çağrıldıktan 2.5 saniye sonra yavaşça başını hafifçe yana çevirir, kısa bakar.',
+      ont01DelayedP1En: 'Toddler freezes wheel movement for 2 seconds, then slowly executes a sluggish 30-degree head turn toward the voice.',
+      ont01TypicalActionTr: 'Çocuk seslenildiği anda (1.2 saniye içinde) başını hızla yetişkine çevirir ve gülümseyerek göz teması kurar.',
+      ont01TypicalP1En: 'Within 1.2 seconds of hearing name, toddler sets locomotive down and turns head 65 degrees toward adult with an open reciprocal smile.',
+      ont01TransitionActionTr: 'Kamera geniş açıya çekilir, çocuk lokomotifi rayın üzerine bırakıp vagonu bağlamaya yönelir.',
+      ont01TransitionP1En: 'Toddler lowers the locomotive gently back onto the wooden tracks.',
+      ont01TransitionP2En: 'Reaches for the small coal wagon, rolling both connected pieces smoothly forward along the curve.',
+      cooldownActionTr: 'Çocuk lokomotifi rayın kenarına bırakıp ellerini dizlerine koyarak sakinleşir.',
+      cooldownP1En: 'Toddler places both train cars neatly side-by-side on the ash floor beside the rug border.',
+      cooldownP2En: 'Rests hands quietly in lap, looking peacefully across the sunlit room as observation ends.',
+      environmentTr: 'Aydınlık ve düzenli klinik oyun alanı; yerde dairesel ray döşeli geometrik halı, yumuşak gün ışığı.',
+      environmentPropsEn: 'Props: curved beechwood interlocking train tracks, cherry-red wooden steam locomotive, magnetic coal tender, clear acrylic box.',
+    ),
+
+    // 2: Huş Ağacı Geometrik Şekil Kutusu (Prizmayı ışığa tutup yan bakış - Lateral Glance)
+    ClinicalActivityProfile(
+      id: 'SHAPE_SORTER',
+      toyNameTr: 'Geometrik Şekil Kutusu ve Renkli Prizmalar',
+      materialsTr: 'Klinik Şekil Kutusu: Huş ağacından şekil yerleştirme küpü (üçgen, silindir, kare delikler), renkli prizmalar ve kilitli şeffaf kutu.',
+      materialsEn: 'natural birchwood shape sorter cube with geometric cutouts, vibrant triangular and hexagonal wooden prisms, clear acrylic container',
+      basePlayTitle: 'Şekil Kutusu ve Blokları İnceleme',
+      basePlayActionTr: 'Çocuk huş ağacı şekil kutusunun deliklerini parmaklarıyla yoklar ve elindeki üçgen prizmayı deliğe denk getirmeye çalışır.',
+      basePlayP1En: 'Toddler sits upright on the plush rug, turning the natural birchwood shape cube to find the triangular opening.',
+      basePlayP2En: 'Holds a smooth turquoise triangular prism with pincer grasp, attempting to orient the edges with the cutout slot.',
+      basePlayP3En: 'Concentrates intensely as the wooden prism drops through the slot with a satisfying muted thud.',
+      basePlayStep2Title: 'İkinci Şekli Yerleştirme Girişimi',
+      basePlayStep2ActionTr: 'Çocuk sarı silindir bloğu alıp kutunun üstündeki dairesel deliğe doğru odaklar.',
+      basePlayStep2P1En: 'Picks up a bright yellow wooden cylinder, tapping the circular base against the wooden sorter lid.',
+      basePlayStep2P2En: 'Slowly centers the cylinder over the round hole, feeling the wooden rim with thumb.',
+      basePlayStep2P3En: 'Releases the block smoothly, watching it vanish into the box with focused curiosity.',
+      ont01StimulusActionTr: 'Çocuk renkli prizmayı incelerken, arkasındaki yetişkin net bir sesle adını seslenir (t₀).',
+      ont01StimulusP1En: 'Toddler holds the triangular prism close to face. Behind child, adult sits motionless at 1.5m distance.',
+      ont01StimulusP2En: 'Adult delivers clear vocal prompt calling the child\'s name: "Ali!".',
+      ont01StimulusP3En: 'Adult pauses 2 seconds, repeating the name distinctly: "Ali!". Toddler does not turn.',
+      ont01AtypicalActionTr: 'Çocuk ismine hiç tepki vermez (Δt > 3.0s). Üçgen bloğu pencereden gelen ışığa tutup başını eğerek göz ucuyla (yan bakış - lateral glance) köşesine kilitlenir.',
+      ont01AtypicalP1En: 'Despite loud call, toddler demonstrates zero head turn; tilts head at an acute angle toward window sunlight.',
+      ont01AtypicalP2En: 'Fixates on the prism corner through peripheral lateral eye glance, squinting slightly with completely flat facial affect.',
+      ont01AtypicalP3En: 'Zero orientation to adult; repetitive micro-movements of prism angle catching light reflections.',
+      ont01DelayedActionTr: 'Çocuk çağrıldıktan 2.5 saniye sonra yavaşça başını hafifçe yana çevirir, kısa bakar.',
+      ont01DelayedP1En: 'Toddler lowers the prism after 2.5 seconds, offering a brief 0.5s glance toward adult before looking back to sorter.',
+      ont01TypicalActionTr: 'Çocuk seslenildiği anda (1.2 saniye içinde) başını hızla yetişkine çevirir ve gülümseyerek göz teması kurar.',
+      ont01TypicalP1En: 'Within 1.2 seconds, toddler turns head 60 degrees, holds up the blue triangle with a proud communicative smile.',
+      ont01TransitionActionTr: 'Kamera geniş açıya çekilir, çocuk prizmayı kutunun üstüne bırakır, serbest oyuna döner.',
+      ont01TransitionP1En: 'Toddler sets the turquoise triangle on top of the sorter cube.',
+      ont01TransitionP2En: 'Rests hands on rug beside the box, sitting in balanced upright posture.',
+      cooldownActionTr: 'Çocuk şekil kutusunun kapağını kapatıp sakince oturur.',
+      cooldownP1En: 'Toddler places palm flat on the wooden sorter lid, taking a slow steady breath.',
+      cooldownP2En: 'Looks calmly toward the soft morning sunbeams on the floor as the session concludes.',
+      environmentTr: 'Geniş pencereli sakin klinik odası; yerde geometrik yün halı ve doğal ahşap zemin, dingin gün ışığı.',
+      environmentPropsEn: 'Props: natural birchwood shape sorter cube, triangular and cylindrical wooden blocks, acrylic box.',
+    ),
+
+    // 3: Denge Blokları ve Çizgisel Hizalama (Perseverative Linear Alignment)
+    ClinicalActivityProfile(
+      id: 'BLOCKS_ALIGNMENT',
+      toyNameTr: 'Kayın Ağacı Denge Blokları ve Kule Seti',
+      materialsTr: 'Klinik Blok Seti: 8 adet doğal kayın ağacı silindirik ve kübik blok, mat pastel boyalı denge çubukları, şeffaf kilitli kutu.',
+      materialsEn: 'natural beechwood cubic building blocks, muted pastel wooden balancing bars, transparent observation box',
+      basePlayTitle: 'Ahşap Bloklarla Kule ve Sıralama Başlangıcı',
+      basePlayActionTr: 'Çocuk halıda üç ahşap bloğu yan yana koyup aralarındaki mesafeyi milimetrik olarak düzeltir.',
+      basePlayP1En: 'Toddler sits cross-legged on the geometric rug, carefully placing three beechwood blocks in a straight line.',
+      basePlayP2En: 'Uses thumb and forefinger to nudge the middle block with obsessive precision, aligning outer edges.',
+      basePlayP3En: 'Steps fingers back, sighting along the line at eye level to verify perfect linear orientation.',
+      basePlayStep2Title: 'Dördüncü Bloğu Sıraya Ekleme',
+      basePlayStep2ActionTr: 'Çocuk dördüncü bloğu sıranın ucuna ekler ve halının bordür çizgisiyle tam paralel hizalar.',
+      basePlayStep2P1En: 'Picks up a fourth wooden cube, placing it exactly 1 centimeter from the previous block.',
+      basePlayStep2P2En: 'Gently taps the side to ensure seamless parallel alignment along the rug border pattern.',
+      basePlayStep2P3En: 'Remains crouched low, admiring the uninterrupted row with serious, intent focus.',
+      ont01StimulusActionTr: 'Çocuk blokları dizerken, arkasındaki yetişkin net bir sesle adını seslenir (t₀).',
+      ont01StimulusP1En: 'Toddler sits intensely focused on block row. Behind child, adult leans forward in seated posture.',
+      ont01StimulusP2En: 'Adult calls out child\'s name in a firm, audible voice: "Ali!".',
+      ont01StimulusP3En: 'Adult waits 2 seconds, repeating "Ali!" without touch. Child remains absorbed in alignment.',
+      ont01AtypicalActionTr: 'Çocuk ismine hiç tepki vermez (Δt > 3.0s). Başını hiç kaldırmaz; blok hizası bozulmasın diye tüm dikkatini çizgiye verip beşinci bloğu eklemeyi sürdürür.',
+      ont01AtypicalP1En: 'Despite vocal call, toddler exhibits zero postural orienting; head stays rigidly angled downward at block line.',
+      ont01AtypicalP2En: 'Reaches for a fifth block with laser-focused perseveration, adjusting its position to preserve unbroken symmetry.',
+      ont01AtypicalP3En: 'Total auditory filtering; zero social acknowledgement, completely immersed in perseverative sorting.',
+      ont01DelayedActionTr: 'Çocuk çağrıldıktan 2.5 saniye sonra yavaşça başını hafifçe yana çevirir, kısa bakar.',
+      ont01DelayedP1En: 'Toddler hesitates for 2 seconds with hand on block, then rotates head 30 degrees for a quick fleeting look.',
+      ont01TypicalActionTr: 'Çocuk seslenildiği anda (1.2 saniye içinde) başını hızla yetişkine çevirir ve gülümseyerek göz teması kurar.',
+      ont01TypicalP1En: 'Within 1.2 seconds of hearing name, toddler drops hands to lap, spins head 70 degrees with a bright welcoming smile.',
+      ont01TransitionActionTr: 'Kamera geriye çekilir, çocuk blok sırasını halıda bırakıp dinlenme pozisyonuna geçer.',
+      ont01TransitionP1En: 'Toddler rests palms flat on carpet beside the neatly aligned blocks.',
+      ont01TransitionP2En: 'Breathes evenly in calm sitting posture, returning to baseline presence.',
+      cooldownActionTr: 'Çocuk blokları sakince kutunun yanına toplar ve rahatlar.',
+      cooldownP1En: 'Toddler gathers the wooden cubes together in a neat central group.',
+      cooldownP2En: 'Sits quietly on the rug in serene composure as clinical evaluation concludes.',
+      environmentTr: 'Sade İskandinav tarzı klinik oda; yerde açık renk geometrik yün halı, doğal ahşap zemin ve sabah ışığı.',
+      environmentPropsEn: 'Props: natural beechwood building cubes, balancing bars, clear acrylic storage container.',
+    ),
+
+    // 4: Mekanik Dişli Çark Tablası (Dönen dişlilere donuk ve hipnotik kilitlenme)
+    ClinicalActivityProfile(
+      id: 'SPINNING_GEARS',
+      toyNameTr: 'Renkli Ahşap Dişli Çark Tablası',
+      materialsTr: 'Klinik Dişli Seti: Ahşap zemin üzerine monte birbirine kenetlenen pastel renkli dişli çarklar ve kilitli şeffaf kutu.',
+      materialsEn: 'interlocking pastel-colored wooden mechanical gears on an ash wood baseboard, circular cogs, clear acrylic observation box',
+      basePlayTitle: 'Dişli Tablasında Çarkları Çevirme',
+      basePlayActionTr: 'Çocuk halıda dişli tablasının sarı ana çarkını tutarak yavaşça çevirir ve diğer çarkların dönüşünü izler.',
+      basePlayP1En: 'Toddler sits on the cream rug, placing index finger on the handle of the large yellow center gear.',
+      basePlayP2En: 'Rotates the gear steadily, watching the interlocking teeth engage with turquoise and orange cogs.',
+      basePlayP3En: 'Observes the synchronized rotational motion with sustained tactile and visual attention.',
+      basePlayStep2Title: 'Hızlı Döndürme ve Ritim Gözlemi',
+      basePlayStep2ActionTr: 'Çocuk çarkları daha hızlı çevirir, parmak ucunu dönen dişlerin üzerinde hafifçe gezdirir.',
+      basePlayStep2P1En: 'Spins the main gear with greater velocity, producing a soft rhythmic whirring vibration.',
+      basePlayStep2P2En: 'Hovers fingertips millimeters above the spinning teeth, fascinated by the moving pattern.',
+      basePlayStep2P3En: 'Leans upper body forward, maintaining steady two-hand stabilization on the baseboard.',
+      ont01StimulusActionTr: 'Çocuk dönen çarkları izlerken, arkasındaki yetişkin net bir sesle adını seslenir (t₀).',
+      ont01StimulusP1En: 'Toddler remains leaning over the spinning gear board. Behind child, adult sits calmly at 1.5m.',
+      ont01StimulusP2En: 'Adult issues clear auditory call: "Ali!".',
+      ont01StimulusP3En: 'Adult pauses 2 seconds, repeating the name clearly: "Ali!". Toddler continues spinning gears.',
+      ont01AtypicalActionTr: 'Çocuk ismine hiç tepki vermez (Δt > 3.0s). Yüzünü dişlilerin 10 cm yakınına indirip hipnotik ve donuk bir bakışla dönen çarklara kilitlenir.',
+      ont01AtypicalP1En: 'Despite loud verbal call, toddler shows zero startle or head orientation; bends head 10cm from spinning cogs.',
+      ont01AtypicalP2En: 'Eyes fixate in a trance-like unblinking gaze onto the rotating pastel gear teeth; affect is completely flat.',
+      ont01AtypicalP3En: 'Completely oblivious to human voice; repetitive continuous finger flicking of the primary cog.',
+      ont01DelayedActionTr: 'Çocuk çağrıldıktan 2.5 saniye sonra yavaşça başını hafifçe yana çevirir, kısa bakar.',
+      ont01DelayedP1En: 'Toddler slows the gear rotation after 2.5 seconds, slowly turning head 35 degrees with an expressionless look.',
+      ont01TypicalActionTr: 'Çocuk seslenildiği anda (1.2 saniye içinde) başını hızla yetişkine çevirir ve gülümseyerek göz teması kurar.',
+      ont01TypicalP1En: 'Within 1.2 seconds, toddler releases the gear and swings head around 65 degrees, sharing a joyful eye-contact grin.',
+      ont01TransitionActionTr: 'Kamera geniş açıya çekilir, çarklar yavaşlayıp durur, çocuk sakin nefes alır.',
+      ont01TransitionP1En: 'The spinning gears decelerate to a complete stop on the board.',
+      ont01TransitionP2En: 'Toddler sits back upright on the rug, resting hands comfortably at sides.',
+      cooldownActionTr: 'Çocuk ellerini dizlerine koyup dingin duruşa geçer.',
+      cooldownP1En: 'Toddler sits centered on the geometric rug, peaceful and still beside the stationary gear toy.',
+      cooldownP2En: 'Breathes rhythmically, gazing comfortably toward the sunlit room as observation ends.',
+      environmentTr: 'Geniş ve aydınlık klinik odası; zemin üzerinde ahşap oyuncaklar ve geometrik halı, sakin atmosfer.',
+      environmentPropsEn: 'Props: interlocking pastel wooden gear board, circular cogs, clear acrylic container.',
+    ),
+
+    // 5: Pastel Duyusal Kaplar ve Dokunsal Regülasyon (Sensory Self-Absorption)
+    ClinicalActivityProfile(
+      id: 'NESTING_CUPS',
+      toyNameTr: 'Pastel İç İçe Geçen Duyusal Kaplar',
+      materialsTr: 'Klinik Duyusal Set: 6 adet kademeli boyutta mat pastel silikon duyusal kap, dokunsal çıngırak ve kilitli şeffaf kutu.',
+      materialsEn: 'graduated matte pastel-toned silicone nesting cups, tactile wooden sensory shaker, clear observation box',
+      basePlayTitle: 'Duyusal Kapları Ayırma ve Dizme',
+      basePlayActionTr: 'Çocuk iç içe geçmiş kapları tek tek çekip çıkarır, halının üstüne ters çevirerek dizer.',
+      basePlayP1En: 'Toddler sits cross-legged on the soft wool rug, holding the nested stack of matte pastel cups.',
+      basePlayP2En: 'Pulls the smallest sage-green cup from the stack, turning it upside down onto the carpet pile.',
+      basePlayP3En: 'Extracts the second terracotta cup with focused bilateral coordination, placing it alongside the first.',
+      basePlayStep2Title: 'Kule Oluşturma veya İç İçe Geçirme',
+      basePlayStep2ActionTr: 'Çocuk kapları büyüklük sırasına göre üst üste koyarak küçük bir kule yapmayı dener.',
+      basePlayStep2P1En: 'Carefully balances the third cream cup atop the inverted base, steadying it with both index fingers.',
+      basePlayStep2P2En: 'Rests palms gently around the cup base, checking stability with gentle toddler touch.',
+      basePlayStep2P3En: 'Leans back slightly, observing the colorful nested stack with serene contentment.',
+      ont01StimulusActionTr: 'Çocuk duyusal kapla oynarken, arkasındaki yetişkin net bir sesle adını seslenir (t₀).',
+      ont01StimulusP1En: 'Toddler holds the small pastel cup close to chest. Behind child, adult sits quietly at 1.5m.',
+      ont01StimulusP2En: 'Adult calls child\'s name in a firm, natural voice: "Ali!".',
+      ont01StimulusP3En: 'Adult pauses 2 seconds, repeating "Ali!" clearly. Child remains absorbed in tactile sensation.',
+      ont01AtypicalActionTr: 'Çocuk ismine hiç tepki vermez (Δt > 3.0s). Kabı kulağına dayayıp parmağıyla kenarına ritmik tık tık vurarak dış sesleri tamamen bloke eder (Duyusal kendi içine çekilme).',
+      ont01AtypicalP1En: 'Despite audible call, toddler exhibits zero head orienting; raises the silicone cup directly over the right ear.',
+      ont01AtypicalP2En: 'Taps the cup rim rhythmically with index finger, eyes drifting slightly unfocused in sensory self-soothing.',
+      ont01AtypicalP3En: 'Zero reciprocal connection; external acoustic vocalizations are entirely filtered out in solitary state.',
+      ont01DelayedActionTr: 'Çocuk çağrıldıktan 2.5 saniye sonra yavaşça başını hafifçe yana çevirir, kısa bakar.',
+      ont01DelayedP1En: 'Toddler lowers cup from ear after 2.5s, sluggishly turning head toward adult with a neutral expression.',
+      ont01TypicalActionTr: 'Çocuk seslenildiği anda (1.2 saniye içinde) başını hızla yetişkine çevirir ve gülümseyerek göz teması kurar.',
+      ont01TypicalP1En: 'Within 1.2 seconds, toddler turns head 65 degrees, offering the little green cup forward with a joyful smile.',
+      ont01TransitionActionTr: 'Kamera geniş açıya çekilir, çocuk kabı halıya koyup rahatlar.',
+      ont01TransitionP1En: 'Toddler places the pastel cup gently back on the rug beside the other stacked cups.',
+      ont01TransitionP2En: 'Rests hands open on knees, sitting peacefully in balanced toddler posture.',
+      cooldownActionTr: 'Çocuk kapları iç içe toplayıp seansı dingin şekilde tamamlar.',
+      cooldownP1En: 'Toddler nests the two smaller cups inside the large base with smooth relaxed movements.',
+      cooldownP2En: 'Sits quietly on the rug, breathing calmly in warm morning light as observation ends.',
+      environmentTr: 'Huzurlu ve yumuşak ışıklı klinik oda; geometrik yün halı ve pastel duyusal materyaller.',
+      environmentPropsEn: 'Props: graduated matte pastel silicone nesting cups, tactile wooden shaker, acrylic toy container.',
+    ),
+  ];
+
+  /// DOKTORLAR VE KLİNİK DEĞERLENDİRİCİLER İÇİN SANİYESİZ SEANS SENARYOSU (ÇOKLU-ONTOLOJİ DESTEKLİ)
   static DoctorClinicalScenario generateDoctorScenario({
     int ageMonths = 18,
-    String ontologyCode = 'ONT-01',
+    String? ontologyCode,
+    List<String>? ontologyCodes,
     String riskProfile = 'atipik',
     String engineUsed = '0 MB Yerel Klinik Motoru',
     String? customEnvironment,
     String? customMaterials,
+    int variationSeed = 0,
   }) {
-    // 1. Hedef Ontolojiyi bul
-    final base = ScenariosRepository.allScenarios.firstWhere(
-      (s) => s.code == ontologyCode,
+    final profile = clinicalProfiles[variationSeed.abs() % clinicalProfiles.length];
+
+    // 1. Hedef Ontolojileri belirle
+    final List<String> targetCodes = [];
+    if (ontologyCodes != null && ontologyCodes.isNotEmpty) {
+      targetCodes.addAll(ontologyCodes);
+    } else if (ontologyCode != null && ontologyCode.isNotEmpty) {
+      targetCodes.add(ontologyCode);
+    } else {
+      targetCodes.addAll(['ONT-01', 'ONT-02', 'ONT-06']);
+    }
+
+    final selectedScenarios = targetCodes.map((c) => ScenariosRepository.allScenarios.firstWhere(
+      (s) => s.code == c,
       orElse: () => ScenariosRepository.allScenarios.first,
-    );
+    )).toList();
+
+    final base = selectedScenarios.first;
 
     // 2. Yaş grubunu ve yaşa özel beklentiyi belirle
     String ageGroupLabel;
@@ -272,84 +593,158 @@ class SyntheticVideoPromptService {
       ageGroupLabel = '24–36 Ay';
     }
 
-    final expectedNorm = base.ageBreakdowns[ageGroupLabel] ??
-        'Bu gelişim döneminde sesli ve görsel uyarana yönelik amaçlı yönelim ve göz kontağı beklenir.';
+    final isMulti = targetCodes.length > 1;
+    final title = isMulti
+        ? 'Çoklu Klinik Değerlendirme Protokolü (${targetCodes.join(', ')})'
+        : base.title;
+    final code = isMulti ? targetCodes.join('+') : base.code;
+
+    final expectedNormBuffer = StringBuffer();
+    if (isMulti) {
+      for (final s in selectedScenarios) {
+        final norm = s.ageBreakdowns[ageGroupLabel] ?? 'Yaşa uygun amaçlı tepki ve etkileşim beklenir.';
+        expectedNormBuffer.writeln('• [${s.code} ${s.title}]: $norm');
+      }
+    } else {
+      expectedNormBuffer.write(base.ageBreakdowns[ageGroupLabel] ??
+          'Bu gelişim döneminde sesli ve görsel uyarana yönelik amaçlı yönelim ve göz kontağı beklenir.');
+    }
+    final expectedNorm = expectedNormBuffer.toString();
 
     // 3. Ortam ve Kullanılacak Eşyalar
     final env = (customEnvironment != null && customEnvironment.trim().isNotEmpty)
         ? customEnvironment.trim()
-        : 'Sakin bir oda; televizyon veya telefon gibi dikkat dağıtıcılar kapalı, yerde halı veya alçak bir masa.';
+        : profile.environmentTr;
 
     final mat = (customMaterials != null && customMaterials.trim().isNotEmpty)
         ? customMaterials.trim()
-        : 'Çocuğun ilgisini çekecek 2-3 ahşap blok, çıngırak veya oyuncak araba.';
+        : (isMulti ? profile.materialsTr : 'Çocuğun ilgisini çekecek ${profile.toyNameTr}.');
 
     // 4. Test Nasıl Yapılacak? (Adım adım uygulama)
-    final stimulusText = '''
-• Nerede Durulacak: Çocuğun biraz arkasında veya çaprazında (1-1.5 metre mesafede), doğrudan görüş açısına girmeden durun. Çocuğun elindeki oyuncağa dokunmayın.
+    String stimulusText;
+    if (isMulti) {
+      final sb = StringBuffer();
+      sb.writeln('Bu seans, tek bir oturumda ${targetCodes.length} hedef ontolojiyi kesintisiz ve sıralı olarak değerlendirir:\n');
+      sb.writeln('• Adım 1 [Doğal Taban]: ${profile.basePlayActionTr} (30-45 saniye bağımsız nesne manipülasyonu ve motor dengesini gözlemleyin).');
+      if (targetCodes.contains('ONT-01')) {
+        sb.writeln('• Adım 2 [İsme Tepki - ONT-01]: Görüş açısına girmeden 1.5 metre arkasından doğal ve net sesle adını seslenin. Çocuk ${profile.toyNameTr} ile meşgulken 3 sn içinde dönmezse ikinci kez tekrarlayın.');
+      }
+      if (targetCodes.contains('ONT-02') || targetCodes.contains('ONT-03')) {
+        sb.writeln('• Adım 3 [Ortak Dikkat - ONT-02/03]: Çocuğun dikkatini uzaktaki bir nesneye çekmek için parmağınızla göstererek "Bak oradaki!" deyin. Gözün parmağa mı yoksa hedefe mi kaydığını izleyin.');
+      }
+      if (targetCodes.contains('ONT-06') || targetCodes.contains('ONT-05')) {
+        sb.writeln('• Adım 4 [İletişimsel İstek & El Aleti - ONT-06]: Çocuğun tek başına açamayacağı şeffaf kilitli kutuyu önüne bırakın. Yardım isteme şeklini (göz temasıyla talep vs. elinizi pense gibi alet olarak kullanma) gözlemleyin.');
+      }
+      sb.writeln('• Adım 5 [Kapanış & Regülasyon]: ${profile.cooldownActionTr}');
+      stimulusText = sb.toString();
+    } else {
+      stimulusText = '''
+• Nerede Durulacak: Çocuğun biraz arkasında veya çaprazında (1-1.5 metre mesafede), doğrudan görüş açısına girmeden durun. Çocuğun elindeki ${profile.toyNameTr} nesnesine dokunmayın.
 • Nasıl Seslenilecek: Normal bir ses tonuyla, bağırmadan 1 kez adını söyleyin (veya oyuncağı gösterin).
 • Ne Kadar Beklenecek: Seslendikten sonra hemen araya girmeyin, çocuğun tepki vermesi için 3 saniye bekleyin.
 • Bakmazsa Ne Yapılacak: 3 saniye içinde bakmazsa, aynı şekilde bir kez daha seslenin. En fazla 3 kere deneyin.''';
-
-    // 5. Davranışsal Dallanma (FSM Branches)
-    final rawBranches = base.getBranchesForAge(ageGroupLabel);
-    final branches = <DoctorScenarioBranch>[];
-
-    for (final rb in rawBranches) {
-      branches.add(
-        DoctorScenarioBranch(
-          title: rb.title,
-          level: rb.level,
-          color: rb.color,
-          latency: rb.latency,
-          details: rb.details,
-          clinicalOutcome: rb.clinicalOutcome,
-        ),
-      );
     }
 
-    if (branches.isEmpty) {
+    // 5. Davranışsal Dallanma (FSM Branches)
+    final branches = <DoctorScenarioBranch>[];
+    if (isMulti) {
       branches.addAll([
         const DoctorScenarioBranch(
-          title: 'Hemen Döner ve Gülümser (Normal)',
+          title: 'Tam Normatif ve Entegre Tipik Yanıt (Normal)',
           level: 'YEŞİL',
           color: Colors.green,
-          latency: '1.5 saniye içinde',
-          details: 'Seslenir seslenmez 1.5 saniye içinde kafasını çevirir, gözünüzün içine bakar ve güler yüzle karşılık verir.',
-          clinicalOutcome: 'Yaşına tam uygun, beklenen normal tepki.',
+          latency: 'Tüm fazlarda Δt ≤ 2.0 sn',
+          details: 'İsme ilk seslenişte döner ve göz teması kurar. İşaret edilen nesneye anında üçgenleme yapar. Kilitli kutuyu açamadığında yetişkinin gözlerine bakarak jest ve mimiklerle yardım ister.',
+          clinicalOutcome: 'Tüm test edilen ontolojilerde yaşa tam uygun tipik nörogelişimsel örüntü.',
         ),
         const DoctorScenarioBranch(
-          title: 'Geç Döner / Yavaş Kalır (Takip Edilmeli)',
+          title: 'Gecikmeli / Tekrarlı Uyaran Gerektiren Yanıt (İzlem)',
           level: 'SARI',
           color: Colors.amber,
-          latency: '1.5 - 3 saniye',
-          details: 'İlk seslenişte bakmaz, ikinci seslenişte yavaşça döner ve çok kısa bakar.',
-          clinicalOutcome: 'Dikkat dağınıklığı veya hafif gecikme; tekrar gözlemlemek faydalı olur.',
+          latency: 'Δt = 2.0 - 3.5 sn',
+          details: 'İsme 2. seslenişte gecikmeli yönelir. İşaret edilen nesne yerine önce işaret parmağına takılır, nesneye sonradan bakar. Yardım isterken göz teması zayıf kalır.',
+          clinicalOutcome: 'Gelişimsel izlem ve takip kategorisi. 3 ay sonra tekrar değerlendirme önerilir.',
         ),
-        const DoctorScenarioBranch(
-          title: 'Hiç Bakmaz / Oralı Olmaz (Şüpheli)',
+        DoctorScenarioBranch(
+          title: 'Çoklu Alanda Belirgin Atipik Yanıt (Erken Risk)',
           level: 'KIRMIZI',
           color: Colors.red,
-          latency: '3 saniyeden uzun / Yanıtsız',
-          details: '3 defa seslenseniz de hiç oralı olmaz, oyuncağına dalıp gider, sesin nereden geldiğine bakmaz.',
-          clinicalOutcome: 'Dikkat çeken bir durum; bir uzmanın çocuğu detaylı incelemesi iyi olur.',
+          latency: 'Yanıtsız / Sürekli Direnç',
+          details: '3 kez isme seslenilmesine rağmen hiç yönelmez (${profile.ont01AtypicalActionTr}). İşaret edilen yöne bakmaz, kendi elindeki nesneye kilitli kalır. Kilitli kutuda yetişkinin elini alet gibi mekanik olarak çekip kutuya bastırır (Hand-leading, sıfır göz teması).',
+          clinicalOutcome: 'M-CHAT-R ve ADOS-2 kritik eşiği. Çocuk psikiyatrisi / gelişimsel pediatri uzman değerlendirmesi önerilir.',
         ),
       ]);
+    } else {
+      final rawBranches = base.getBranchesForAge(ageGroupLabel);
+      for (final rb in rawBranches) {
+        branches.add(
+          DoctorScenarioBranch(
+            title: rb.title,
+            level: rb.level,
+            color: rb.color,
+            latency: rb.latency,
+            details: rb.details,
+            clinicalOutcome: rb.clinicalOutcome,
+          ),
+        );
+      }
+      if (branches.isEmpty) {
+        branches.addAll([
+          const DoctorScenarioBranch(
+            title: 'Hemen Döner ve Gülümser (Normal)',
+            level: 'YEŞİL',
+            color: Colors.green,
+            latency: '1.5 saniye içinde',
+            details: 'Seslenir seslenmez 1.5 saniye içinde kafasını çevirir, gözünüzün içine bakar ve güler yüzle karşılık verir.',
+            clinicalOutcome: 'Yaşına tam uygun, beklenen normal tepki.',
+          ),
+          const DoctorScenarioBranch(
+            title: 'Geç Döner / Yavaş Kalır (Takip Edilmeli)',
+            level: 'SARI',
+            color: Colors.amber,
+            latency: '1.5 - 3 saniye',
+            details: 'İlk seslenişte bakmaz, ikinci seslenişte yavaşça döner ve çok kısa bakar.',
+            clinicalOutcome: 'Dikkat dağınıklığı veya hafif gecikme; tekrar gözlemlemek faydalı olur.',
+          ),
+          DoctorScenarioBranch(
+            title: 'Hiç Bakmaz / Oralı Olmaz (Şüpheli)',
+            level: 'KIRMIZI',
+            color: Colors.red,
+            latency: '3 saniyeden uzun / Yanıtsız',
+            details: '3 defa seslenseniz de hiç oralı olmaz, ${profile.toyNameTr} ile oynamaya dalıp gider (${profile.ont01AtypicalActionTr}), sesin nereden geldiğine bakmaz.',
+            clinicalOutcome: 'Dikkat çeken bir durum; bir uzmanın çocuğu detaylı incelemesi iyi olur.',
+          ),
+        ]);
+      }
     }
 
     // 6. Sistemin İzlediği Noktalar
-    final visionMetrics = [
-      'Tepki Süresi: Çocuğa seslendikten sonra kafasını çevirmesi kaç saniye sürdü? (1.5 saniye altı normal sayılır).',
-      'Kafasını Çevirme: Sesi duyduğunda kafasını sese doğru net bir şekilde çevirdi mi?',
-      'Göz Teması: Gözlerini doğrudan size çevirip en az 1 saniye baktı mı?',
-      'Gülümseme ve Mimik: Bakarken yüzü güldü mü, karşılıklı bir etkileşim kurdu mu?',
-      'Tekrarlayan Hareketler: Tek bir oyuncağa (örneğin teker çevirme) takılıp kalma veya ellerini sallama gibi hareketler var mı?',
-    ];
+    final visionMetrics = <String>[];
+    if (isMulti) {
+      if (targetCodes.contains('ONT-01')) {
+        visionMetrics.add('ONT-01 İsme Tepki: Sese yönelik baş dönme gecikmesi (Δt ≤ 2.0 sn) ve dönüş açısı (Yaw ≥ 45°).');
+      }
+      if (targetCodes.contains('ONT-02') || targetCodes.contains('ONT-03')) {
+        visionMetrics.add('ONT-02 Ortak Dikkat: Gözün işaret parmağı yerine hedef nesneye yönelim vektörü ve yüz üçgenlemesi.');
+      }
+      if (targetCodes.contains('ONT-06')) {
+        visionMetrics.add('ONT-06 El Aleti Kullanımı: Yetişkinin elini mekanik alet gibi çekme (Hand-Leading) tespiti ve yardım anındaki göz teması.');
+      }
+      visionMetrics.add('Genel Motor & Regülasyon: El-parmak stereotipileri (tekerlek çevirme, flapping) ve duyusal regülasyon.');
+    } else {
+      visionMetrics.addAll([
+        'Tepki Süresi: Çocuğa seslendikten sonra kafasını çevirmesi kaç saniye sürdü? (1.5 saniye altı normal sayılır).',
+        'Kafasını Çevirme: Sesi duyduğunda kafasını sese doğru net bir şekilde çevirdi mi?',
+        'Göz Teması: Gözlerini doğrudan size çevirip en az 1 saniye baktı mı?',
+        'Gülümseme ve Mimik: Bakarken yüzü güldü mü, karşılıklı bir etkileşim kurdu mu?',
+        'Tekrarlayan Hareketler: Tek bir oyuncağa (örneğin teker çevirme) takılıp kalma veya ellerini sallama gibi hareketler var mı?',
+      ]);
+    }
 
     return DoctorClinicalScenario(
-      code: base.code,
-      title: base.title,
-      category: base.category,
+      code: code,
+      title: title,
+      category: isMulti ? 'Çoklu Gelişimsel Değerlendirme' : base.category,
       targetAgeMonths: ageMonths,
       ageGroupLabel: ageGroupLabel,
       riskProfile: riskProfile,
@@ -361,8 +756,8 @@ class SyntheticVideoPromptService {
       stimulusProtocol: stimulusText,
       branches: branches,
       visionMetrics: visionMetrics,
-      measurementCriteria: base.measurementCriteria,
-      technicalNote: 'Bu sistem teşhis koymaz; sadece çocuğun tepkilerini ve sürelerini daha rahat takip edebilmeniz için yardımcı bir araçtır.',
+      measurementCriteria: isMulti ? 'Çoklu Biyomekanik ve Bilgisayarlı Görü Metrikleri' : base.measurementCriteria,
+      technicalNote: 'Bu sistem teşhis koymaz; klinisyen ve uzmanların çoklu davranış gözlemlerini objektif metriklerle takip etmelerini sağlayan bir karar destek aracıdır.',
     );
   }
 
@@ -374,9 +769,11 @@ class SyntheticVideoPromptService {
     String riskProfile = 'atipik', // 'atipik', 'tipik', 'gecikmeli'
     String? ontologyCode,
     List<String>? ontologyCodes,
+    int variationSeed = 0,
   }) {
     final dur = blockDurationSec.clamp(3, 10);
     final targetSec = totalTargetSec.clamp(180, 240);
+    final profile = clinicalProfiles[variationSeed.abs() % clinicalProfiles.length];
 
     // 1. Hedef davranış kodlarını belirle
     final List<String> targetOntologies = [];
@@ -390,12 +787,12 @@ class SyntheticVideoPromptService {
 
     // 2. YAŞA ÖZEL KARAKTER VE ÇEVRE TANIMLARI (Fotogerçekçi devamlılık tokenları)
     final charSpec = _getCharacterSpec(ageMonths);
-    final envSpec = _getEnvironmentSpec(ageMonths);
+    final envSpec = _getEnvironmentSpec(ageMonths, profile);
     const styleAnchor =
         'Cinematic 4K, photorealistic, Arri Alexa 35, Cooke S7/i 40mm lens, aperture f/2.0, 24fps, natural toddler kinematics, anatomically accurate hands with distinct five fingers, authentic skin subsurface scattering, zero morphing, zero artifacts.';
 
     // 3. KLİNİK FAZ ŞABLONLARI (Seçilen tüm ontolojileri dinamik oluşturur)
-    final rawPhases = _buildClinicalPhases(ageMonths, riskProfile, targetOntologies);
+    final rawPhases = _buildClinicalPhases(ageMonths, riskProfile, targetOntologies, profile);
 
     // 4. DOĞRUSAL DİLİMLEME VE SÜRE HESABI
     final steps = <SyntheticVideoStep>[];
@@ -460,7 +857,7 @@ class SyntheticVideoPromptService {
 
       // Eğer süre dolmadan şablon biterse, kapanış ve serbest oyunla süreyi tamamla
       if (phasePointer >= rawPhases.length && currentSec < targetSec) {
-        rawPhases.add(_createCooldownPhase(currentSec, targetSec));
+        rawPhases.add(_createCooldownPhase(currentSec, targetSec, profile));
       }
     }
 
@@ -498,12 +895,14 @@ class SyntheticVideoPromptService {
   }
 
   /// Mekan ve nesne detayları
-  static String _getEnvironmentSpec(int age) {
-    return 'spacious Scandinavian minimalist nursery playroom, clean matte eggshell-white walls, European natural ash hardwood floor beneath a plush cream geometric wool rug, soft diffused 3800K natural morning window daylight. Props: smooth beechwood cubic blocks, cherry-red wooden convertible toy car, pastel-blue stacking cups, clear acrylic toy box.';
+  static String _getEnvironmentSpec(int age, [ClinicalActivityProfile? profile]) {
+    final p = profile ?? clinicalProfiles.first;
+    return 'spacious Scandinavian minimalist nursery playroom, clean matte eggshell-white walls, European natural ash hardwood floor beneath a plush cream geometric wool rug, soft diffused 3800K natural morning window daylight. ${p.environmentPropsEn}';
   }
 
   /// Klinik Faz Şablonları (Gözlem Kontrol Listesi formatında, birden fazla ontolojiyi sırayla kurgular)
-  static List<Map<String, dynamic>> _buildClinicalPhases(int age, String risk, [dynamic ontologyTarget]) {
+  static List<Map<String, dynamic>> _buildClinicalPhases(int age, String risk, [dynamic ontologyTarget, ClinicalActivityProfile? profile]) {
+    final p = profile ?? clinicalProfiles.first;
     final List<String> selectedCodes = [];
     if (ontologyTarget is List<String>) {
       selectedCodes.addAll(ontologyTarget);
@@ -518,27 +917,27 @@ class SyntheticVideoPromptService {
     // 1. FAZ 1: DOĞAL TABAN GÖZLEMİ (SERBEST OYUN)
     phases.addAll([
       {
-        'title': 'Bloklarla Doğal Oyun Başlangıcı',
+        'title': p.basePlayTitle,
         'type': 'BASE_PLAY',
         'phase': 'Faz 1: Doğal Taban Gözlemi',
         'cam': 'Static locked-off tripod shot at 35cm eye-level, 40mm lens',
-        'action': 'Çocuk halıda bağdaş kurmuş iki ahşap bloğu ritmik şekilde birbirine hafifçe vurur.',
-        'p1': 'Toddler sits on the plush cream geometric rug, holding one beechwood block in each hand, gently tapping them together.',
-        'p2': 'Concentrates on the tactile sound, shifting balance slightly, fingers naturally adjusting grip on smooth wooden grain.',
-        'p3': 'Slowly places the left block down onto the rug while keeping eyes focused downward in calm independent play.',
+        'action': p.basePlayActionTr,
+        'p1': p.basePlayP1En,
+        'p2': p.basePlayP2En,
+        'p3': p.basePlayP3En,
         'checklist': 'Taban Motor Ölçümü: El-nesne kavrama (pincer/palmar), gövde dengesi, nesne manipülasyonu.',
         'meta': {'phase_code': 'P1_BASELINE', 'is_stimulus': false},
       },
       {
-        'title': 'İkinci Bloğu Üst Üste Koyma Denemesi',
+        'title': p.basePlayStep2Title,
         'type': 'BASE_PLAY',
         'phase': 'Faz 1: Doğal Taban Gözlemi',
         'cam': 'Eye-level shot, slow imperceptible smooth zoom-in toward working toddler hands',
-        'action': 'Çocuk yerdeki bloğun üstüne elindeki diğer bloğu dikkatlice koymaya çalışır.',
-        'p1': 'Toddler holds the second beechwood cube directly above the base block, wrist steadying with fine motor concentration.',
-        'p2': 'Carefully balances top cube onto bottom cube, releasing fingers slowly with focused caution.',
-        'p3': 'Pulls hands back gently to thighs, watching the two-block tower stand stably.',
-        'checklist': 'İnce Motor Koordinasyon: İki el koordinasyonu, kule yapma motor planlaması.',
+        'action': p.basePlayStep2ActionTr,
+        'p1': p.basePlayStep2P1En,
+        'p2': p.basePlayStep2P2En,
+        'p3': p.basePlayStep2P3En,
+        'checklist': 'İnce Motor Koordinasyon: İki el koordinasyonu, kule yapma veya nesne hizalama motor planlaması.',
         'meta': {'phase_code': 'P1_STACKING', 'is_stimulus': false},
       },
     ]);
@@ -546,19 +945,19 @@ class SyntheticVideoPromptService {
     // 2. SEÇİLEN TÜM HEDEF DAVRANIŞLAR İÇİN UYARAN VE TEPKİ BLOKLARI
     int phaseNum = 2;
     for (final code in selectedCodes) {
-      phases.addAll(_getPhasesForCode(code, age, risk, phaseNum++));
+      phases.addAll(_getPhasesForCode(code, age, risk, phaseNum++, p));
     }
 
     // 3. KAPANIS VE SEANS TAMAMLAMA
     phases.addAll([
       {
-        'title': 'Kapanış — Peluş Ayıya Sarılma ve Sakinleşme',
+        'title': 'Kapanış — ${p.toyNameTr} ile Sakinleşme',
         'type': 'COOLDOWN',
         'phase': 'Faz $phaseNum: Seans Kapanışı',
         'cam': 'Medium shot at 40cm height, gentle warm lighting',
-        'action': 'Çocuk peluş ayıyı iki eliyle göğsüne bastırır, sakin oturur.',
-        'p1': 'Toddler gently wraps arms around small plush teddy bear resting beside blocks, pressing fur against corduroy dungarees.',
-        'p2': 'Strokes plush ear with thumb, looking quietly toward sunlight across ash wood floor.',
+        'action': p.cooldownActionTr,
+        'p1': p.cooldownP1En,
+        'p2': p.cooldownP2En,
         'p3': 'Remains in peaceful resting sitting posture, breathing gently.',
         'checklist': 'Duyusal Regülasyon: Seans bitiminde dokunsal rahatlama ve dingin duruş.',
         'meta': {'phase_code': 'P_COOLDOWN'},
@@ -568,8 +967,8 @@ class SyntheticVideoPromptService {
         'type': 'COOLDOWN',
         'phase': 'Faz $phaseNum: Seans Kapanışı',
         'cam': 'Slow cinematic pull-back tracking out to full wide room perspective, fading gently',
-        'action': 'Kamera yavaşça geriye çekilir; çocuk oyuncakların ortasında huzurla oturur, seans tamamlanır.',
-        'p1': 'Toddler sits serenely in center of cream geometric rug, surrounded by wooden blocks, red car, and teddy bear.',
+        'action': 'Kamera yavaşça geriye çekilir; çocuk oyun alanının ortasında huzurla oturur, seans tamamlanır.',
+        'p1': 'Toddler sits serenely in center of cream geometric rug, surrounded by quiet play materials.',
         'p2': 'Hands rest softly in lap, head held naturally upright in warm sunbeams streaming through window.',
         'p3': 'Camera holds tranquil wide composition as clinical screening observation concludes seamlessly.',
         'checklist': 'Seans Tamamlandı: Seçilen tüm ontolojik uyaranlar ve gözlemler başarıyla kaydedildi.',
@@ -580,7 +979,8 @@ class SyntheticVideoPromptService {
     return phases;
   }
 
-  static List<Map<String, dynamic>> _getPhasesForCode(String code, int age, String risk, int phaseNum) {
+  static List<Map<String, dynamic>> _getPhasesForCode(String code, int age, String risk, int phaseNum, [ClinicalActivityProfile? profile]) {
+    final p = profile ?? clinicalProfiles.first;
     final isAtypical = risk == 'atipik';
     final isDelayed = risk == 'gecikmeli';
 
@@ -593,10 +993,10 @@ class SyntheticVideoPromptService {
             'phase': 'Faz $phaseNum: İsme Tepki Gözlemi (ONT-01)',
             'ont': 'ONT-01',
             'cam': 'Over-the-shoulder medium shot from behind child; adult face strictly out of frame',
-            'action': 'Çocuk arabayla ilgilenirken, arkasındaki yetişkin net bir sesle "Ali!" diye seslenir (t₀).',
-            'p1': 'Toddler remains seated examining the car hood. Behind the child, adult leans forward slightly without physical contact.',
-            'p2': 'Adult delivers clear verbal auditory stimulus: calls the child\'s name in a firm, warm voice: "Ali!".',
-            'p3': 'Adult pauses 2 seconds, then repeats the name clearly: "Ali!". Child\'s hands remain on the red car.',
+            'action': p.ont01StimulusActionTr,
+            'p1': p.ont01StimulusP1En,
+            'p2': p.ont01StimulusP2En,
+            'p3': p.ont01StimulusP3En,
             'checklist': 'Uyaran Protokolü: Yetişkin görüş alanına girmeden arkadan net sesle seslenir. Zaman sayacı (t0) başlar.',
             'meta': {'phase_code': 'P${phaseNum}_ONT01_STIM', 'is_stimulus': true, 'ontology': 'ONT-01'},
           },
@@ -611,22 +1011,22 @@ class SyntheticVideoPromptService {
             'ont': 'ONT-01',
             'cam': 'Tight 50mm close-up focusing on child\'s eyes, facial landmarks, and head rotation',
             'action': isAtypical
-                ? 'Çocuk ismine hiç tepki vermez (Δt > 3.0s). Başını kaldırmaz, arabanın tekerini döndürmeye devam eder.'
+                ? p.ont01AtypicalActionTr
                 : (isDelayed
-                    ? 'Çocuk çağrıldıktan 2.5 saniye sonra yavaşça başını hafifçe yana çevirir, kısa bakar.'
-                    : 'Çocuk seslenildiği anda (1.2 saniye içinde) başını hızla yetişkine çevirir ve gülümseyerek göz teması kurar.'),
+                    ? p.ont01DelayedActionTr
+                    : p.ont01TypicalActionTr),
             'p1': isAtypical
-                ? 'Despite clear vocal call, toddler exhibits complete absence of head orienting; head yaw angle stays under 5 degrees.'
+                ? p.ont01AtypicalP1En
                 : (isDelayed
-                    ? 'Toddler stays looking at car for 2 seconds, then slowly begins a sluggish, delayed head rotation toward the voice.'
-                    : 'Within 1.2 seconds of hearing name, toddler smoothly rotates head 65 degrees toward the adult voice.'),
+                    ? p.ont01DelayedP1En
+                    : p.ont01TypicalP1En),
             'p2': isAtypical
-                ? 'Eyes remain rigidly glued to the red car wheel; index finger repeatedly spins wheel with zero social glance.'
+                ? p.ont01AtypicalP2En
                 : (isDelayed
-                    ? 'Offers a brief 0.5-second fleeting glance toward adult\'s body level, but quickly lowers gaze back to the car.'
+                    ? 'Offers a brief 0.5-second fleeting glance toward adult\'s body level, but quickly lowers gaze back to the toy.'
                     : 'Establishes direct, warm eye contact with adult; mouth curls into an open curious toddler smile.'),
             'p3': isAtypical
-                ? 'Total absence of eye contact or head orienting; unperturbed solitary fixation.'
+                ? p.ont01AtypicalP3En
                 : (isDelayed
                     ? 'Neutral, expressionless face; turns back to the toy without reciprocal smile.'
                     : 'Maintains sustained social connection for 2 full seconds before naturally glancing back to play.'),
@@ -642,9 +1042,9 @@ class SyntheticVideoPromptService {
             'type': 'TRANSITION',
             'phase': 'Faz $phaseNum: İsme Tepki Gözlemi (ONT-01)',
             'cam': 'Smooth continuous pull-back on motorized slider to wide establishing shot',
-            'action': 'Kamera geniş açıya çekilir, çocuk arabayı halıda hafifçe ileri iter, serbest oyuna döner.',
-            'p1': 'Toddler places palm flat on the geometric rug pile next to the car.',
-            'p2': 'Pushes the red wooden car forward 25 cm, watching wheels roll across the floor.',
+            'action': p.ont01TransitionActionTr,
+            'p1': p.ont01TransitionP1En,
+            'p2': p.ont01TransitionP2En,
             'p3': 'Sits in stable posture, returning to baseline calm playtime state.',
             'checklist': 'Geçiş Davranışı: Uyarandan sonra oyun ortamına regüle olma süreci.',
             'meta': {'phase_code': 'P${phaseNum}_TRANSITION'},
@@ -910,15 +1310,16 @@ class SyntheticVideoPromptService {
     }
   }
 
-  static Map<String, dynamic> _createCooldownPhase(int cur, int target) {
+  static Map<String, dynamic> _createCooldownPhase(int cur, int target, [ClinicalActivityProfile? profile]) {
+    final p = profile ?? clinicalProfiles.first;
     return {
       'title': 'Serbest Sakinleşme ve Oyun Tamamlama',
       'type': 'COOLDOWN',
       'phase': 'Faz 8: Seans Kapanışı',
       'cam': 'Static wide shot, gentle natural morning light',
-      'action': 'Çocuk halıda sakin şekilde oyuncakları incelemeye devam eder.',
-      'p1': 'Toddler sits calmly on the cream rug, turning a wooden block in hands.',
-      'p2': 'Places the block gently next to the red toy car, breathing peacefully.',
+      'action': p.cooldownActionTr,
+      'p1': p.cooldownP1En,
+      'p2': p.cooldownP2En,
       'p3': 'Rests both hands on knees, looking toward the sunlit floor in quiet contentment.',
       'checklist': 'Dinginlik Gözlemi: Seans sonu spontane dikkat ve dinginlik.',
       'meta': {'phase_code': 'P8_EXTRA_COOLDOWN'},

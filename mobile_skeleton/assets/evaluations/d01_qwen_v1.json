@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "protocol_id": "d01_qwen_scene_eval_v1",
+  "tasks": [
+    {
+      "id": "common_start",
+      "title": "Ortak başlangıç",
+      "prompt": "Bir çocuk videosunun yalnızca başlangıç sahnesini Türkçe, 2–3 kısa cümleyle yaz. Deniz 30 aylıktır. Evde oyuncakla oynarken annesine bakmaz. Annesi ona dokunmadan ve işaret etmeden, doğal sesle yalnızca bir kez ‘Deniz’ der. Sahneyi bu çağrının hemen ardından bitir; çocuğun tepkisini anlatma. Yalnızca sahne metni yaz; başlık, JSON ve açıklama ekleme."
+    },
+    {
+      "id": "turn_to_mother",
+      "title": "Yönelme alternatifi",
+      "prompt": "Verilen başlangıç: 30 aylık Deniz evde oyuncakla oynarken annesine bakmaz; annesi dokunmadan ve işaret etmeden doğal sesle bir kez ‘Deniz’ der. Yalnızca bu başlangıcın hemen sonrasını Türkçe, 2–3 kısa cümleyle yaz: Deniz başını annesine çevirir. Başlangıcı yeniden anlatma; yeni çağrı, dokunma, işaret veya başka uyaran ekleme. Yalnızca devam sahnesinin metnini yaz; başlık, JSON ve açıklama ekleme."
+    },
+    {
+      "id": "continue_playing",
+      "title": "Oyuna devam alternatifi",
+      "prompt": "Verilen başlangıç: 30 aylık Deniz evde oyuncakla oynarken annesine bakmaz; annesi dokunmadan ve işaret etmeden doğal sesle bir kez ‘Deniz’ der. Yalnızca bu başlangıcın hemen sonrasını Türkçe, 2–3 kısa cümleyle yaz: Deniz annesine dönmeden oyununa devam eder. Başlangıcı yeniden anlatma; yeni çağrı, dokunma, işaret veya başka uyaran ekleme. Yalnızca devam sahnesinin metnini yaz; başlık, JSON ve açıklama ekleme."
+    }
+  ]
+}

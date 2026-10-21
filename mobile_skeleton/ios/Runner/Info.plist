@@ -59,12 +59,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Gelişimsel video analizi ve senaryo klipleri yüklemek için galeri erişimi gereklidir.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Çocuk gelişimsel gözlem videosu kaydetmek için kamera erişimi gereklidir.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Video kaydı sırasında ses sinyallerini işlemek için mikrofon erişimi gereklidir.</string>
 </dict>
 </plist>

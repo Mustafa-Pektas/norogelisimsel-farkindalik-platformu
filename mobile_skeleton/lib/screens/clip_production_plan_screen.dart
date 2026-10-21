@@ -1,0 +1,461 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+
+import '../models/scenario_clip_plan.dart';
+import '../models/scenario_graph.dart';
+import '../services/clip_video_store.dart';
+import 'clip_video_preview_screen.dart';
+import 'graph_playback_screen.dart';
+
+typedef LoadedClipPlan = ({ScenarioGraph graph, ScenarioClipPlan plan});
+
+/// Yerel üretim hazırlığı; kullanıcı yetkilendirmesi veya video doğrulaması değildir.
+class ClipProductionPlanScreen extends StatefulWidget {
+  const ClipProductionPlanScreen({
+    super.key,
+    this.graphAssetPath = d01GraphAssetPath,
+    this.planAssetPath = d01PlanAssetPath,
+    this.videoStore,
+    this.pickVideo,
+  });
+
+  static const d01GraphAssetPath = 'assets/scenarios/d01_scenario_graph.json';
+  static const d01PlanAssetPath = 'assets/scenarios/d01_clip_plan.json';
+
+  /// Üretim alanı ve doğrudan D01 oynatma girişi aynı doğrulamayı kullanır.
+  static Future<LoadedClipPlan> loadPlanAssets(
+    AssetBundle bundle, {
+    String graphAssetPath = d01GraphAssetPath,
+    String planAssetPath = d01PlanAssetPath,
+  }) async {
+    final sources = await Future.wait([
+      bundle.loadString(graphAssetPath, cache: false),
+      bundle.loadString(planAssetPath, cache: false),
+    ]);
+    final graph = ScenarioGraph.fromJsonString(sources[0]);
+    final plan = ScenarioClipPlan.fromJsonString(sources[1]);
+    plan.validateAgainst(graph);
+    return (graph: graph, plan: plan);
+  }
+
+  final String graphAssetPath;
+  final String planAssetPath;
+  final ClipVideoStore? videoStore;
+  final Future<XFile?> Function()? pickVideo;
+
+  @override
+  State<ClipProductionPlanScreen> createState() => _ClipProductionPlanScreenState();
+}
+
+class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
+  AssetBundle? _bundle;
+  late Future<LoadedClipPlan> _loading;
+  late ClipVideoStore _videoStore;
+  Map<String, ClipVideoBinding> _bindings = {};
+  Map<String, bool> _videoExists = {};
+  final _videoMessages = <String, String>{};
+  bool _bindingsReady = false;
+  String? _bindingError;
+  String? _busyClip;
+  String? _currentPlanId;
+  int _loadEpoch = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _videoStore = widget.videoStore ?? ClipVideoStore(documentsDirectory: getApplicationDocumentsDirectory);
+  }
+
+  Future<LoadedClipPlan> _load() async {
+    final epoch = ++_loadEpoch;
+    final data = await ClipProductionPlanScreen.loadPlanAssets(
+      _bundle!, graphAssetPath: widget.graphAssetPath, planAssetPath: widget.planAssetPath,
+    );
+    final graph = data.graph;
+    final plan = data.plan;
+    try {
+      final bindings = await _videoStore.loadPlan(plan.planId);
+      final exists = <String, bool>{};
+      for (final entry in bindings.entries) {
+        exists[entry.key] = await _videoStore.fileExists(entry.value);
+      }
+      if (mounted && epoch == _loadEpoch) {
+        _bindings = Map.of(bindings);
+        _videoExists = exists;
+        _bindingsReady = true;
+        _bindingError = null;
+      }
+    } catch (_) {
+      if (mounted && epoch == _loadEpoch) {
+        _bindings = {};
+        _videoExists = {};
+        _bindingsReady = false;
+        _bindingError = 'Video eşlemeleri okunamadı. Kayıtlar değiştirilmedi; yeniden yüklemeyi deneyin.';
+      }
+    }
+    if (mounted && epoch == _loadEpoch) _currentPlanId = plan.planId;
+    return (graph: graph, plan: plan);
+  }
+
+  Future<void> _selectVideo(String planId, String clipId) async {
+    if (!_bindingsReady || _busyClip != null) return;
+    setState(() {
+      _busyClip = clipId;
+      _videoMessages.remove(clipId);
+    });
+    var selecting = true;
+    try {
+      final selected = await (widget.pickVideo?.call() ?? ImagePicker().pickVideo(source: ImageSource.gallery));
+      if (selected == null || !mounted) return; // İptal: mevcut eşlemeye dokunma.
+      selecting = false;
+      final result = await _videoStore.attach(
+        planId: planId, clipId: clipId, source: File(selected.path), fileName: selected.name,
+      );
+      if (mounted && _currentPlanId == planId) {
+        setState(() {
+          _bindings[clipId] = result.binding;
+          _videoExists[clipId] = true;
+          if (result.warning != null) _videoMessages[clipId] = result.warning!;
+        });
+      }
+    } catch (_) {
+      if (mounted && _currentPlanId == planId) {
+        setState(() {
+          _videoMessages[clipId] = selecting
+              ? 'Video seçilemedi. Galeri iznini kontrol edip tekrar deneyin; önceki eşleme korundu.'
+              : 'Video kopyalanamadı veya eşleme kaydedilemedi. Önceki eşleme korundu.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() { _busyClip = null; });
+    }
+  }
+
+  Future<void> _removeVideo(String planId, String clipId) async {
+    if (!_bindingsReady || _busyClip != null) return;
+    setState(() {
+      _busyClip = clipId;
+      _videoMessages.remove(clipId);
+    });
+    try {
+      final warning = await _videoStore.remove(planId: planId, clipId: clipId);
+      if (mounted && _currentPlanId == planId) {
+        setState(() {
+          _bindings.remove(clipId);
+          _videoExists.remove(clipId);
+          if (warning != null) _videoMessages[clipId] = warning;
+        });
+      }
+    } catch (_) {
+      if (mounted && _currentPlanId == planId) {
+        setState(() {
+          _videoMessages[clipId] = 'Bağlantı kaldırılamadı; kayıt hatası nedeniyle önceki eşleme korundu.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() { _busyClip = null; });
+    }
+  }
+
+  Widget _videoControls(String planId, String clipId) {
+    final binding = _bindings[clipId];
+    final status = !_bindingsReady ? 'Video durumu okunamadı'
+        : binding == null ? 'Video yok'
+        : _videoExists[clipId] == true ? 'Video bağlı' : 'Dosya bulunamadı';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        Text(status, key: ValueKey('clip-video-status:$clipId'), style: const TextStyle(fontWeight: FontWeight.bold)),
+        if (binding != null) SelectableText(binding.fileName, key: ValueKey('clip-video-name:$clipId')),
+        const Text('İncelenmedi: video bağlanması davranışı, süreyi veya sürekliliği doğrulamaz.'),
+        if (binding != null) const Text('Başka bir video seçerek değiştirebilirsiniz.'),
+        if (_videoMessages[clipId] case final String message)
+          Text(message, key: ValueKey('clip-video-message:$clipId')),
+        if (_busyClip == clipId) const LinearProgressIndicator(),
+        Wrap(
+          spacing: 8, runSpacing: 8,
+          children: [
+            if (_bindingsReady && binding != null && _videoExists[clipId] == true)
+              OutlinedButton.icon(
+                key: ValueKey('preview-clip-video:$clipId'),
+                onPressed: _busyClip != null ? null : () {
+                  Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => ClipVideoPreviewScreen(
+                      binding: binding,
+                      videoStore: _videoStore,
+                    ),
+                  ));
+                },
+                icon: const Icon(Icons.play_circle_outline),
+                label: const Text('Videoyu izle'),
+              ),
+            OutlinedButton.icon(
+              key: ValueKey('select-clip-video:$clipId'),
+              onPressed: !_bindingsReady || _busyClip != null ? null : () => _selectVideo(planId, clipId),
+              icon: const Icon(Icons.video_library_outlined),
+              label: const Text('Video seç'),
+            ),
+            if (binding != null)
+              TextButton(
+                key: ValueKey('remove-clip-video:$clipId'),
+                onPressed: !_bindingsReady || _busyClip != null ? null : () => _removeVideo(planId, clipId),
+                child: const Text('Bağlantıyı kaldır'),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final bundle = DefaultAssetBundle.of(context);
+    if (_bundle != bundle) {
+      _bundle = bundle;
+      _loading = _load();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ClipProductionPlanScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoStore != widget.videoStore) {
+      _videoStore = widget.videoStore ?? ClipVideoStore(documentsDirectory: getApplicationDocumentsDirectory);
+    }
+    if (oldWidget.graphAssetPath != widget.graphAssetPath ||
+        oldWidget.planAssetPath != widget.planAssetPath || oldWidget.videoStore != widget.videoStore) {
+      _loading = _load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.white,
+    appBar: AppBar(
+      title: const Text('Klip Üretim Planı'),
+      backgroundColor: _navy,
+      foregroundColor: Colors.white,
+    ),
+    body: SafeArea(
+      child: FutureBuilder<LoadedClipPlan>(
+        future: _loading,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            final error = snapshot.error;
+            return Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Klip üretim planı açılamadı.'),
+                    const SizedBox(height: 8),
+                    Text(error is FormatException
+                        ? 'Graf veya klip planı doğrulanamadı: ${error.message}'
+                        : 'Örnek dosyaları okunamadı. Tekrar deneyebilirsiniz.'),
+                    OutlinedButton(
+                      onPressed: () {
+                        final loading = _load();
+                        setState(() {
+                          _loading = loading;
+                        });
+                      },
+                      child: const Text('Tekrar dene'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final data = snapshot.data!;
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Elle hazırlanmış üretim planıdır; video veya gözlem kanıtı değildir',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: _navy),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Debug görünürlüğü gerçek kullanıcı yetkilendirmesi değildir. '
+                  'Normal release sürümünde Stüdyo girişi bulunmaz.',
+                ),
+                const SizedBox(height: 8),
+                Text('${data.plan.clips.length} klip · her biri en fazla 8 saniye'),
+                if (kDebugMode)
+                  Wrap(
+                    spacing: 8, runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        key: const ValueKey('open-graph-playback'),
+                        onPressed: _busyClip != null ? null : () {
+                          Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => GraphPlaybackScreen(
+                              graph: data.graph,
+                              plan: data.plan,
+                              videoStore: _videoStore,
+                            ),
+                          ));
+                        },
+                        icon: const Icon(Icons.account_tree_outlined),
+                        label: const Text('Grafı dene'),
+                      ),
+                    ],
+                  ),
+                if (_bindingError != null) ...[
+                  Text(_bindingError!),
+                  TextButton(
+                    onPressed: _busyClip != null ? null : () {
+                      final loading = _load();
+                      setState(() { _loading = loading; });
+                    },
+                    child: const Text('Video eşlemelerini yeniden yükle'),
+                  ),
+                ],
+                ExpansionTile(
+                  title: const Text('Planlama ve gözlem sınırları'),
+                  children: [SelectableText(data.plan.authoringNote)],
+                ),
+                ExpansionTile(
+                  title: const Text('Karakter, ortam ve nesne sürekliliği'),
+                  children: [SelectableText(data.plan.continuityNotes)],
+                ),
+                for (final section in _sections(data.graph)) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 20, bottom: 8),
+                    child: Text(section.title,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _navy)),
+                  ),
+                  for (final scene in section.scenes)
+                    Card(
+                      color: const Color(0xFFF3F5F8),
+                      child: ExpansionTile(
+                        key: ValueKey('clip-scene:${scene.id}'),
+                        title: Text(scene.title ?? scene.id),
+                        subtitle: Text(
+                          '${scene.id} · ${data.plan.clipsForScene(scene.id).length} klip'
+                          '${scene.id == data.graph.startSceneId ? ' · Başlangıç' : ''}'
+                          '${data.graph.endSceneIds.contains(scene.id) ? ' · Bitiş' : ''}',
+                        ),
+                        children: [
+                          for (final clip in data.plan.clipsForScene(scene.id))
+                            _ClipDetails(clip: clip, videoControls: _videoControls(data.plan.planId, clip.id)),
+                        ],
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          );
+        },
+      ),
+    ),
+  );
+}
+
+const _navy = Color(0xFF142540);
+
+class _ClipDetails extends StatelessWidget {
+  const _ClipDetails({required this.clip, required this.videoControls});
+  final PlannedClip clip;
+  final Widget videoControls;
+
+  Widget _field(String title, String value) => Padding(
+    padding: const EdgeInsets.only(top: 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        SelectableText(value),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: ValueKey('production-clip:${clip.id}'),
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    margin: const EdgeInsets.only(bottom: 8),
+    color: Colors.white,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('${clip.orderInScene}. klip · Hedef süre: ${clip.targetDurationS} sn',
+            style: const TextStyle(fontWeight: FontWeight.bold, color: _navy)),
+        SelectableText(clip.id),
+        _field('Planlanan eylem', clip.plannedAction),
+        _field('Başlangıç durumu', clip.initialState),
+        _field('Bitiş durumu', clip.finalState),
+        videoControls,
+        _field('Tam üretim promptu', clip.productionPrompt),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          key: ValueKey('copy-clip-prompt:${clip.id}'),
+          onPressed: () async {
+            try {
+              await Clipboard.setData(ClipboardData(text: clip.productionPrompt));
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Üretim promptu kopyalandı.')),
+                );
+              }
+            } catch (_) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Prompt kopyalanamadı. Tekrar deneyin.')),
+                );
+              }
+            }
+          },
+          icon: const Icon(Icons.copy),
+          label: const Text('Promptu kopyala'),
+        ),
+      ],
+    ),
+  );
+}
+
+typedef _Section = ({String title, List<ScenarioScene> scenes});
+
+/// İlk ayrımın ortak sahneleri bir kez, ayrı devamları kendi başlıklarında.
+/// Dal seçmez; yalnızca mevcut D01 grafının bağlantılarını görselleştirir.
+List<_Section> _sections(ScenarioGraph graph) {
+  final outgoing = {
+    for (final scene in graph.scenes)
+      scene.id: graph.transitions.where((edge) => edge.fromSceneId == scene.id).toList(),
+  };
+  final forks = graph.scenes.where((scene) => outgoing[scene.id]!.length > 1).toList();
+  if (forks.isEmpty) return [(title: 'Ortak sahneler', scenes: graph.scenes)];
+  final branches = outgoing[forks.first.id]!;
+  Set<String> reachable(String start) {
+    final seen = <String>{};
+    final pending = [start];
+    while (pending.isNotEmpty) {
+      final id = pending.removeLast();
+      if (seen.add(id)) pending.addAll(outgoing[id]!.map((edge) => edge.toSceneId));
+    }
+    return seen;
+  }
+  final paths = [for (final branch in branches) reachable(branch.toSceneId)];
+  int count(String id) => paths.where((path) => path.contains(id)).length;
+  return [
+    (title: 'Ortak sahneler · iki dal için tek kez',
+     scenes: graph.scenes.where((scene) => count(scene.id) != 1).toList()),
+    for (var i = 0; i < branches.length; i++)
+      (title: 'Alternatif: ${branches[i].label ?? branches[i].description}',
+       scenes: graph.scenes.where((scene) => count(scene.id) == 1 && paths[i].contains(scene.id)).toList()),
+  ];
+}
