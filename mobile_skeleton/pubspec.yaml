@@ -39,14 +39,6 @@ dependencies:
   shared_preferences: ^2.5.6
   image_picker: ^1.1.2
   path_provider: ^2.1.5
-  llamadart: 0.12.0
-
-# Bu deneme yalnızca yerel GGUF ve CPU kullanır. Native sürümü paket sabitler.
-hooks:
-  user_defines:
-    llamadart:
-      llamadart_native_runtimes: [llama_cpp]
-      llamadart_native_backends: [cpu]
 
 dev_dependencies:
   flutter_test:
@@ -71,23 +63,10 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/evaluations/d01_qwen_v1.json
     - assets/scenarios/d01_scenario_graph.json
     - assets/scenarios/d01_scenario_input.json
     - assets/scenarios/d01_clip_plan.json
     - assets/videos/
-    - assets/videos/ont_01_isme_tepki/
-    - assets/videos/ont_02_ortak_dikkat/
-    - assets/videos/ont_03_ortak_dikkat_baslatma/
-    - assets/videos/ont_04_deklaratif_isaret_etme/
-    - assets/videos/ont_05_istek_bildirme/
-    - assets/videos/ont_06_el_aleti_kullanma/
-    - assets/videos/ont_07_ce_e_oyunu/
-    - assets/videos/ont_08_nesne_getirme/
-    - assets/videos/ont_09_duygulanim_paylasimi/
-    - assets/videos/ont_10_yonerge_takibi/
-    - assets/videos/ont_11_iletisimsel_jestler/
-    - assets/videos/ont_12_akran_ilgisi/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

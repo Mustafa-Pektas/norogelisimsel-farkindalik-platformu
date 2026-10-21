@@ -22,6 +22,8 @@ class ClipProductionPlanScreen extends StatefulWidget {
     this.planAssetPath = d01PlanAssetPath,
     this.videoStore,
     this.pickVideo,
+    this.providedPlan,
+    this.rawPlanJson,
   });
 
   static const d01GraphAssetPath = 'assets/scenarios/d01_scenario_graph.json';
@@ -43,6 +45,9 @@ class ClipProductionPlanScreen extends StatefulWidget {
     return (graph: graph, plan: plan);
   }
 
+  /// Sunucudan gelen plan yalnız inceleme içindir; eski video deposuna erişmez.
+  final LoadedClipPlan? providedPlan;
+  final String? rawPlanJson;
   final String graphAssetPath;
   final String planAssetPath;
   final ClipVideoStore? videoStore;
@@ -73,6 +78,13 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
 
   Future<LoadedClipPlan> _load() async {
     final epoch = ++_loadEpoch;
+    final provided = widget.providedPlan;
+    if (provided != null) {
+      provided.graph.validate();
+      provided.plan.validateAgainst(provided.graph);
+      provided.plan.d01ObservationDurations(provided.graph, requireTiming: true);
+      return provided;
+    }
     final data = await ClipProductionPlanScreen.loadPlanAssets(
       _bundle!, graphAssetPath: widget.graphAssetPath, planAssetPath: widget.planAssetPath,
     );
@@ -213,6 +225,17 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
     );
   }
 
+  Future<void> _export(String text) async {
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tam metin kopyalandı.')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Metin kopyalanamadı.')));
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -229,7 +252,7 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
     if (oldWidget.videoStore != widget.videoStore) {
       _videoStore = widget.videoStore ?? ClipVideoStore(documentsDirectory: getApplicationDocumentsDirectory);
     }
-    if (oldWidget.graphAssetPath != widget.graphAssetPath ||
+    if (oldWidget.providedPlan != widget.providedPlan || oldWidget.graphAssetPath != widget.graphAssetPath ||
         oldWidget.planAssetPath != widget.planAssetPath || oldWidget.videoStore != widget.videoStore) {
       _loading = _load();
     }
@@ -283,9 +306,11 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Elle hazırlanmış üretim planıdır; video veya gözlem kanıtı değildir',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: _navy),
+                Text(
+                  widget.providedPlan == null
+                    ? 'Elle hazırlanmış üretim planıdır; video veya gözlem kanıtı değildir'
+                    : 'Sunucudan üretilmiş plan taslağı; içerik onayı veya hazır video değildir. D01 videolarına bağlı değildir.',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: _navy),
                 ),
                 const SizedBox(height: 8),
                 const Text(
@@ -294,7 +319,7 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text('${data.plan.clips.length} klip · her biri en fazla 8 saniye'),
-                if (kDebugMode)
+                if (kDebugMode && widget.providedPlan == null)
                   Wrap(
                     spacing: 8, runSpacing: 8,
                     children: [
@@ -314,6 +339,21 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                       ),
                     ],
                   ),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  OutlinedButton.icon(
+                    key: const ValueKey('export-plan-json'),
+                    onPressed: () => _export(widget.rawPlanJson ?? data.plan.toJsonString(pretty: true)),
+                    icon: const Icon(Icons.copy), label: const Text('Plan JSON’unu kopyala'),
+                  ),
+                  OutlinedButton.icon(
+                    key: const ValueKey('export-plan-prompts'),
+                    onPressed: () => _export(planPromptText(data.graph, data.plan)),
+                    icon: const Icon(Icons.copy), label: const Text('Tüm promptları kopyala'),
+                  ),
+                ]),
+                if (data.plan.visualSuggestions != null)
+                  ExpansionTile(title: const Text('Üretilmiş görsel öneriler — incelenmedi'),
+                    children: [SelectableText(data.plan.visualSuggestions!)]),
                 if (_bindingError != null) ...[
                   Text(_bindingError!),
                   TextButton(
@@ -326,7 +366,17 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                 ],
                 ExpansionTile(
                   title: const Text('Planlama ve gözlem sınırları'),
-                  children: [SelectableText(data.plan.authoringNote)],
+                  children: [
+                    SelectableText(data.plan.authoringNote),
+                    if (data.plan.d01CallTiming != null) ...[
+                      const Text('Planlanan çağrı bitişleri — ölçülmüş video zamanı değildir'),
+                      for (final call in data.plan.d01CallTiming!)
+                        Text('${call.clipId}: klip içinde ${call.callEndS} sn'),
+                      for (final entry in data.plan.d01ObservationDurations(data.graph).entries)
+                        Text('${entry.key}: çağrı sonrası planlanan ${entry.value} sn'),
+                      const Text('Bu süre hesabı klinik tepki eşiği veya kesintisiz video kanıtı değildir.'),
+                    ],
+                  ],
                 ),
                 ExpansionTile(
                   title: const Text('Karakter, ortam ve nesne sürekliliği'),
@@ -351,7 +401,8 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                         ),
                         children: [
                           for (final clip in data.plan.clipsForScene(scene.id))
-                            _ClipDetails(clip: clip, videoControls: _videoControls(data.plan.planId, clip.id)),
+                            _ClipDetails(clip: clip, videoControls: widget.providedPlan == null
+                              ? _videoControls(data.plan.planId, clip.id) : const SizedBox.shrink()),
                         ],
                       ),
                     ),
@@ -401,6 +452,8 @@ class _ClipDetails extends StatelessWidget {
         _field('Bitiş durumu', clip.finalState),
         videoControls,
         _field('Tam üretim promptu', clip.productionPrompt),
+        if (clip.voiceoverInstructions != null)
+          _field('Ayrı seslendirme yönergeleri', clip.voiceoverInstructions!),
         const SizedBox(height: 8),
         OutlinedButton.icon(
           key: ValueKey('copy-clip-prompt:${clip.id}'),
@@ -452,10 +505,30 @@ List<_Section> _sections(ScenarioGraph graph) {
   final paths = [for (final branch in branches) reachable(branch.toSceneId)];
   int count(String id) => paths.where((path) => path.contains(id)).length;
   return [
-    (title: 'Ortak sahneler · iki dal için tek kez',
+    (title: branches.length == 2 ? 'Ortak sahneler · iki dal için tek kez'
+        : 'Ortak sahneler · ${branches.length} dal için tek kez',
      scenes: graph.scenes.where((scene) => count(scene.id) != 1).toList()),
     for (var i = 0; i < branches.length; i++)
       (title: 'Alternatif: ${branches[i].label ?? branches[i].description}',
        scenes: graph.scenes.where((scene) => count(scene.id) == 1 && paths[i].contains(scene.id)).toList()),
   ];
+}
+
+/// Metinlerin tamamı ve sıraları korunur; görsel prompt/seslendirme karıştırılmaz.
+String planPromptText(ScenarioGraph graph, ScenarioClipPlan plan) {
+  plan.validateAgainst(graph);
+  return [
+    'Plan: ${plan.planId} / Senaryo: ${plan.scenarioId}',
+    plan.authoringNote, 'Süreklilik:\n${plan.continuityNotes}',
+    if (plan.d01CallTiming != null)
+      for (final call in plan.d01CallTiming!)
+        'Planlanan D01 çağrı bitişi: ${call.clipId}, klip içinde ${call.callEndS} sn (ölçüm değil)',
+    if (plan.visualSuggestions != null) 'Üretilmiş görsel öneriler:\n${plan.visualSuggestions}',
+    for (final scene in graph.scenes)
+      for (final clip in plan.clipsForScene(scene.id))
+        'Sahne: ${scene.id} / Klip: ${clip.id} / Sıra: ${clip.orderInScene} / Hedef süre: ${clip.targetDurationS} s\n'
+        'Eylem:\n${clip.plannedAction}\nBaşlangıç:\n${clip.initialState}\nBitiş:\n${clip.finalState}\n'
+        'Görsel üretim promptu:\n${clip.productionPrompt}\n'
+        'Ayrı seslendirme yönergeleri:\n${clip.voiceoverInstructions ?? 'Belirtilmedi'}',
+  ].join('\n\n');
 }

@@ -651,7 +651,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
               widget.analysisService.isAvailable
                   ? 'Girilen yaş kullanıcı beyanı olarak analiz isteğine eklenir. '
                       'Proje hedefi 12–36 aydır; tüm aralıkta analiz desteği doğrulanmadı.'
-                  : 'Girilen yaş kullanıcı beyanıdır; henüz otomatik analizde kullanılmaz. '
+                  : 'Girilen yaş kullanıcı beyanıdır. '
                       'Proje hedefi 12–36 aydır; tüm aralıkta analiz desteği doğrulanmadı.',
               key: const ValueKey('video-age-note'),
             ),
@@ -739,7 +739,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
             _buildAnalysis(),
             const SizedBox(height: 16),
 
-            // YETKİLİ MERKEZLER BUTONU
+            // Kayıtlı kurum bilgilerine erişim
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 48),
@@ -754,7 +754,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
               },
               icon: const Icon(Icons.local_hospital_outlined, color: Color(0xFF0F172A)),
               label: const Text(
-                'Yetkili Çocuk Sağlığı ve Gelişim Merkezleri',
+                'Kurum bilgileri',
                 style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold),
               ),
             ),
@@ -783,13 +783,14 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
       children: [
         if (!service.isAvailable && result == null && !_analysisBusy)
           const Text(
-            'Bu video analiz edilmedi. Video seçip izleyebilirsiniz; '
-            'otomatik analiz bağlantısı henüz tamamlanmadı.',
+            'Analiz hizmeti bağlı değil. Video seçip izleyebilirsiniz; bu video analiz edilmedi.',
             key: ValueKey('video-not-analyzed'),
           ),
-        Text(_cancellingAnalysis ? 'İptal bekleniyor' : phaseLabel,
-          key: const ValueKey('video-analysis-status')),
-        Text(service.scopeDescription),
+        if (service.isAvailable || _analysisPhase != null || _analysisBusy || !ready)
+          Text(_cancellingAnalysis ? 'İptal bekleniyor' : phaseLabel,
+            key: const ValueKey('video-analysis-status')),
+        if (service.isAvailable || _analysisPhase != null || result != null)
+          Text(service.scopeDescription),
         if (_analysisError != null)
           Text(_analysisError!, key: const ValueKey('video-analysis-error')),
         if (service.isAvailable) ...[

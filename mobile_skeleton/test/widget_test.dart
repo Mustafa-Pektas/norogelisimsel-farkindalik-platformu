@@ -7,12 +7,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:neuro_awareness_app/main.dart';
 import 'package:neuro_awareness_app/models/behavior_cards.dart';
 import 'package:neuro_awareness_app/screens/home_screen.dart';
+import 'package:neuro_awareness_app/screens/institutions_screen.dart';
 import 'package:neuro_awareness_app/screens/ontology_detail_screen.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_import_screen.dart';
 import 'package:neuro_awareness_app/screens/synthetic_video_studio_screen.dart';
 import 'package:neuro_awareness_app/screens/video_analysis_screen.dart';
-import 'package:neuro_awareness_app/services/local_llama_test_service.dart';
-import 'package:neuro_awareness_app/widgets/local_llama_test_card.dart';
 import 'package:neuro_awareness_app/widgets/floating_video_controls.dart';
 import 'package:neuro_awareness_app/widgets/age_slider_card.dart';
 // Mevcut testlerdeki platform sınırları; gerçek dosya/model/video motoru yok.
@@ -119,14 +118,7 @@ void main() {
   }
 
   Future<void> close(WidgetTester tester, {int expectedPlays = 0}) async {
-    final cards = tester.widgetList<LocalLlamaTestCard>(
-      find.byType(LocalLlamaTestCard, skipOffstage: false),
-    ).toList();
-    expect(cards, isNotEmpty);
-    for (final card in cards) {
-      expect(card.service.state.phase, LocalLlamaPhase.idle,
-          reason: 'Gezinme gerçek model çıkarımı başlatmamalı.');
-    }
+    expect(find.text('Teknik model denemeleri', skipOffstage: false), findsNothing);
     expect(video.players, 1);
     expect(video.plays, expectedPlays);
     expect(tester.takeException(), isNull);
@@ -228,15 +220,11 @@ void main() {
     await close(tester);
   });
 
-  testWidgets('Sekme dönüşü ve Home rebuildi şablon üretmez; Stüdyo state ve servisleri korunur', (tester) async {
+  testWidgets('Sekme dönüşü ve Home rebuildi şablon üretmez; Stüdyo state korunur', (tester) async {
     await mount(tester);
     await tester.tap(destination('Simülasyon ve Eğitim'));
     await tester.pumpAndSettle();
     final studio = tester.state(find.byType(SyntheticVideoStudioScreen));
-    final original = tester.widgetList<LocalLlamaTestCard>(
-      find.byType(LocalLlamaTestCard, skipOffstage: false),
-    ).map((card) => card.service).toList();
-
     void expectRetained() {
       expect(tester.state(find.byType(SyntheticVideoStudioScreen)), same(studio));
       expect(find.text('Eski şablon araçları', skipOffstage: false), findsNothing);
@@ -244,13 +232,7 @@ void main() {
         'template-scenario-loading', 'template-scenario-title']) {
         expect(find.byKey(ValueKey(key), skipOffstage: false), findsNothing);
       }
-      final current = tester.widgetList<LocalLlamaTestCard>(
-        find.byType(LocalLlamaTestCard, skipOffstage: false),
-      ).map((card) => card.service).toList();
-      expect(current, hasLength(original.length));
-      for (var i = 0; i < original.length; i++) {
-        expect(current[i], same(original[i]));
-      }
+      expect(find.text('Teknik model denemeleri', skipOffstage: false), findsNothing);
     }
 
     expectRetained();
@@ -428,7 +410,7 @@ void main() {
     });
   }
 
-  testWidgets('D01 model demosu ayrıntıdan değil Stüdyo girişinden sabit 30 ayla açılır', (tester) async {
+  testWidgets('Stüdyo girişi senaryo çalışma alanını açar; yerel D01 demo aracı yoktur', (tester) async {
     await mount(tester);
     await tester.pumpAndSettle();
     await tester.tap(destination('Simülasyon ve Eğitim'));
@@ -441,21 +423,39 @@ void main() {
     expect(tester.widget<ChoiceChip>(
       find.byKey(const ValueKey('scenario-import-mode-scenario')),
     ).selected, isTrue);
-    await toggleBehaviorSection(tester, 'Modelden taslak al — D01, 30 ay');
-    final request = tester.widget<LocalLlamaTestCard>(
-      find.byType(LocalLlamaTestCard),
-    ).service.request;
-    expect(request, same(LocalLlamaTestRequest.d01GraphDemo));
-    expect(request.prompt, contains('30 aylık Deniz'));
-    expect(LocalLlamaTestRequest.d01GraphDemoMetadata['ageMonths'], 30);
-    expect(LocalLlamaTestRequest.d01GraphDemoMetadata['behaviorId'], 'D01');
-    expect(LocalLlamaTestRequest.d01GraphDemoMetadata['cardVersion'], '0.2');
+    expect(find.byKey(const ValueKey('scenario-import-model-demo')), findsNothing);
+    expect(find.byKey(const ValueKey('scenario-import-request-form')), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.byType(SyntheticVideoStudioScreen), findsOneWidget);
     await close(tester);
   });
+
+  for (final fromVideo in [false, true]) {
+    testWidgets('${fromVideo ? 'Video Analizi' : 'Ana Panel'} kurum girişi yalnız bilgi listesini açar', (tester) async {
+      await mount(tester);
+      if (fromVideo) {
+        await tester.tap(destination('Video Analizi'));
+        await tester.pumpAndSettle();
+      }
+      final entry = find.widgetWithText(OutlinedButton, 'Kurum bilgileri');
+      await tester.ensureVisible(entry);
+      expect(entry.hitTestable(), findsOneWidget);
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(find.byType(InstitutionsScreen), findsOneWidget);
+      expect(find.widgetWithText(AppBar, 'Kurum bilgileri'), findsOneWidget);
+      expect(find.textContaining('güncellik açısından doğrulanmadı'), findsOneWidget);
+      expect(find.textContaining('Bu ekran arama, harita veya randevu açmaz.'), findsOneWidget);
+      expect(find.textContaining('Yetkili'), findsNothing);
+      expect(find.textContaining('en iyi'), findsNothing);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expectTab(tester, fromVideo ? 1 : 0);
+      await close(tester);
+    });
+  }
 
   testWidgets('Ana panel girişleri bugünkü işlevleri anlatır; video adı sekmeyle tutarlıdır', (tester) async {
     await mount(tester);
@@ -489,8 +489,7 @@ void main() {
         expect(find.widgetWithText(AppBar, 'Video Analizi'), findsOneWidget);
         expect(find.byTooltip('Gemini API Anahtarı'), findsNothing);
         expect(find.text('Video seç'), findsOneWidget);
-        expect(find.text('Bu video analiz edilmedi. Video seçip izleyebilirsiniz; '
-            'otomatik analiz bağlantısı henüz tamamlanmadı.'), findsOneWidget);
+        expect(find.text('Analiz hizmeti bağlı değil. Video seçip izleyebilirsiniz; bu video analiz edilmedi.'), findsOneWidget);
         expect(find.textContaining('Risk Saptanmadı'), findsNothing);
       }
       await close(tester);

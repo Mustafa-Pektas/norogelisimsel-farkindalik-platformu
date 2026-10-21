@@ -221,8 +221,7 @@ void main() {
 
   void expectNoAnalysisResults() {
     expect(find.byKey(const ValueKey('video-not-analyzed')), findsOneWidget);
-    expect(find.text('Bu video analiz edilmedi. Video seçip izleyebilirsiniz; '
-        'otomatik analiz bağlantısı henüz tamamlanmadı.'), findsOneWidget);
+    expect(find.text('Analiz hizmeti bağlı değil. Video seçip izleyebilirsiniz; bu video analiz edilmedi.'), findsOneWidget);
     expectNoClinicalResults();
   }
 
@@ -309,7 +308,7 @@ void main() {
     expect(ageField(tester).enabled, isTrue);
     expect(ageText(tester), isEmpty);
     expect(find.text('Yaş: Bilinmiyor'), findsOneWidget);
-    expect(find.textContaining('kullanıcı beyanıdır; henüz otomatik analizde kullanılmaz'), findsOneWidget);
+    expect(find.textContaining('Girilen yaş kullanıcı beyanıdır.'), findsOneWidget);
     expect(find.textContaining('12–36 aydır; tüm aralıkta analiz desteği doğrulanmadı'), findsOneWidget);
     final current = controls(tester).controller;
     await current.seekTo(const Duration(seconds: 9));
@@ -894,7 +893,9 @@ void main() {
   testWidgets('Bağlı olmayan hizmet sonuç veya analiz başlatma üretmez', (tester) async {
     await mount(tester, (_) async => null);
     expect(find.byKey(const ValueKey('video-analysis-start')), findsNothing);
-    expect(find.text('Analiz hizmeti bağlı değil'), findsOneWidget);
+    expect(find.textContaining('Analiz hizmeti bağlı değil'), findsOneWidget);
+    expect(find.text('Otomatik analiz hizmeti henüz bağlı değil.'), findsNothing);
+    expect(find.byKey(const ValueKey('video-analysis-status')), findsNothing);
     expect(find.text('Analiz sonuçları'), findsNothing);
     await close(tester);
   });

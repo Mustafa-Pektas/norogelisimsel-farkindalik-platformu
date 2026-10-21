@@ -318,7 +318,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.reads, 1);
     expect(find.byKey(const ValueKey('open-scenario-graph-import')), findsNothing);
-    expect(find.text('Senaryo / graf içe aktar'), findsNothing);
+    expect(find.text('Senaryo çalışma alanı'), findsNothing);
     expect(find.byKey(const ValueKey('open-graph-playback')), findsOneWidget);
     expect(find.byType(ClipProductionPlanScreen), findsOneWidget);
     expect(find.byType(ScenarioGraphImportScreen), findsNothing);

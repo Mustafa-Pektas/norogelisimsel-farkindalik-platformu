@@ -22,8 +22,14 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environments
+# Virtual Environments & Secrets (Never commit API keys)
 .env
+.env.*
+*.env
+backend/.env
+backend/.env.*
+!.env.example
+!backend/.env.example
 .venv/
 env/
 venv/
@@ -37,6 +43,10 @@ temp/
 outputs/
 *.tmp
 *.log
+/models/
+/mobile_skeleton/models/
+*.gguf
+!mobile_skeleton/lib/models/**
 
 # IDE & Editors
 .vscode/
@@ -63,6 +73,9 @@ node_modules/
 **/build/
 **/android/.gradle/
 **/android/local.properties
+**/ephemeral/
+emulator_*.png
+incele/
 
 # OS generated
 .DS_Store

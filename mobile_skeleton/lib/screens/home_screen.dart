@@ -227,7 +227,7 @@ class _HomeScreenState extends State<HomeScreen> {
           )),
           const SizedBox(height: 16),
 
-          // YETKİLİ SAĞLIK MERKEZLERİ BUTONU
+          // Kayıtlı kurum bilgilerine erişim
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(double.infinity, 48),
@@ -242,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             icon: const Icon(Icons.local_hospital_outlined, color: Color(0xFF0F172A)),
             label: const Text(
-              'Yetkili Sağlık Merkezleri ve Kurumlar',
+              'Kurum bilgileri',
               style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold),
             ),
           ),

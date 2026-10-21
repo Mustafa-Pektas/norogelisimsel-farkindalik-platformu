@@ -149,7 +149,7 @@ void main() {
     await tester.pumpAndSettle();
     final entry = find.byKey(const ValueKey('open-clip-production-plan'));
     expect(find.text('Hazır D01 örneği'), findsOneWidget);
-    expect(find.text('Klip planı ve videolu deneme'), findsOneWidget);
+    expect(find.text('D01 klipleri ve video eşleme'), findsOneWidget);
     await tester.ensureVisible(entry);
     await tester.tap(entry);
     await tester.pumpAndSettle();

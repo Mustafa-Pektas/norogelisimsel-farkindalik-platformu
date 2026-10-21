@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neuro_awareness_app/models/behavior_cards.dart';
@@ -9,7 +10,6 @@ import 'package:neuro_awareness_app/models/scenario_generation_request.dart';
 import 'package:neuro_awareness_app/models/scenario_input.dart';
 import 'package:neuro_awareness_app/models/scenario_workspace_draft.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_import_screen.dart';
-import 'package:neuro_awareness_app/services/local_llama_test_service.dart';
 import 'package:neuro_awareness_app/services/scenario_draft_store.dart';
 
 class _DraftStore extends ScenarioDraftStore {
@@ -40,22 +40,6 @@ class _DraftStore extends ScenarioDraftStore {
     if (failDelete) throw StateError('Kontrollü silme hatası');
     value = null;
   }
-}
-
-class _IdleModel extends LocalLlamaTestService {
-  _IdleModel() : super(request: LocalLlamaTestRequest.d01GraphDemo,
-    resolveModel: () async => throw StateError('Model dosyası açılmamalı'),
-    createRuntime: (_) => throw StateError('Runtime açılmamalı'));
-  int runs = 0;
-  int disposals = 0;
-  @override
-  Stream<LocalLlamaTestState> get states => const Stream.empty();
-  @override
-  LocalLlamaTestState get state => const LocalLlamaTestState();
-  @override
-  Future<void> run() async { ++runs; throw StateError('Model çalışmamalı'); }
-  @override
-  Future<void> dispose() async { ++disposals; }
 }
 
 void main() {
@@ -115,24 +99,22 @@ void main() {
     expect(() => ScenarioWorkspaceDraft.fromJsonString(jsonEncode(map)), throwsFormatException);
   });
 
-  Future<_IdleModel> mount(WidgetTester tester, _DraftStore store, {bool narrow = false}) async {
+  Future<void> mount(WidgetTester tester, _DraftStore store, {bool narrow = false}) async {
     await tester.binding.setSurfaceSize(narrow ? const Size(320, 800) : const Size(1100, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final model = _IdleModel();
     await tester.pumpWidget(MaterialApp(
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(narrow ? 2 : 1)),
         child: child!),
       home: ScenarioGraphImportScreen(initialScenarioContent: true,
-        draftStore: store, scenarioService: model),
+        draftStore: store),
     ));
     await tester.pumpAndSettle();
-    return model;
   }
   Future<void> tap(WidgetTester tester, String key) async {
     final title = switch (key) {
       'scenario-import-request-form' => 'Senaryo üretim isteği',
-      'scenario-import-model-demo' => 'Modelden taslak al — D01, 30 ay',
+      'scenario-import-legacy-records' => 'Geçmiş yerel demo kaydı',
       _ => null,
     };
     final target = title == null ? find.byKey(ValueKey(key)) : find.descendant(
@@ -155,7 +137,7 @@ void main() {
 
   testWidgets('Yeniden açılış formu/ham kaynakları ve iki JSON türünü korur; graf yeniden doğrulanır', (tester) async {
     final store = _DraftStore()..value = sample();
-    final model = await mount(tester, store);
+    await mount(tester, store);
     expect(editor(tester), jsonEncode(edited));
     expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
     expect(tester.widget<OutlinedButton>(find.byKey(const ValueKey('scenario-import-view'))).onPressed, isNull);
@@ -168,11 +150,10 @@ void main() {
       of: find.byKey(const ValueKey('scenario-request-behavior')), matching: find.byType(DropdownButton<BehaviorCard>)));
     expect(dropdown.value!.id, 'D02');
     expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, raw);
-    await tap(tester, 'scenario-import-model-demo');
+    await tap(tester, 'scenario-import-legacy-records');
     expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-restored-demo-raw'))).data,
       ' \nÖnceki yerel demo cevabı\n ');
-    expect(model.state.phase, LocalLlamaPhase.idle);
-    expect(model.runs, 0);
+
     await tap(tester, 'scenario-import-validate');
     expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
     await tap(tester, 'scenario-draft-save');
@@ -199,11 +180,10 @@ void main() {
 
   testWidgets('Yüklenen taslak F04 ile korunur; bilinçli çıkış kayıtlı kopyayı silmez', (tester) async {
     final store = _DraftStore()..value = sample();
-    final model = _IdleModel();
     await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) => Scaffold(
       body: TextButton(key: const ValueKey('open-workspace'),
         onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
-          ScenarioGraphImportScreen(draftStore: store, scenarioService: model))),
+          ScenarioGraphImportScreen(draftStore: store))),
         child: const Text('Çalışma alanını aç')),
     ))));
     await tap(tester, 'open-workspace');
@@ -214,7 +194,7 @@ void main() {
     await tap(tester, 'scenario-import-stay');
     expect(editor(tester), before);
     expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
-    expect(model.disposals, 0);
+
     expect(store.saves, 0);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
@@ -222,8 +202,82 @@ void main() {
     expect(find.byType(ScenarioGraphImportScreen), findsNothing);
     expect(store.value!.scenarioJson, before);
     expect(store.deletes, 0);
-    expect(model.disposals, 1);
+
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Eski yerel demo kaydı ham metni, kaynak işaretlerini ve kopyalamayı korur', (tester) async {
+    final saved = sample(demo: true);
+    final store = _DraftStore()..value = saved;
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    await mount(tester, store, narrow: true);
+    expect(find.byKey(const ValueKey('scenario-import-model-demo'), skipOffstage: false), findsNothing);
+    final history = find.byKey(const ValueKey('scenario-import-legacy-records'));
+    expect(tester.widget<ExpansionTile>(history).initiallyExpanded, isFalse);
+    final before = editor(tester);
+    await tap(tester, 'scenario-import-legacy-records');
+    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-restored-demo-raw'))).data, saved.demoRaw);
+    await tap(tester, 'scenario-import-copy-raw');
+    expect(copied, saved.demoRaw);
+    expect(copied, isNot(before));
+    await tap(tester, 'scenario-draft-save');
+    expect(store.value!.demoRaw, saved.demoRaw);
+    expect(store.value!.demoDraft, isTrue);
+    expect(store.value!.demoEdited, isTrue);
+    expect(store.value!.scenarioJson, before);
+    expect(store.value!.generationRaw, saved.generationRaw);
+    expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
+
+  testWidgets('Yalnız geçmiş ham kayıt F04 ister; eski demo editörü mevcut doğrulamayla açılır', (tester) async {
+    final legacyContent = jsonEncode({
+      'commonStart': '  Eski ortak başlangıç  ',
+      'alternatives': [
+        {'title': 'Birinci', 'continuation': ' İlk devam ', 'ending': ' İlk bitiş '},
+        {'title': 'İkinci', 'continuation': ' İkinci devam ', 'ending': ' İkinci bitiş '},
+      ],
+    });
+    final saved = ScenarioWorkspaceDraft(inputType: 'scenario', scenarioJson: legacyContent,
+      graphJson: '', ageText: '', contextText: '', instructionsText: '',
+      demoRaw: ' \nESKİ HAM CEVAP\n ', demoDraft: true, demoEdited: true);
+    final store = _DraftStore()..value = saved;
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) => Scaffold(
+      body: TextButton(key: const ValueKey('open-workspace'),
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+          ScenarioGraphImportScreen(draftStore: store))), child: const Text('Aç')),
+    ))));
+    await tap(tester, 'open-workspace');
+    expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
+    await tap(tester, 'scenario-import-validate');
+    final input = ScenarioInput.fromJsonString(editor(tester));
+    expect(input.scenarioId, 'd01-qwen-yerel-demo');
+    expect(input.behaviorId, 'D01');
+    expect(input.ageMonths, 30);
+    expect(input.source, ScenarioInputSource.editedModelOutput);
+    expect(input.commonStart, '  Eski ortak başlangıç  ');
+    expect(input.alternatives.first.continuation, ' İlk devam ');
+    expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
+    await edit(tester, '');
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget); // Yalnız geçmiş ham cevap kaldı.
+    await tap(tester, 'scenario-import-stay');
+    await tap(tester, 'scenario-import-legacy-records');
+    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-restored-demo-raw'))).data, saved.demoRaw);
+    expect(store.value!.demoRaw, saved.demoRaw);
+    expect(store.saves, 0);
+    expect(store.deletes, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
   });
 
   testWidgets('Geç yükleme yeni kullanıcı metnini ezmez; kapanmış ekrana uygulanmaz', (tester) async {
