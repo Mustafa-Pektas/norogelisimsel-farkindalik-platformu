@@ -13,7 +13,16 @@ import '../services/server_api_service.dart';
 import 'institutions_screen.dart';
 
 class VideoAnalysisScreen extends StatefulWidget {
-  const VideoAnalysisScreen({super.key});
+  final Future<XFile?> Function(ImageSource)? pickVideo;
+  final ValueNotifier<bool>? tabVisibility;
+  final dynamic analysisService;
+
+  const VideoAnalysisScreen({
+    super.key,
+    this.pickVideo,
+    this.tabVisibility,
+    this.analysisService,
+  });
 
   @override
   State<VideoAnalysisScreen> createState() => _VideoAnalysisScreenState();

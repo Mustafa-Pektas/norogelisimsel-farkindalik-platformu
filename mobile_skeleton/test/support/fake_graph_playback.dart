@@ -139,6 +139,8 @@ class GraphPlaybackHarness {
   final events = <String>[];
   final playerCreated = Completer<void>();
   Completer<void>? nextOpenGate;
+  final openGates = <String, Completer<void>>{};
+  void Function(FakeGraphPlayer)? onCreate;
   String? failedClip;
   int live = 0;
   int maximumLive = 0;
@@ -148,15 +150,19 @@ class GraphPlaybackHarness {
     live++;
     maximumLive = math.max(maximumLive, live);
     final player = FakeGraphPlayer(id, events, () { live--; })
-      ..openGate = nextOpenGate
+      ..openGate = openGates[id] ?? nextOpenGate
       ..failOpen = failedClip == id;
     nextOpenGate = null;
     players.add(player);
+    onCreate?.call(player);
     if (!playerCreated.isCompleted) playerCreated.complete();
     return player;
   }
 
-  GraphPlaybackController controller() => GraphPlaybackController(
+  // Eski sıra/hata testleri soğuk yükleme yolunu ayrıca korur.
+  // Yeni hazırlama testleri bayrağı açık geçirerek üretim varsayılanını sınar.
+  GraphPlaybackController controller({bool prepareNextClip = false}) => GraphPlaybackController(
     graph: graph, plan: plan, videoStore: store, createPlayer: create,
+    prepareNextClip: prepareNextClip,
   );
 }

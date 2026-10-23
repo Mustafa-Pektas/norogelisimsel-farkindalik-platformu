@@ -16,6 +16,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentTabIndex = 0;
+  final Set<int> _visitedTabs = {0};
   DateTime? _lastBackPressTime;
   final _videoTabVisibility = ValueNotifier<bool>(false);
 
@@ -23,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _videoTabVisibility.value = index == 1;
     setState(() {
       _currentTabIndex = index;
+      _visitedTabs.add(index);
     });
   }
 
@@ -99,8 +101,12 @@ class _HomeScreenState extends State<HomeScreen> {
           index: _currentTabIndex,
           children: [
             _buildDashboardTab(),
-            const VideoAnalysisScreen(),
-            const SyntheticVideoStudioScreen(),
+            _visitedTabs.contains(1)
+                ? const VideoAnalysisScreen()
+                : const SizedBox.shrink(),
+            _visitedTabs.contains(2)
+                ? const SyntheticVideoStudioScreen()
+                : const SizedBox.shrink(),
           ],
         ),
         bottomNavigationBar: Container(

@@ -6,7 +6,14 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const multer = require('multer');
 const path = require('path');
+const { performance } = require('perf_hooks');
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
+
+const retriever = require('./rag/retriever');
+const fsmValidator = require('./validators/fsm_validator');
+const benchmarkService = require('./services/benchmark_service');
+const { generateText } = require('./gemini_text');
+const { createScenarioInputHandler, defaultCardsPath } = require('./scenario_input_generation');
 
 // .env yapılandırmasını yükle
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -48,6 +55,22 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
+// 1.5. KARAR AĞACI ANLATI VE KLİP PLANI MOTORU (MERT ENTEGRASYONU)
+// ==========================================
+app.post('/api/generate-scenario-input', createScenarioInputHandler({
+  generate: genAI ? (model, prompts, options) => generateText(genAI, model, prompts, options) : null,
+  modelName: (process.env.SCENARIO_INPUT_MODEL || 'gemini-3.5-flash-lite').trim(),
+  cardsPath: process.env.BEHAVIOR_CARDS_PATH || defaultCardsPath,
+}));
+
+app.post('/api/generate-clip-plan', createScenarioInputHandler({
+  clipPlan: true,
+  generate: genAI ? (model, prompts, options) => generateText(genAI, model, prompts, options) : null,
+  modelName: (process.env.SCENARIO_INPUT_MODEL || 'gemini-3.5-flash-lite').trim(),
+  cardsPath: process.env.BEHAVIOR_CARDS_PATH || defaultCardsPath,
+}));
+
+// ==========================================
 // 2. 26 SAHNELİK VEO / ADOS-2 SENARYO MOTORU
 // ==========================================
 const SCENE_COUNT = 26;
@@ -86,7 +109,9 @@ const ONTOLOGIES = {
 
 const RISK_PROFILES = {
   'TİPİK': 'Çağrıya 0-2 sn içinde bakış, sosyal gülümseme, göz teması, paylaşımlı oyun.',
+  'TIPIK': 'Çağrıya 0-2 sn içinde bakış, sosyal gülümseme, göz teması, paylaşımlı oyun.',
   'ATİPİK': 'Çağrıya 3+ sn gecikme veya tepkisizlik, sınırlı göz teması, nesneye odaklı tekrarlayan oyun.',
+  'ATIPIK': 'Çağrıya 3+ sn gecikme veya tepkisizlik, sınırlı göz teması, nesneye odaklı tekrarlayan oyun.',
   'SINIRDA': 'Tepkiler tutarsız: bazı denemelerde yanıt, bazılarında gecikme.',
 };
 
@@ -143,23 +168,50 @@ const scenarioSchema = {
   required: ['title', 'summary', 'scenes', 'assessment'],
 };
 
-function buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation }) {
+function buildPrompts({ arm = 'B', ageMonths, childName, ontologyCodes, riskProfile, materials, variation }) {
   const ontList = ontologyCodes.map((c) => `- ${c}: ${ONTOLOGIES[c] || c}`).join('\n');
   const riskKey = (riskProfile || 'ATİPİK').toUpperCase();
 
-  const system = `Sen çocuk nörogelişimi (ADOS-2 Toddler / M-CHAT-R/F) ve Google Veo / Sora video üretim parametreleri konusunda uzmanlaşmış kıdemli bir klinik simülasyon ve görsel yönetmenisin.
-Çıktın doğrudan Google Veo ile fotogerçekçi klinik eğitim videoları üretiminde kullanılacak. Videolarda sıfır bozulma (no morphing), kusursuz anatomi, sabit kamera açısı ve tam nörogelişimsel davranış doğruluğu şarttır.
+  // Ortak Sabit Blok (Ek B) - Her 3 kola da harfi harfine eşit olarak verilir
+  const commonStaticBlock = `[ORTAK SİNEMATİK VE ORTAM KİLİDİ]
+${CHARACTER}`;
 
+  let clinicalSection = '';
+  let retrievalInfo = null;
+
+  if (arm === 'B') {
+    // Kol B: Vaka bazlı seçici kural enjeksiyonu
+    retrievalInfo = retriever.timedRetrieval({
+      behaviorCode: ontologyCodes[0],
+      ageMonths,
+      riskProfile: riskKey,
+    });
+    clinicalSection = `\n${retrievalInfo.ruleText}\n`;
+  } else if (arm === 'C') {
+    // Kol C: Tüm bilgi tabanı (10 kart ve yaş tablosu)
+    const full = retriever.getFullContext();
+    clinicalSection = `\n${full.fullText}\n`;
+  }
+  // Kol A (Baseline): clinicalSection boş kalır.
+
+  const system = `Sen çocuk nörogelişimi (Davranış Kartları v02 standartları) ve Google Veo video üretim parametreleri konusunda uzmanlaşmış bir simülasyon yönetmenisin.
+Çıktın doğrudan Google Veo ile fotogerçekçi eğitim videoları üretiminde kullanılacak. Videolarda sıfır bozulma (no morphing), sabit kamera açısı ve tam nörogelişimsel davranış doğruluğu şarttır.
+
+${commonStaticBlock}
+${clinicalSection}
 Kurallar:
-- "summary" alanına tüm 3.5 dakikalık senaryoyu anlatan, klinik olarak tutarlı, akıcı bir Türkçe özet yaz (120-180 kelime).
+- "summary" alanına tüm 3.5 dakikalık senaryoyu anlatan, tutarlı ve akıcı bir Türkçe özet yaz (120-180 kelime).
 - Tam ${SCENE_COUNT} sahne üret. Fazlar sırayla: TABAN (6 sahne), UYARAN (11 sahne), KAPANIS (9 sahne).
 - "videoPrompt": İngilizce yazılır. Yalnızca kamerada doğrudan görünen fiziksel mikrodavranışı, vücut postürünü, el/parmak hareketini, bakış yönünü (göz bebeği odağı), baş açısını (Yaw/Pitch) ve nesne manipülasyonunu yüksek detayla tarif et.
   * Tıbbi tanı kelimeleri ("autistic", "atypical", "delay") KULLANMA. Bunun yerine somut davranışı anlat ("keeps rolling the wheel forward, head stays stationary at Yaw 0°, eyes fixated on the spinning axle, ignoring the auditory stimulus").
   * Kamera hareket etmez (static locked tripod), lens açısı sabittir.
   * Her 8 saniyelik klipte net bir mikro zaman akışı belirt: "Seconds 0-4: ... Seconds 4-8: ..."
-- "startState" ve "endState": Sahnenin ilk ve son karesindeki net fiziksel duruşu tarif et (Sahne N'in startState'i, Sahne N-1'in endState'i ile süreklilik sağlar).
+- "startState" ve "endState" KESİN FSM SÜREKLİLİK KURALI:
+  * Sahne 1'in startState'i çocuğun ilk duruşudur.
+  * Her sonraki sahnenin (Sahne N) "startState" değeri, bir önceki sahnenin (Sahne N-1) "endState" metni ile KELİMESİ KELİMESİNE BİREBİR AYNI olmalıdır (scenes[i].startState === scenes[i-1].endState). 
+  * Asla bağımsız yeni bir duruş yazma; önceki sahnenin son karesi bir sonrakinin ilk karesidir. Örneğin Sahne 1'in endState'i "Child sitting, holding red car, eyes fixed on wheels" ise Sahne 2'nin startState'i BİREBİR "Child sitting, holding red car, eyes fixed on wheels" olmalıdır. Bu kural 26 sahnenin tamamında zincirleme korunmalıdır.
 - "dialogue": Varsa konuşulan cümle (en fazla 1 cümle). "speaker": 'ADULT' veya 'CHILD'.
-- "clinical": note (Türkçe klinik gözlem ve ADOS-2 kriteri notu), latencySeconds (varsa tepki süresi sn cinsinden), atypical (boolean).
+- "clinical": note (Türkçe klinik gözlem ve kriter notu), latencySeconds (varsa tepki süresi sn cinsinden sayı, yoksa null), atypical (boolean).
 - summary ve clinical.note Türkçe, videoPrompt ve durumlar İngilizce yazılır.`;
 
   const user = `${ageMonths} aylık ${childName} için senaryo üret.
@@ -167,9 +219,10 @@ Hedef davranışlar:
 ${ontList}
 Risk profili: ${riskKey} → ${RISK_PROFILES[riskKey] || RISK_PROFILES['ATİPİK']}
 Materyal: ${materials}
-Çeşitlilik tohumu: ${variation}`;
+Çeşitlilik tohumu: ${variation}
+Deney Kolu: ${arm}`;
 
-  return { system, user };
+  return { system, user, retrievalInfo };
 }
 
 const mmss = (sec) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
@@ -212,19 +265,35 @@ async function generateOnce(genAI, modelName, prompts) {
     model: modelName,
     systemInstruction: prompts.system,
     generationConfig: {
-      temperature: 0.7,
+      temperature: 0.2,
+      topP: 0.95,
       maxOutputTokens: 16384,
       responseMimeType: 'application/json',
       responseSchema: scenarioSchema,
     },
   });
+
+  const tStart = performance.now();
   const result = await model.generateContent(prompts.user);
-  return JSON.parse(result.response.text());
+  const tEnd = performance.now();
+  const latencyApiMs = Math.round(tEnd - tStart);
+
+  const rawJson = JSON.parse(result.response.text());
+  const usage = result.response.usageMetadata || {};
+
+  return {
+    rawJson,
+    latencyApiMs,
+    promptTokens: usage.promptTokenCount || 0,
+    outputTokens: usage.candidatesTokenCount || 0,
+  };
 }
 
 app.post('/api/generate-scenario', async (req, res) => {
   try {
     const {
+      arm = 'B', // 'A' (Baseline), 'B' (Kural Enj.), 'C' (Full-Context)
+      caseId = null,
       ageMonths = 24,
       childName = 'Deniz',
       riskProfile = 'ATİPİK',
@@ -232,50 +301,133 @@ app.post('/api/generate-scenario', async (req, res) => {
       materials = 'Kırmızı ahşap araba ve kayın bloklar',
     } = req.body;
 
-    console.log(`[*] Senaryo isteği: ${ageMonths} Ay, ${childName}, ${ontologyCodes.join('+')}, ${riskProfile}`);
+    const normalizedArm = ['A', 'B', 'C'].includes(String(arm).toUpperCase()) ? String(arm).toUpperCase() : 'B';
+
+    console.log(`[*] Senaryo isteği: Kol ${normalizedArm}, ${ageMonths} Ay, ${childName}, ${ontologyCodes.join('+')}, ${riskProfile}`);
 
     if (!hasApiKey || !genAI) {
       return res.status(400).json({ success: false, error: 'Gemini API anahtarı ayarlanmamış.' });
     }
 
     const variation = req.body.variation || Math.random().toString(36).slice(2, 8);
-    const prompts = buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation });
-    const models = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+    const prompts = buildPrompts({ arm: normalizedArm, ageMonths, childName, ontologyCodes, riskProfile, materials, variation });
+    const models = ['gemini-3.5-flash-lite'];
     let lastErr;
 
     for (const m of models) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          console.log(`[*] Model deneniyor: ${m} (deneme ${attempt + 1})...`);
-          const raw = await generateOnce(genAI, m, prompts);
-          const errors = validate(raw);
+          console.log(`[*] Model deneniyor: ${m} (Kol ${normalizedArm}, deneme ${attempt + 1})...`);
+          const { rawJson, latencyApiMs, promptTokens, outputTokens } = await generateOnce(genAI, m, prompts);
+          const errors = validate(rawJson);
           if (errors.length) {
             lastErr = new Error(errors.join('; '));
             console.warn(`[!] ${m} doğrulama hatası:`, errors);
             continue;
           }
-          const scenario = finalize(raw);
+          const scenario = finalize(rawJson);
           scenario.scenes.forEach((sc) => {
             sc.veoPrompt = buildVeoPrompt(sc);
           });
-          console.log(`[OK] Senaryo 26 sahne ile başarıyla üretildi (${m})!`);
+
+          // Otomatik FSM ve metrik doğrulaması
+          const validation = fsmValidator.validateFullScenario(scenario, {
+            riskProfile,
+            expectedAtypicalMin: prompts.retrievalInfo?.expectedAtypicalDelayMin || 2.5,
+            expectedTypicalMax: prompts.retrievalInfo?.expectedTypicalDelayMax || 2.0,
+          });
+
+          // Benchmark kaydı oluştur (JSONL satır ekleme)
+          const benchmarkRecord = benchmarkService.recordBenchmarkEntry({
+            arm: normalizedArm,
+            caseId: caseId || `vaka_${ageMonths}ay_${ontologyCodes[0]}`,
+            behaviorCode: ontologyCodes[0],
+            ageMonths,
+            riskProfile,
+            modelVersion: m,
+            promptTokens,
+            outputTokens,
+            latencyApiMs,
+            retrievalMs: prompts.retrievalInfo?.retrievalDurationMs || 0,
+            retryCount: attempt,
+            schemaValid: validation.schemaValid,
+            fsmMatchRate: validation.fsmMatchRate,
+            deltaTCompliant: validation.deltaTCompliant,
+            envKeywordPass: validation.envKeywordPass,
+          });
+
+          console.log(`[OK] Kol ${normalizedArm} senaryosu 26 sahne ile başarıyla üretildi (${m}, ${latencyApiMs} ms, FSM: %${Math.round(validation.fsmMatchRate * 100)})!`);
+
           return res.json({
             success: true,
+            arm: normalizedArm,
             model: m,
+            benchmark: benchmarkRecord,
+            validation,
             scenario,
-            metadata: { ageMonths, ontologyCodes, riskProfile, variation },
+            metadata: {
+              ageMonths,
+              ontologyCodes,
+              riskProfile,
+              variation,
+              retrieval: prompts.retrievalInfo
+                ? {
+                    cardId: prompts.retrievalInfo.cardId,
+                    bandLabel: prompts.retrievalInfo.bandLabel,
+                    durationMs: prompts.retrievalInfo.retrievalDurationMs,
+                  }
+                : null,
+            },
           });
         } catch (e) {
           console.warn(`[!] [${m}] hata:`, e.message);
           lastErr = e;
+
+          // Kota (429) durumunda asla tekrar deneme yapma, kotayı tüketmemek için hemen dur
+          if (e.message.includes('429') || e.message.includes('quota') || e.message.includes('Quota')) {
+            break;
+          }
+
+          // Geçici ağ kopması (fetch failed) veya 503 yoğunluğunda tek seferlik 2 sn bekle ve tekrar dene
+          if (attempt === 0 && (e.message.includes('503') || e.message.includes('demand') || e.message.includes('fetch failed'))) {
+            console.log('[*] Google API geçici ağ/503 uyarısı, 2 sn sonra tek seferlik denenecek...');
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          } else {
+            break;
+          }
         }
       }
     }
 
-    res.status(500).json({ success: false, error: lastErr?.message || 'Senaryo üretilemedi.' });
+    let cleanErrMsg = lastErr?.message || 'Senaryo üretilemedi.';
+    if (cleanErrMsg.includes('429') || cleanErrMsg.includes('quota') || cleanErrMsg.includes('Quota')) {
+      const match = cleanErrMsg.match(/retry in ([0-9.]+)s/i) || cleanErrMsg.match(/retryDelay"?:\s*"([0-9]+)s/i);
+      const sec = match && match[1] ? Math.ceil(parseFloat(match[1])) : 20;
+      if (cleanErrMsg.includes('PerMinute')) {
+        cleanErrMsg = `Google API dakikalık istek sınırına (15 istek/dk) ulaşıldı. Lütfen ${sec} saniye bekleyip tekrar deneyin.`;
+      } else if (cleanErrMsg.includes('PerDay')) {
+        cleanErrMsg = `Google API bu model için günlük ücretsiz kota sınırına ulaştı.`;
+      } else {
+        cleanErrMsg = `Google API kota sınırı (429). Lütfen ${sec} saniye bekleyip tekrar deneyin.`;
+      }
+    } else if (cleanErrMsg.includes('503') || cleanErrMsg.includes('demand')) {
+      cleanErrMsg = 'Google API sunucuları anlık olarak yoğun (503). Lütfen 5 saniye sonra tekrar deneyin.';
+    }
+
+    res.status(500).json({ success: false, error: cleanErrMsg });
   } catch (error) {
     console.error('[!] API Hata:', error);
     res.status(500).json({ success: false, error: error.message || 'Sunucu hatası' });
+  }
+});
+
+// Benchmark istatistiklerini dönen uç nokta
+app.get('/api/benchmark/stats', (req, res) => {
+  try {
+    const stats = benchmarkService.getBenchmarkStats();
+    res.json({ success: true, stats });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

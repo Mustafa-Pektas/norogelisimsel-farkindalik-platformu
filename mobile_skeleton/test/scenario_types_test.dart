@@ -1,64 +1,63 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neuro_awareness_app/screens/synthetic_video_studio_screen.dart';
+// Mevcut paketin kontrollü platform sınırı; cihaz dosyası açılmaz.
+// ignore: depend_on_referenced_packages
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+
+class _NoDocuments extends PathProviderPlatform {
+  @override
+  Future<String?> getApplicationDocumentsPath() async =>
+      throw StateError('Bu test model dosyası açmamalı.');
+}
 
 void main() {
-  testWidgets('Doktor modunda saniyesiz klinik protokol görünür; 5 tıkla gizli admin video stüdyosu açılır', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: SyntheticVideoStudioScreen(),
-      ),
-    );
+  late PathProviderPlatform originalPaths;
+  setUp(() {
+    originalPaths = PathProviderPlatform.instance;
+    PathProviderPlatform.instance = _NoDocuments();
+    SharedPreferences.setMockInitialValues({});
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (_) async => null);
+  });
+  tearDown(() {
+    PathProviderPlatform.instance = originalPaths;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null);
+  });
 
-    // Initial delay in _generateScenario
+  testWidgets('Normal örnek, açık ekip araçları ve yerel model araçları yoktur; beş dokunuş admin açmaz',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1100, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(home: const SyntheticVideoStudioScreen()));
     await tester.pumpAndSettle();
 
-    // 1. Standart doktor modunda video tür seçicisi, saniyelik ayarlar ve geliştirici benchmark kartları gizlidir
-    expect(find.text('Tür 1: Doktor Protokolü'), findsNothing);
-    expect(find.text('Tür 2: Video Stüdyosu'), findsNothing);
-    expect(find.text('Saniyelik Klip Dilimleme & Prompt Ayarları (Admin)'), findsNothing);
-    expect(find.text('Geliştirici & On-Device Model Benchmark Testleri'), findsNothing);
+    expect(find.byKey(const ValueKey('open-d01-playback')), findsOneWidget);
+    expect(find.byKey(const ValueKey('open-scenario-graph')), findsOneWidget);
+    expect(find.byKey(const ValueKey('studio-content-preparation')), findsOneWidget);
+    expect(find.byKey(const ValueKey('open-scenario-content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('open-clip-production-plan')), findsOneWidget);
+    expect(find.byKey(const ValueKey('studio-technical-tests'), skipOffstage: false), findsNothing);
+    expect(find.text('Eski şablon araçları'), findsNothing);
+    expect(find.text('Normal (Tipik)'), findsNothing);
 
-    // 2. Üç motor seçeneği (Yerel, Llama 3.2, Qwen3) mevcuttur
-    expect(find.text('Yerel Klinik'), findsOneWidget);
-    expect(find.text('Llama-3.2'), findsOneWidget);
-    expect(find.text('Qwen3-1.7B'), findsOneWidget);
-
-    // 3. Varsayılan olarak Doktor Klinik Protokolü, FSM dalları ve AI metrikleri görünür
-    expect(find.text('1. Klinik Test & Uyaran Protokolü'), findsOneWidget);
-    expect(find.text('2. Olası Davranışsal Tepkiler (FSM Dallanma)'), findsOneWidget);
-    expect(find.text('3. AI & Bilgisayarlı Görü Ölçüm Parametreleri'), findsOneWidget);
-    expect(find.text('YEŞİL'), findsOneWidget);
-    expect(find.text('SARI'), findsOneWidget);
-    expect(find.text('KIRMIZI'), findsOneWidget);
-
-    // 4. Başlığa 5 kez dokunarak gizli Admin Modunu açalım
-    final titleFinder = find.text('Doktor Klinik Protokolü');
-    expect(titleFinder, findsOneWidget);
-
-    for (int i = 0; i < 5; i++) {
-      await tester.tap(titleFinder);
-      await tester.pump(const Duration(milliseconds: 50));
+    final title = find.descendant(of: find.byType(AppBar),
+        matching: find.text('Simülasyon ve Eğitim'));
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(title);
+      await tester.pump();
     }
-    await tester.pumpAndSettle(const Duration(milliseconds: 350));
-
-    // Admin modu açılınca: Tür seçici, saniyelik klip dilimleme ve geliştirici kartları görünür hale gelir
-    expect(find.text('Tür 1: Doktor Protokolü'), findsOneWidget);
-    expect(find.text('Tür 2: Video Stüdyosu'), findsOneWidget);
-    expect(find.text('Saniyelik Klip Dilimleme & Prompt Ayarları (Admin)'), findsOneWidget);
-    expect(find.text('Geliştirici & On-Device Model Benchmark Testleri'), findsOneWidget);
-    expect(find.text('Adım Adım'), findsOneWidget);
-    expect(find.text('Tek Metin (Birleşik)'), findsOneWidget);
-
-    // 5. 'Kapat' butonuna basarak tekrar temiz doktor moduna dönelim
-    await tester.tap(find.text('Kapat'));
-    await tester.pumpAndSettle(const Duration(milliseconds: 350));
-
-    // Tekrar gizlenmiş olmalıdır
+    expect(find.text('ADMİN'), findsNothing);
     expect(find.text('Tür 1: Doktor Protokolü'), findsNothing);
     expect(find.text('Tür 2: Video Stüdyosu'), findsNothing);
     expect(find.text('Saniyelik Klip Dilimleme & Prompt Ayarları (Admin)'), findsNothing);
-    expect(find.text('Geliştirici & On-Device Model Benchmark Testleri'), findsNothing);
-    expect(find.text('1. Klinik Test & Uyaran Protokolü'), findsOneWidget);
+    expect(find.byKey(const ValueKey('studio-technical-tests'), skipOffstage: false), findsNothing);
+
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
   });
 }

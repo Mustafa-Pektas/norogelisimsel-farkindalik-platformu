@@ -17,6 +17,7 @@ echo    PIXEL 9 EMULATORU KONTROL EDILIYOR...
 echo ========================================================
 echo.
 
+powershell -NoProfile -Command "Get-Process -Name qemu-system-x86_64 -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -eq 0 } | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>nul
 if exist "%USERPROFILE%\.android\avd\Pixel_9.avd\multiinstance.lock" del /f /q "%USERPROFILE%\.android\avd\Pixel_9.avd\multiinstance.lock" >nul 2>nul
 if exist "%USERPROFILE%\.android\avd\Pixel_9.avd\hardware-qemu.ini.lock" rmdir /s /q "%USERPROFILE%\.android\avd\Pixel_9.avd\hardware-qemu.ini.lock" >nul 2>nul
 

@@ -19,6 +19,8 @@ class ServerApiService {
   // Android emülatöründe 10.0.2.2 kullanılır. Gerçek telefonda bilgisayarın yerel IP'si kullanılır.
   static String baseUrl = 'http://10.0.2.2:8000';
   static const String _serverUrlKey = 'custom_server_base_url';
+  static String selectedArm = 'B';
+  static const String _serverArmKey = 'custom_server_arm';
 
   /// Kayıtlı sunucu adresini yükler
   static Future<String> getBaseUrl() async {
@@ -28,8 +30,21 @@ class ServerApiService {
       if (saved != null && saved.trim().isNotEmpty) {
         baseUrl = saved.trim();
       }
+      final savedArm = prefs.getString(_serverArmKey);
+      if (savedArm != null && ['A', 'B', 'C'].contains(savedArm)) {
+        selectedArm = savedArm;
+      }
     } catch (_) {}
     return baseUrl;
+  }
+
+  /// Deney kolunu ayarlar ('A' Baseline, 'B' Kural Enjeksiyonlu, 'C' Full-Context)
+  static Future<void> setSelectedArm(String arm) async {
+    selectedArm = ['A', 'B', 'C'].contains(arm) ? arm : 'B';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_serverArmKey, selectedArm);
+    } catch (_) {}
   }
 
   /// Sunucu adresini günceller ve kaydeder
@@ -84,15 +99,18 @@ class ServerApiService {
     required int ageMonths,
     required String ontologyCode,
     required String riskProfile,
+    String? arm,
     String childName = 'Deniz',
     String materials = 'Kırmızı Ahşap Araba ve Kayın Bloklar',
     String language = 'tr',
   }) async {
+    final effectiveArm = arm ?? selectedArm;
     final response = await http
         .post(
           Uri.parse('$baseUrl/api/generate-scenario'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
+            'arm': effectiveArm,
             'ageMonths': ageMonths,
             'ontologyCode': ontologyCode,
             'ontologyCodes': [ontologyCode],
@@ -108,12 +126,21 @@ class ServerApiService {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
       if (data['success'] == true) {
         final sc = data['scenario'];
+        Map<String, dynamic> result;
         if (sc is Map<String, dynamic>) {
-          return sc;
+          result = Map<String, dynamic>.from(sc);
         } else if (sc is Map) {
-          return Map<String, dynamic>.from(sc);
+          result = Map<String, dynamic>.from(sc);
+        } else {
+          result = {'summary': sc.toString(), 'title': 'Klinik Protokol'};
         }
-        return {'summary': sc.toString(), 'title': 'Klinik Protokol'};
+
+        // Metodoloji v2 Benchmark ve Doğrulama verilerini ekle
+        result['_benchmark'] = data['benchmark'];
+        result['_validation'] = data['validation'];
+        result['_arm'] = data['arm'] ?? effectiveArm;
+        result['_model'] = data['model'];
+        return result;
       } else {
         throw Exception(data['error'] ?? 'Bilinmeyen sunucu hatası');
       }

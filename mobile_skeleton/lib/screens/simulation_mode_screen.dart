@@ -72,8 +72,8 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
               Expanded(
                 child: Text(
                   _isResearcherMode
-                      ? '🔓 Araştırmacı & Model Doğrulama Modu Açıldı (Ground-Truth & Prompt Stüdyosu Aktif)!'
-                      : '🔒 Standart Kullanıcı Moduna Dönüldü.',
+                      ? 'Araştırmacı & Model Doğrulama Modu Açıldı (Ground-Truth & Prompt Stüdyosu Aktif).'
+                      : 'Standart Kullanıcı Moduna Dönüldü.',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
@@ -1166,7 +1166,7 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: const Color(0xFF0F172A),
-            content: Text('✅ "${_cleanScenarioTitle(newScenario.title)}" senaryosu ortamınıza göre uyarlandı!'),
+            content: Text('"${_cleanScenarioTitle(newScenario.title)}" senaryosu ortamınıza göre uyarlandı.'),
           ),
         );
       }
@@ -1405,7 +1405,7 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '💡 Not: Anahtar yalnızca cihazınızda saklanır. Anahtar girmeden de yerel klinik RAG motoruyla senaryo üretebilirsiniz.',
+                    'Anahtar yalnızca cihazınızda saklanır. Anahtar girmeden de yerel klinik RAG motoruyla senaryo üretebilirsiniz.',
                     style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade600, height: 1.3),
                   ),
                 ],
@@ -1445,7 +1445,7 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
                     messenger.showSnackBar(
                       SnackBar(
                         content: Text(keyToSave.isNotEmpty
-                            ? '✅ Gemini API anahtarı kaydedildi! Gerçek LLM aktif.'
+                            ? 'Gemini API anahtarı kaydedildi. Model aktif.'
                             : 'API anahtarı boş bırakıldı, yerel RAG motoru aktif.'),
                       ),
                     );

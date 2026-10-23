@@ -32,7 +32,7 @@ void main() {
   setUp(() { harness = GraphPlaybackHarness(graph, plan); });
 
   Widget screen() => GraphPlaybackScreen(graph: harness.graph, plan: harness.plan,
-      videoStore: harness.store, createPlayer: harness.create);
+      videoStore: harness.store, createPlayer: harness.create, prepareNextClip: false);
 
   Future<void> mount(WidgetTester tester, {double scale = 1}) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -57,6 +57,23 @@ void main() {
     harness.players.last.finish();
     await tester.pump();
     await tester.pumpAndSettle();
+  }
+
+  Future<List<String>> completeBranch(WidgetTester tester, int branch) async {
+    await tap(tester, 'graph-playback-start');
+    await finish(tester);
+    expect(find.byKey(const ValueKey('graph-playback-replay-path')), findsNothing);
+    final edge = graph.transitions.where((edge) => edge.fromSceneId == graph.startSceneId).elementAt(branch);
+    final ending = graph.transitions.singleWhere((item) => item.fromSceneId == edge.toSceneId).toSceneId;
+    final tail = [...plan.clipsForScene(edge.toSceneId), ...plan.clipsForScene(ending)];
+    await tap(tester, 'graph-playback-choice:$branch');
+    for (final clip in tail) {
+      expect(harness.players.last.id, clip.id);
+      expect(find.byKey(const ValueKey('graph-playback-replay-path')), findsNothing);
+      await finish(tester);
+    }
+    expect(find.text('Senaryo tamamlandı'), findsOneWidget);
+    return [...plan.clipsForScene(graph.startSceneId).map((clip) => clip.id), ...tail.map((clip) => clip.id)];
   }
 
   Future<void> toggleDetails(WidgetTester tester, int index) async {
@@ -107,6 +124,56 @@ void main() {
   });
 
   for (var branch = 0; branch < 2; branch++) {
+    testWidgets('Dal $branch: seçili yolu tekrar oynat ve yeniden seçim ayrı eylemlerdir', (tester) async {
+      if (branch == 1) {
+        tester.view.physicalSize = const Size(320, 640);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+      }
+      await mount(tester, scale: branch == 1 ? 2 : 1);
+      final expected = await completeBranch(tester, branch);
+      expect(find.text('Seçtiğim yolu tekrar oynat'), findsOneWidget);
+      expect(find.text('Yeniden seçimle baştan başlat'), findsOneWidget);
+      final replay = find.byKey(const ValueKey('graph-playback-replay-path'));
+      await tester.ensureVisible(replay);
+      expect(replay.hitTestable(), findsOneWidget);
+      await tester.tap(replay);
+      await tester.tap(replay); // Yeniden çizilmeden gelen ikinci gerçek dokunma.
+      await tester.pumpAndSettle();
+      expect(harness.players.length, expected.length + 1);
+      if (branch == 1) {
+        final player = harness.players.last;
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        await tester.pump();
+        final plays = harness.events.where((event) => event.startsWith('play:')).length;
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        await tester.pump();
+        expect(player.playing, isFalse);
+        expect(harness.events.where((event) => event.startsWith('play:')).length, plays);
+        await tap(tester, 'graph-playback-toggle');
+        expect(player.playing, isTrue);
+      }
+      for (final id in expected) {
+        expect(harness.players.last.id, id);
+        expect(find.byKey(const ValueKey('graph-playback-choice:0')), findsNothing);
+        expect(find.byKey(const ValueKey('graph-playback-choice:1')), findsNothing);
+        await finish(tester);
+      }
+      expect(find.text('Senaryo tamamlandı'), findsOneWidget);
+      expect(harness.players.map((player) => player.id).toList(), [...expected, ...expected]);
+      expect(harness.players.every((player) => player.closed), isTrue);
+      await tap(tester, 'graph-playback-restart');
+      await finish(tester);
+      expect(find.byKey(const ValueKey('graph-playback-choice:0')), findsOneWidget);
+      expect(find.byKey(const ValueKey('graph-playback-choice:1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('graph-playback-replay-path')), findsNothing);
+      await tap(tester, 'graph-playback-choice:${1 - branch}');
+      final other = graph.transitions.where((edge) => edge.fromSceneId == graph.startSceneId).elementAt(1 - branch);
+      expect(harness.players.last.id, plan.clipsForScene(other.toSceneId).first.id);
+      await unmount(tester);
+    });
+
     testWidgets('Dal $branch kullanıcı seçimiyle oynar ve bitiş klibinden sonra tamamlanır', (tester) async {
       await mount(tester);
       expect(harness.players, isEmpty);
@@ -147,6 +214,21 @@ void main() {
       await unmount(tester);
     });
   }
+
+  testWidgets('Yarım veya hatalı yol için tekrar eylemi ve tamamlandı sonucu gösterilmez', (tester) async {
+    await mount(tester);
+    expect(find.byKey(const ValueKey('graph-playback-replay-path')), findsNothing);
+    await tap(tester, 'graph-playback-start');
+    expect(find.byKey(const ValueKey('graph-playback-replay-path')), findsNothing);
+    await finish(tester);
+    await tap(tester, 'graph-playback-choice:0');
+    harness.players.last.fail();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('graph-playback-error')), findsOneWidget);
+    expect(find.byKey(const ValueKey('graph-playback-replay-path')), findsNothing);
+    expect(find.text('Senaryo tamamlandı'), findsNothing);
+    await unmount(tester);
+  });
 
   for (final variant in [
     (name: 'kısa label başlığa tercih edilir', label: 'Kısa seçenek',

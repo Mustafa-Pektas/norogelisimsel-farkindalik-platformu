@@ -53,8 +53,8 @@ class ApiKeyDialog {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    '💡 aistudio.google.com adresinden ücretsiz alabilirsiniz. Anahtarınız yalnızca telefonunuzda saklanır.',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
+                    'aistudio.google.com adresinden ücretsiz alabilirsiniz. Anahtarınız yalnızca telefonunuzda saklanır.',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                   ),
                   if (hasKey) ...[
                     const SizedBox(height: 8),

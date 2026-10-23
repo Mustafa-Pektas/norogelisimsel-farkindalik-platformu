@@ -26,6 +26,11 @@ class ScenarioGenerationRequest {
   final String? additionalInstructions;
   BehaviorCard get card => BehaviorCards.all.firstWhere((card) => card.id == behaviorId);
 
+  Map<String, Object?> toJson() => {
+    'behaviorId': behaviorId, 'cardVersion': cardVersion, 'ageMonths': ageMonths,
+    'sceneContext': sceneContext, 'additionalInstructions': additionalInstructions,
+  };
+
   /// Yalnız dış JSON çiti/tek sarmalayıcı açılır; anlatı onarılmaz/tamamlanmaz.
   /// Uygulamanın eklediği metadata isteğe aittir; mevcut çelişki ezilmez.
   ({String json, String? normalization}) prepareInput(String raw, {

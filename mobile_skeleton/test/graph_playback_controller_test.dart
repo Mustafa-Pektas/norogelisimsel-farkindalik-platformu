@@ -43,6 +43,26 @@ void main() {
     await reached;
   }
 
+  Future<List<String>> completeBranch(int branch) async {
+    await flow.start();
+    await finishAt(GraphPlaybackPhase.choosing);
+    final selected = flow.choices[branch];
+    final ending = graph.transitions.singleWhere((edge) => edge.fromSceneId == selected.toSceneId).toSceneId;
+    final tail = [
+      ...plan.clipsForScene(selected.toSceneId),
+      ...plan.clipsForScene(ending),
+    ];
+    await flow.choose(branch);
+    for (var i = 0; i < tail.length; i++) {
+      expect(flow.clip.id, tail[i].id);
+      await finishAt(i == tail.length - 1 ? GraphPlaybackPhase.completed : GraphPlaybackPhase.playing);
+    }
+    return [
+      ...plan.clipsForScene(graph.startSceneId).map((clip) => clip.id),
+      ...tail.map((clip) => clip.id),
+    ];
+  }
+
   test('Başlatılmadan video yüklenmez; çift Başlat tek oynatıcı oluşturur', () async {
     expect(flow.sceneId, graph.startSceneId);
     expect(flow.phase, GraphPlaybackPhase.ready);
@@ -54,6 +74,47 @@ void main() {
   });
 
   for (var branch = 0; branch < 2; branch++) {
+    test('Dal $branch: tamamlanan yol çift dokunmada bir kez, aynı sırayla ve yeniden seçim sormadan oynar', () async {
+      final expected = await completeBranch(branch);
+      expect(flow.canReplayCompletedPath, isTrue);
+      final oldCallbacks = harness.players.map((player) => player.capturedListener!).toList();
+      final phases = <GraphPlaybackPhase>[];
+      void changed() => phases.add(flow.phase);
+      flow.addListener(changed);
+      await Future.wait([flow.replayCompletedPath(), flow.replayCompletedPath()]);
+      expect(harness.players.length, expected.length + 1);
+      for (var i = 0; i < expected.length; i++) {
+        expect(flow.clip.id, expected[i]);
+        expect(flow.choices, isEmpty);
+        final count = harness.players.length;
+        for (final callback in oldCallbacks) { callback(); }
+        expect(harness.players.length, count);
+        final next = atPhase(flow, i == expected.length - 1
+            ? GraphPlaybackPhase.completed : GraphPlaybackPhase.playing);
+        final player = harness.players.last;
+        player.finish();
+        player.finish(); // Aynı bitiş bildirimi ikinci klibi atlatmamalı.
+        await next;
+      }
+      flow.removeListener(changed);
+      expect(phases, isNot(contains(GraphPlaybackPhase.choosing)));
+      expect(harness.players.map((player) => player.id).toList(), [...expected, ...expected]);
+      expect(flow.canReplayCompletedPath, isTrue);
+      expect(harness.live, 0);
+      for (final player in harness.players) {
+        expect(harness.events.where((event) => event == 'closed:${player.id}').length,
+            2); // Her klip, iki ayrı geçişte birer kez kapandı.
+      }
+      // Yeni seçim yolu önceki kararı taşımaz; diğer dal seçilebilir.
+      await flow.restart();
+      expect(flow.canReplayCompletedPath, isFalse);
+      await finishAt(GraphPlaybackPhase.choosing);
+      final other = flow.choices[1 - branch];
+      await flow.choose(1 - branch);
+      expect(flow.sceneId, other.toSceneId);
+      expect(harness.players.last.id, plan.clipsForScene(other.toSceneId).first.id);
+    });
+
     test('Dal $branch: klipler sırayla, tek çıkış ve terminal sahne eksiksiz oynatılır', () async {
       await flow.start();
       await finishAt(GraphPlaybackPhase.choosing);
@@ -77,6 +138,122 @@ void main() {
         ...plan.clipsForScene(ending).map((clip) => clip.id),
       ]);
       expect(harness.live, 0);
+    });
+  }
+
+  test('Yarım yol tekrar oynatılamaz; baştan seçimde kısmi karar taşınmaz', () async {
+    await flow.replayCompletedPath();
+    expect(harness.players, isEmpty);
+    await flow.start();
+    expect(flow.canReplayCompletedPath, isFalse);
+    await finishAt(GraphPlaybackPhase.choosing);
+    await flow.choose(0);
+    final count = harness.players.length;
+    await flow.replayCompletedPath();
+    expect(harness.players.length, count);
+    expect(flow.canReplayCompletedPath, isFalse);
+    await flow.restart();
+    await finishAt(GraphPlaybackPhase.choosing);
+    expect(flow.choices, hasLength(2));
+  });
+
+  test('Ekran oturumu kapanınca tamamlanan yol yeni controller içine taşınmaz', () async {
+    await completeBranch(1);
+    expect(flow.canReplayCompletedPath, isTrue);
+    await flow.close();
+    expect(flow.canReplayCompletedPath, isFalse);
+    flow.dispose();
+    flow = harness.controller();
+    expect(flow.phase, GraphPlaybackPhase.ready);
+    expect(flow.canReplayCompletedPath, isFalse);
+    await flow.start();
+    await finishAt(GraphPlaybackPhase.choosing);
+    expect(flow.choices, hasLength(2));
+  });
+
+  for (final mode in ['mapping', 'file', 'codec']) {
+    test('Tekrarda $mode hatası yolu tamamlamaz; eksik/bozuk klip atlanmaz', () async {
+      final sequence = await completeBranch(0);
+      final missing = sequence[2];
+      if (mode == 'mapping') harness.store.bindings.remove(missing);
+      if (mode == 'file') harness.store.missingFile = missing;
+      if (mode == 'codec') harness.failedClip = missing;
+      await flow.replayCompletedPath();
+      await finishAt(GraphPlaybackPhase.playing);
+      await finishAt(GraphPlaybackPhase.error);
+      expect(flow.clip.id, missing);
+      expect(flow.error, contains(missing));
+      expect(flow.canReplayCompletedPath, isFalse);
+      final count = harness.players.length;
+      await flow.replayCompletedPath();
+      expect(harness.players.length, count);
+      expect(harness.players.skip(sequence.length).map((p) => p.id).toList(),
+          mode == 'codec' ? sequence.take(3).toList() : sequence.take(2).toList());
+    });
+  }
+
+  test('Bitiş videosu kapanmadan yol tamamlanmış ve tekrar oynatılabilir sayılmaz', () async {
+    await flow.start();
+    await finishAt(GraphPlaybackPhase.choosing);
+    final selected = flow.choices.first;
+    await flow.choose(0);
+    for (var i = 0; i < plan.clipsForScene(selected.toSceneId).length; i++) {
+      await finishAt(GraphPlaybackPhase.playing);
+    }
+    final finalPlayer = harness.players.last;
+    // Kapanış sürerken henüz başarı/tekrar eylemi verilmez.
+    final gate = Completer<void>();
+    addTearDown(() { if (!gate.isCompleted) gate.complete(); });
+    finalPlayer.closeGate = gate;
+    final reached = atPhase(flow, GraphPlaybackPhase.completed);
+    finalPlayer.finish();
+    await finalPlayer.closeStarted.future;
+    expect(flow.phase, GraphPlaybackPhase.loading);
+    expect(flow.canReplayCompletedPath, isFalse);
+    gate.complete();
+    await reached;
+    expect(flow.canReplayCompletedPath, isTrue);
+  });
+
+  for (final action in ['background', 'close']) {
+    test('Tekrar yüklenirken $action: geç açılış otomatik oynatmaz, kaynaklar kapanır', () async {
+      await flow.close();
+      flow.dispose();
+      final created = Completer<FakeGraphPlayer>();
+      var armed = false;
+      flow = GraphPlaybackController(graph: graph, plan: plan, videoStore: harness.store,
+        prepareNextClip: false, createPlayer: (file) {
+          final player = harness.create(file);
+          if (armed && !created.isCompleted) created.complete(player);
+          return player;
+        });
+      await completeBranch(1);
+      final gate = Completer<void>();
+      addTearDown(() { if (!gate.isCompleted) gate.complete(); });
+      harness.nextOpenGate = gate;
+      armed = true;
+      final loading = flow.replayCompletedPath();
+      final player = await created.future;
+      final plays = harness.events.where((event) => event.startsWith('play:')).length;
+      if (action == 'close') {
+        await flow.close();
+        expect(player.closed, isTrue);
+      } else {
+        await flow.suspend();
+      }
+      gate.complete();
+      await loading;
+      expect(harness.events.where((event) => event.startsWith('play:')).length, plays);
+      if (action == 'background') {
+        flow.resume();
+        expect(flow.phase, GraphPlaybackPhase.paused);
+        expect(player.playing, isFalse);
+        await flow.togglePlayback();
+        expect(player.playing, isTrue);
+      } else {
+        expect(flow.phase, GraphPlaybackPhase.closed);
+        expect(flow.canReplayCompletedPath, isFalse);
+      }
     });
   }
 

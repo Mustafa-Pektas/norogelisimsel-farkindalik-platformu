@@ -1,0 +1,207 @@
+{
+  "version": "0.2",
+  "sourceDoc": "Davranis_Kartlari_v02.md",
+  "scopeNotice": "Bu bilgi tabanı eğitim/simülasyon amaçlıdır; klinik ölçek, tanı aracı veya onaylanmış tıbbi puanlama sistemi değildir.",
+  "cinematicLock": "Cinematic 35mm film still, locked-off stationary tripod at 45cm low child-eye level, f/2.8 aperture, soft 5500K diffused morning natural daylight. A photorealistic toddler sitting barefoot on a light ash wooden floor with a navy-and-cream geometric wool rug, playing with a small solid red wooden toy car. In the background, an adult female clinician in a beige knit sweater is seated quietly. Anatomically accurate hands with five distinct fingers, stable physics, no morphing, 4K photorealistic documentary realism.",
+  "ageBands": {
+    "12-18": {
+      "label": "12–18 Ay",
+      "focus": "Basit isme yönelme, sese oryantasyon ve temel nesne keşfi",
+      "typicalMaxDelaySec": 2.0,
+      "atypicalMinDelaySec": 3.0,
+      "pilotWindowSec": 10
+    },
+    "18-24": {
+      "label": "18–24 Ay",
+      "focus": "İsme yönelme, doğrudan göz teması ve işaretle ortak dikkat",
+      "typicalMaxDelaySec": 1.8,
+      "atypicalMinDelaySec": 2.5,
+      "pilotWindowSec": 10
+    },
+    "24-36": {
+      "label": "24–36 Ay",
+      "focus": "Sözel/jestsel karşılık, sembolik oyun ve paylaşımlı iletişim",
+      "typicalMaxDelaySec": 1.5,
+      "atypicalMinDelaySec": 2.5,
+      "pilotWindowSec": 10
+    }
+  },
+  "phaseDistribution": {
+    "TABAN": { "sceneCount": 6, "durationSec": 48, "desc": "Çocuk ortamda kırmızı araba ile kendi halinde oynar, yetişkin sessizce gözlemler." },
+    "UYARAN": { "sceneCount": 11, "durationSec": 88, "desc": "Yetişkin klinik kurala uygun olarak uyaranı verir; çocuğun yönelme, gecikme veya tepkisizliği gerçekleşir." },
+    "KAPANIS": { "sceneCount": 9, "durationSec": 72, "desc": "Tepkinin tamamlanması, ortak dikkat kurulması veya kendi oyununa dönme anı." }
+  },
+  "cards": [
+    {
+      "id": "D01",
+      "title": "İsme tepki verme",
+      "summary": "İsmi söylendikten sonra yetişkine verilen yanıtı gözlemleme.",
+      "purpose": "İsim çağrısından sonra yetişkine yönelmeyi veya ona yönelik sesli yanıtı gözlemek.",
+      "preparation": "Çocuğun başı, çağrı öncesi ve sonrası görünür olsun; çağrı duyulsun ve yetişkinin konumu bilinsin.",
+      "instruction": "Çocuk oyuncağıyla ilgilenirken yetişkin, çocuğun adını bir kez doğal sesle söyler. Dokunmaz, el sallamaz veya eşzamanlı başka yönerge vermez.",
+      "pilotWindowSeconds": 10,
+      "validityCriteria": "Çağrı duyulur; çağıran kişinin konumu bilinir; çocuk çağrıdan önce zaten ona yönelmiş değildir. Çağrı öncesi ve sonrası kesintisiz görünür.",
+      "typicalCriteria": "Çağrı sonrasında yetişkine belirgin baş yönelmesi veya açıkça yetişkine yönelik sesli/sözel yanıt görülür. Baş yönelmesi 0.5-2.0 sn arasındadır.",
+      "atypicalCriteria": "Geçerli çağrıdan sonra 3+ saniye boyunca veya pencere bitene kadar yetişkine başını çevirmez, oyuncağa odaklanmayı sürdürür.",
+      "invalidityConditions": [
+        "Ses yoktur veya anlaşılmazdır",
+        "Çocuk zaten çağrıdan önce yetişkine dönüktür",
+        "Çağrıyla aynı anda yetişkin çocuğa dokunmuştur veya el sallamıştır",
+        "Kritik çağrı anı kesilmiştir"
+      ]
+    },
+    {
+      "id": "D02",
+      "title": "Yetişkinin işaret ettiği hedefe yönelme",
+      "summary": "Yetişkinin gösterdiği nesneye dönüp bakmayı gözlemleme.",
+      "purpose": "İşaret edilen doğru hedefe yönelmeyi gözlemek; baş yönünü gerçek bakış hedefiyle aynı saymamak.",
+      "preparation": "İki sabit nesne, yetişkinin eli ve çocuğun yüzü/başı aynı kayıtta seçilsin. Çocuk başlangıçta hedefe bakmıyor olsun.",
+      "instruction": "İki sabit nesne görünür. Çocuk başka yere bakarken yetişkin bunlardan birini işaret eder ve 'Bak' der; hedefin adını söylemez.",
+      "pilotWindowSeconds": 10,
+      "validityCriteria": "Yetişkinin eli, hedef ve çocuğun yüzü/başı aynı kayıtta seçilir. Çocuk başlangıçta hedefe bakmıyordur; hedef kendiliğinden ses çıkarmaz.",
+      "typicalCriteria": "İşaret sonrasında çocuk doğru hedefe belirgin biçimde yönelir. Hedefteki nesneye bakar.",
+      "atypicalCriteria": "Geçerli fırsatta hedefe yönelme görülmez; yalnızca yetişkinin parmağına bakar veya ilgisiz kalır.",
+      "invalidityConditions": [
+        "Hedef kadraj dışıdır",
+        "Çocuk zaten hedefe bakmaktadır",
+        "Hedef hareketle veya sesle kendi başına dikkat çekmiştir"
+      ]
+    },
+    {
+      "id": "D03",
+      "title": "İstemek için işaret etme",
+      "summary": "Ulaşamadığı oyuncağı istemek için işaret etmeyi gözlemleme.",
+      "purpose": "İşaret hareketini isteme bağlamıyla birlikte gözlemek; başka isteme biçimlerini de ayırt etmek.",
+      "preparation": "Çocuğun ilgilendiği güvenli oyuncak görünür fakat doğrudan erişilemez yerde olsun; yetişkin erişilebilir olsun.",
+      "instruction": "Güvenli oyuncak görünür fakat doğrudan erişilemez konumdadır. Çocuğun oyuncağa ilgisi gözlenir; yetişkin bekler. 'İşaret et' yönergesi verilmez.",
+      "pilotWindowSeconds": 20,
+      "validityCriteria": "El/parmak, hedef ve yetişkin görünür; nesneye ilgi ve isteme fırsatı vardır.",
+      "typicalCriteria": "Hedefe yönelik açık işaret parmağı hareketi vardır; yetişkine bakar veya ses çıkararak oyuncağı ister.",
+      "atypicalCriteria": "İşaret parmağını kullanmaz; yetişkinin elini bir araç gibi tutup nesneye uzatır (hand-leading) veya öfkelenir.",
+      "invalidityConditions": [
+        "Nesne zaten erişilebilirdir",
+        "Çocuk nesneyle hiç ilgilenmemektedir",
+        "Yetişkin çocuğun elini fiziksel olarak yönlendirmiştir"
+      ]
+    },
+    {
+      "id": "D04",
+      "title": "Hayali oyun — mış gibi yapma",
+      "summary": "Boş oyuncak fincanla bebeğe içiriyormuş gibi oynamayı gözlemleme.",
+      "purpose": "Boş fincanla bebeğe içirme eylemini canlandıran oyun dizisini gözlemek.",
+      "preparation": "Oyuncak bebek ve boş oyuncak fincan çocuğun erişiminde olsun; el, fincan ve bebeğin yüzü görünsün.",
+      "instruction": "Oyuncak bebek ve boş fincan sunulur. Yetişkin hareketi önceden göstermez, 'bebeğe içir' demez.",
+      "pilotWindowSeconds": 20,
+      "validityCriteria": "Çocuğun oyuncaklara erişimi vardır; el, fincan ve bebeğin yüzü kesintisiz görünür.",
+      "typicalCriteria": "Çocuk boş fincanı bebeğin ağzına götürüp içirme eylemini canlandırır (sembolik mış gibi yapma).",
+      "atypicalCriteria": "Sembolik oyun görülmez; fincanı sadece sertçe yere vurur, fırlatır veya tekerlek gibi döndürür.",
+      "invalidityConditions": [
+        "Yetişkin eylemi hemen önce modellemiştir",
+        "Yetişkin doğrudan sözel komut vermiştir",
+        "Kritik oyuncaklar kadraj dışındadır"
+      ]
+    },
+    {
+      "id": "D05",
+      "title": "Paylaşmak için elindeki nesneyi gösterme",
+      "summary": "Elindeki oyuncağı paylaşmak için yetişkine göstermeyi gözlemleme.",
+      "purpose": "Nesneyi yetişkinin görüşüne sunmayı; yardım isteme ve teslim etmeden ayırarak gözlemek.",
+      "preparation": "Çocuğun oyuncağı elinde olsun; yetişkin yakın ve erişilebilir olsun.",
+      "instruction": "Çocuk oyuncakla oynarken yetişkin yakınındadır. 'Bana göster' demez; yardım gerektiren kutu kullanılmaz.",
+      "pilotWindowSeconds": 20,
+      "validityCriteria": "Nesne çocuğun elindedir; yetişkinin konumu bilinir; teslim veya yardım talebi yoktur.",
+      "typicalCriteria": "Çocuk nesneyi yetişkinin yüz hizasına kaldırarak gösterir; sosyal ilgiyi paylaşma amacı açıktır.",
+      "atypicalCriteria": "Nesneyi yetişkine yöneltip göstermez; tamamen kendi iç dünyasında nesneye odaklı kalır.",
+      "invalidityConditions": [
+        "Yetişkin nesneyi sözel olarak istemiştir",
+        "Çocuğun nesneyi tutuşu görünmez",
+        "Nesne bozuktur ve yardım amaçlı uzatılmıştır"
+      ]
+    },
+    {
+      "id": "D06",
+      "title": "Basit motor hareketi taklit etme",
+      "summary": "Yetişkinin gösterdiği el çırpma hareketini taklit etmeyi gözlemleme.",
+      "purpose": "Yetişkinin gösterdiği basit hareketin çocuk tarafından tekrarlanmasını gözlemek.",
+      "preparation": "Çocuk başlangıçta el çırpmıyor olsun; her iki kişinin elleri görünsün.",
+      "instruction": "Çocuk hareketsizken yetişkin iki kez belirgin biçimde el çırpar, sonra ellerini kucağına koyup bekler.",
+      "pilotWindowSeconds": 10,
+      "validityCriteria": "Çocuk modeli görebilir; iki kişinin elleri kadrajdadır; fiziksel yardım yoktur.",
+      "typicalCriteria": "Modelden sonra çocuk ellerini birbirine yaklaştırarak el çırpma hareketini üretir.",
+      "atypicalCriteria": "Model sunulduktan sonra el çırpmaz; ellerini kucağında tutar veya ilgisiz motor hareketler yapar.",
+      "invalidityConditions": [
+        "Çocuk modelden önce zaten el çırpmaktadır",
+        "Yetişkin çocuğun ellerini tutarak çırpmıştır",
+        "Model sunumu kamerada görünmemiştir"
+      ]
+    },
+    {
+      "id": "D07",
+      "title": "Gülümsemeye karşılık verme",
+      "summary": "Yetişkin gülümsedikten sonra başlayan gülümsemeyi gözlemleme.",
+      "purpose": "Yetişkinin gülümsemesini izleyen yeni gülümseme başlangıcını gözlemek.",
+      "preparation": "Her iki yüz seçilsin. Çocuk yetişkinin yüzüne yönelmiş ve henüz gülümsemiyor olsun.",
+      "instruction": "Çocuk yetişkine bakarken yetişkin sıcak ve doğal biçimde gülümser. Gıdıklama veya komik ses kullanılmaz.",
+      "pilotWindowSeconds": 10,
+      "validityCriteria": "Her iki yüz net seçilir; çocuk yetişkini görebilir; çocuk başlangıçta nötrdür.",
+      "typicalCriteria": "Yetişkinin tebessümünden sonra çocukta belirgin bir karşılık gülümsemesi ve göz teması başlar.",
+      "atypicalCriteria": "Yetişkinin gülümsemesine rağmen yüz ifadesi tamamen donuk kalır, tebessümle karşılık vermez.",
+      "invalidityConditions": [
+        "Çocuk yetişkine bakmamaktadır",
+        "Çocuk çağrıdan önce zaten gülümsemektedir",
+        "Eşzamanlı gıdıklama veya fiziksel temas yapılmıştır"
+      ]
+    },
+    {
+      "id": "D08",
+      "title": "Jest desteği olmadan tek basamaklı sözel yönergeyi yerine getirme",
+      "summary": "İşaret veya hareket desteği olmadan söylenen tek işi yapmayı gözlemleme.",
+      "purpose": "Yalnız sözel yönergeyle doğru nesnenin yetişkine teslim edilmesini gözlemek.",
+      "preparation": "Araba çocuğun erişiminde olsun; yönerge duyulsun ve yetişkine teslim mümkün olsun.",
+      "instruction": "Araba çocuğun önündeyken yetişkin 'Arabayı bana ver' der. Eliyle işaret etmez, elini uzatmaz.",
+      "pilotWindowSeconds": 10,
+      "validityCriteria": "Yönerge duyulur; doğru nesne erişilebilirdir; çocuk teslim hareketini önceden başlatmamıştır.",
+      "typicalCriteria": "Sözel komuttan sonra arabayı alır ve yetişkine uzatarak teslim eder.",
+      "atypicalCriteria": "Komutu duyduğu halde arabayı vermez, yönergeyi duymamış gibi araba ile oynamaya devam eder.",
+      "invalidityConditions": [
+        "Yetişkin işaret parmağıyla arabayı göstermiştir",
+        "Yetişkin elini açık şekilde uzatıp jest desteği vermiştir",
+        "Ses anlaşılmazdır"
+      ]
+    },
+    {
+      "id": "D09",
+      "title": "Nesneyi bir kaba yerleştirme",
+      "summary": "Bir bloğu kendiliğinden uygun bir kutunun içine bırakmayı gözlemleme.",
+      "purpose": "Bloğu elle taşıyıp kutunun içine bırakma dizisini gözlemek.",
+      "preparation": "Büyük ahşap blok ve geniş ağızlı alçak kutu sabit yüzeyde olsun.",
+      "instruction": "Blok ve kutu sunulur. Yetişkin hareketi önceden göstermez ve 'kutunun içine koy' demez.",
+      "pilotWindowSeconds": 20,
+      "validityCriteria": "Çocuk nesneye ve kutuya erişebilir; el, blok ve kutu ağzı seçilir.",
+      "typicalCriteria": "Çocuk bloğu eliyle kaldırıp kutunun içine kontrollü bir şekilde bırakır.",
+      "atypicalCriteria": "Bloğu kutuya koymaz; kutunun dışına fırlatır, bloğu sadece masaya vurur veya tekerlek gibi döndürür.",
+      "invalidityConditions": [
+        "Yetişkin bloğu kutuya koymayı önceden göstermiştir",
+        "Yetişkin doğrudan 'kutuya koy' yönergesi vermiştir",
+        "Kutu erişilemez durumdadır"
+      ]
+    },
+    {
+      "id": "D10",
+      "title": "Kalemle kendiliğinden karalama yapma",
+      "summary": "Kalem hareketiyle kâğıtta yeni çizgiler oluşmasını gözlemleme.",
+      "purpose": "Çocuğun kendiliğinden yaptığı kalem hareketine bağlı yeni çizgileri gözlemek.",
+      "preparation": "Sabit kâğıt ve kalın pastel boya erişilebilir olsun. El, boya ucu ve kâğıt görünsün.",
+      "instruction": "Kâğıt ve pastel boya sunulur. Yetişkin çizim göstermez, elini yönlendirmez ve 'çiz' demez.",
+      "pilotWindowSeconds": 20,
+      "validityCriteria": "Çocuk malzemeye erişebilir; el ve kâğıt görünürdür; kâğıt başlangıçta boştur.",
+      "typicalCriteria": "Pastel boyayı kâğıt üzerinde sürterek kendiliğinden görünür çizgiler oluşturur.",
+      "atypicalCriteria": "Kâğıda çizgi çekmez; boyayı sadece ağzına götürür, masaya vurur veya yere atar.",
+      "invalidityConditions": [
+        "Yetişkin çocuğun elini tutarak çizdirmiştir",
+        "Yetişkin önceden kâğıda şekil çizip model olmuştur",
+        "Kalem çalışmamaktadır"
+      ]
+    }
+  ]
+}

@@ -8,7 +8,9 @@
 node_modules/
 
 # Logs
+logs/
 *.log
+*.jsonl
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

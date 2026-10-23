@@ -75,6 +75,9 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
 
   // MOTOR SEÇİMİ: 'local' (0 MB Yerel Klinik), 'server' (Sunucu Gemini AI)
   String _selectedEngine = 'local';
+  Map<String, dynamic>? _lastBenchmark;
+  Map<String, dynamic>? _lastValidation;
+  String? _lastArm;
 
   // DOKTOR KLİNİK PARAMETRELERİ (SANİYESİZ)
   int _selectedAge = 18;
@@ -127,8 +130,8 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               Expanded(
                 child: Text(
                   _isAdminMode
-                      ? '🔓 Gelişmiş Stüdyo Modu Açıldı (Klip Parametreleri ve Doğrulama Paneli Aktif).'
-                      : '🔒 Doktor Moduna Dönüldü.',
+                      ? 'Gelişmiş Stüdyo Modu Açıldı (Klip Parametreleri ve Doğrulama Paneli Aktif).'
+                      : 'Doktor Moduna Dönüldü.',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
@@ -382,6 +385,9 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
             setState(() {
               _doctorScenario = newDoc;
               if (newSession != null) _session = newSession;
+              _lastBenchmark = serverScenario['_benchmark'] as Map<String, dynamic>?;
+              _lastValidation = serverScenario['_validation'] as Map<String, dynamic>?;
+              _lastArm = (serverScenario['_arm'] ?? ServerApiService.selectedArm).toString();
               _isGenerating = false;
             });
             ScaffoldMessenger.of(context).showSnackBar(
@@ -928,7 +934,486 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               ),
             ],
           ),
+          if (isServer) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.psychology_outlined, size: 16, color: Color(0xFF4F46E5)),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'Deney Kolu / Model Modu:',
+                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                      ),
+                      const Spacer(),
+                      InkWell(
+                        onTap: _runLiveComparisonDialog,
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEEF2FF),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFC7D2FE)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.compare_arrows_rounded, size: 13, color: Color(0xFF4F46E5)),
+                              SizedBox(width: 4),
+                              Text(
+                                '3 Kolu Kıyasla',
+                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _buildArmChip('A', 'Kol A (Saf)', 'Kural Yok', const Color(0xFF64748B)),
+                      const SizedBox(width: 6),
+                      _buildArmChip('B', 'Kol B (RAG)', 'Hedef Kural', const Color(0xFF2563EB)),
+                      const SizedBox(width: 6),
+                      _buildArmChip('C', 'Kol C (Full)', 'Tüm Kitaplık', const Color(0xFF7C3AED)),
+                    ],
+                  ),
+                  if (_lastBenchmark != null) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.speed_outlined, size: 14, color: Color(0xFF64748B)),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Son Çıktı (${_lastArm ?? ServerApiService.selectedArm}): ${_lastBenchmark!['latencyApiMs']} ms',
+                            style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'FSM: %${((_lastBenchmark!['fsmMatchRate'] as num? ?? 1.0) * 100).round()}',
+                            style: const TextStyle(fontSize: 10.5, color: Color(0xFF166534), fontWeight: FontWeight.bold),
+                          ),
+                          const Spacer(),
+                          Text(
+                            _lastBenchmark!['deltaTCompliant'] == true ? 'Δt: Uyumlu' : 'Δt: Sapma',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              color: _lastBenchmark!['deltaTCompliant'] == true ? const Color(0xFF166534) : const Color(0xFFDC2626),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildArmChip(String code, String title, String subtitle, Color activeColor) {
+    final isSelected = ServerApiService.selectedArm == code;
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          ServerApiService.setSelectedArm(code);
+          setState(() {});
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+          decoration: BoxDecoration(
+            color: isSelected ? activeColor.withValues(alpha: 0.12) : Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isSelected ? activeColor : const Color(0xFFCBD5E1),
+              width: isSelected ? 1.5 : 1,
+            ),
+          ),
+          child: Column(
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? activeColor : const Color(0xFF334155),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 1),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 9,
+                  color: isSelected ? activeColor : const Color(0xFF64748B),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _runLiveComparisonDialog() {
+    bool isComparing = true;
+    bool hasStarted = false;
+    Map<String, dynamic>? resultA;
+    Map<String, dynamic>? resultB;
+    Map<String, dynamic>? resultC;
+    String? errorMsg;
+    String progressMsg = 'Kol A (Saf Model) çalıştırılıyor (%33)...';
+    int selectedDetailArm = 1; // 0: Kol A, 1: Kol B (RAG), 2: Kol C (Full)
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            if (!hasStarted) {
+              hasStarted = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                try {
+                  final ontology = _selectedOntologies.isNotEmpty ? _selectedOntologies.first : 'D01';
+                  
+                  if (dialogCtx.mounted) {
+                    setDialogState(() => progressMsg = 'Kol A (Saf Model) çalıştırılıyor (%33)...');
+                  }
+                  final resA = await ServerApiService.generateScenario(
+                    ageMonths: _selectedAge,
+                    ontologyCode: ontology,
+                    riskProfile: _selectedRisk,
+                    arm: 'A',
+                  );
+
+                  await Future.delayed(const Duration(milliseconds: 1000));
+
+                  if (dialogCtx.mounted) {
+                    setDialogState(() => progressMsg = 'Kol B (RAG - Hedef Kural) çalıştırılıyor (%66)...');
+                  }
+                  final resB = await ServerApiService.generateScenario(
+                    ageMonths: _selectedAge,
+                    ontologyCode: ontology,
+                    riskProfile: _selectedRisk,
+                    arm: 'B',
+                  );
+
+                  await Future.delayed(const Duration(milliseconds: 1000));
+
+                  if (dialogCtx.mounted) {
+                    setDialogState(() => progressMsg = 'Kol C (Full-Context) çalıştırılıyor (%100)...');
+                  }
+                  final resC = await ServerApiService.generateScenario(
+                    ageMonths: _selectedAge,
+                    ontologyCode: ontology,
+                    riskProfile: _selectedRisk,
+                    arm: 'C',
+                  );
+
+                  if (dialogCtx.mounted) {
+                    setDialogState(() {
+                      resultA = resA;
+                      resultB = resB;
+                      resultC = resC;
+                      isComparing = false;
+                    });
+                  }
+                } catch (e) {
+                  if (dialogCtx.mounted) {
+                    setDialogState(() {
+                      errorMsg = e.toString().replaceFirst('Exception: ', '');
+                      isComparing = false;
+                    });
+                  }
+                }
+              });
+            }
+
+            final currentResult = selectedDetailArm == 0 ? resultA : (selectedDetailArm == 1 ? resultB : resultC);
+            final currentArmName = selectedDetailArm == 0 ? 'Kol A (Saf)' : (selectedDetailArm == 1 ? 'Kol B (RAG)' : 'Kol C (Full)');
+
+            Map<String, dynamic>? stimulusScene;
+            if (currentResult != null && currentResult['scenes'] is List) {
+              final scenes = currentResult['scenes'] as List;
+              for (final sc in scenes) {
+                if (sc is Map && sc['phase'] == 'UYARAN') {
+                  stimulusScene = Map<String, dynamic>.from(sc);
+                  break;
+                }
+              }
+            }
+
+            return AlertDialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
+              title: const Row(
+                children: [
+                  Icon(Icons.compare_arrows_rounded, color: Color(0xFF4F46E5), size: 22),
+                  SizedBox(width: 8),
+                  Text('Deneysel Karşılaştırma (Kol A / B / C)', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: isComparing
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(height: 10),
+                        const CircularProgressIndicator(strokeWidth: 2.5),
+                        const SizedBox(height: 16),
+                        Text(progressMsg, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                        const SizedBox(height: 6),
+                        const Text('API gecikmeleri, tokenlar ve klinik kurallar test ediliyor...', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                        const SizedBox(height: 10),
+                      ],
+                    )
+                  : errorMsg != null
+                      ? Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFFECDD3)),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.info_outline, size: 16, color: Color(0xFFB91C1C)),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Kota veya Bağlantı Durumu',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF991B1B)),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                errorMsg!.replaceFirst('Exception: ', ''),
+                                style: const TextStyle(fontSize: 11, color: Color(0xFF7F1D1D), height: 1.35),
+                              ),
+                            ],
+                          ),
+                        )
+                      : SizedBox(
+                          width: double.maxFinite,
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Table(
+                                  border: TableBorder.all(color: const Color(0xFFE2E8F0)),
+                                  columnWidths: const {
+                                    0: FlexColumnWidth(1.25),
+                                    1: FlexColumnWidth(0.95),
+                                    2: FlexColumnWidth(1.15),
+                                    3: FlexColumnWidth(0.95),
+                                  },
+                                  children: [
+                                    const TableRow(
+                                      decoration: BoxDecoration(color: Color(0xFFF1F5F9)),
+                                      children: [
+                                        Padding(padding: EdgeInsets.all(5), child: Text('Metrik', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10))),
+                                        Padding(padding: EdgeInsets.all(5), child: Text('Kol A (Saf)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10))),
+                                        Padding(padding: EdgeInsets.all(5), child: Text('Kol B (RAG)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Color(0xFF2563EB)))),
+                                        Padding(padding: EdgeInsets.all(5), child: Text('Kol C (Full)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Color(0xFF7C3AED)))),
+                                      ],
+                                    ),
+                                    TableRow(
+                                      children: [
+                                        const Padding(padding: EdgeInsets.all(5), child: Text('Gecikme (ms)', style: TextStyle(fontSize: 10))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultA?['_benchmark']?['latencyApiMs'] ?? '-'} ms', style: const TextStyle(fontSize: 10))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultB?['_benchmark']?['latencyApiMs'] ?? '-'} ms', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultC?['_benchmark']?['latencyApiMs'] ?? '-'} ms', style: const TextStyle(fontSize: 10, color: Color(0xFF7C3AED)))),
+                                      ],
+                                    ),
+                                    TableRow(
+                                      children: [
+                                        const Padding(padding: EdgeInsets.all(5), child: Text('Girdi / Çıktı Token', style: TextStyle(fontSize: 9.5))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultA?['_benchmark']?['promptTokens'] ?? '-'} / ${resultA?['_benchmark']?['outputTokens'] ?? '-'}', style: const TextStyle(fontSize: 9.5))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultB?['_benchmark']?['promptTokens'] ?? '-'} / ${resultB?['_benchmark']?['outputTokens'] ?? '-'}', style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultC?['_benchmark']?['promptTokens'] ?? '-'} / ${resultC?['_benchmark']?['outputTokens'] ?? '-'}', style: const TextStyle(fontSize: 9.5, color: Color(0xFF7C3AED)))),
+                                      ],
+                                    ),
+                                    TableRow(
+                                      children: [
+                                        const Padding(padding: EdgeInsets.all(5), child: Text('FSM Durum Uyum', style: TextStyle(fontSize: 10))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('%${((resultA?['_benchmark']?['fsmMatchRate'] as num? ?? 0) * 100).round()}', style: const TextStyle(fontSize: 10))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('%${((resultB?['_benchmark']?['fsmMatchRate'] as num? ?? 0) * 100).round()}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF166534)))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('%${((resultC?['_benchmark']?['fsmMatchRate'] as num? ?? 0) * 100).round()}', style: const TextStyle(fontSize: 10, color: Color(0xFF166534)))),
+                                      ],
+                                    ),
+                                    TableRow(
+                                      children: [
+                                        const Padding(padding: EdgeInsets.all(5), child: Text('Δt Eşik Uyumu', style: TextStyle(fontSize: 10))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text(resultA?['_benchmark']?['deltaTCompliant'] == true ? 'Uyumlu' : 'Sapma', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: resultA?['_benchmark']?['deltaTCompliant'] == true ? const Color(0xFF166534) : const Color(0xFFB91C1C)))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text(resultB?['_benchmark']?['deltaTCompliant'] == true ? 'Uyumlu' : 'Sapma', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: resultB?['_benchmark']?['deltaTCompliant'] == true ? const Color(0xFF166534) : const Color(0xFFB91C1C)))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text(resultC?['_benchmark']?['deltaTCompliant'] == true ? 'Uyumlu' : 'Sapma', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: resultC?['_benchmark']?['deltaTCompliant'] == true ? const Color(0xFF166534) : const Color(0xFFB91C1C)))),
+                                      ],
+                                    ),
+                                    TableRow(
+                                      children: [
+                                        const Padding(padding: EdgeInsets.all(5), child: Text('Kural Arama (O(1))', style: TextStyle(fontSize: 9.5))),
+                                        const Padding(padding: EdgeInsets.all(5), child: Text('Yok', style: TextStyle(fontSize: 9.5, color: Color(0xFF64748B)))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultB?['_benchmark']?['retrievalMs'] ?? 0} ms', style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)))),
+                                        const Padding(padding: EdgeInsets.all(5), child: Text('Tüm KB', style: TextStyle(fontSize: 9.5, color: Color(0xFF7C3AED)))),
+                                      ],
+                                    ),
+                                    TableRow(
+                                      children: [
+                                        const Padding(padding: EdgeInsets.all(5), child: Text('Yeniden Deneme', style: TextStyle(fontSize: 10))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultA?['_benchmark']?['retryCount'] ?? 0}', style: const TextStyle(fontSize: 10))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultB?['_benchmark']?['retryCount'] ?? 0}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)))),
+                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultC?['_benchmark']?['retryCount'] ?? 0}', style: const TextStyle(fontSize: 10))),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 14),
+                                const Row(
+                                  children: [
+                                    Icon(Icons.description_outlined, size: 15, color: Color(0xFF1E293B)),
+                                    SizedBox(width: 5),
+                                    Text(
+                                      'Model Çıktılarını İncele:',
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Color(0xFF1E293B)),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    _buildComparisonArmTab(0, 'Kol A (Saf)', selectedDetailArm, (idx) => setDialogState(() => selectedDetailArm = idx)),
+                                    const SizedBox(width: 6),
+                                    _buildComparisonArmTab(1, 'Kol B (RAG)', selectedDetailArm, (idx) => setDialogState(() => selectedDetailArm = idx)),
+                                    const SizedBox(width: 6),
+                                    _buildComparisonArmTab(2, 'Kol C (Full)', selectedDetailArm, (idx) => setDialogState(() => selectedDetailArm = idx)),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '$currentArmName Klinik Özeti:',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF0F172A)),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        (currentResult?['summary'] ?? 'Özet bulunamadı.').toString(),
+                                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF334155), height: 1.35),
+                                      ),
+                                      if (stimulusScene != null) ...[
+                                        const Divider(height: 16, color: Color(0xFFE2E8F0)),
+                                        Text(
+                                          'Kritik Uyaran & Reaksiyon Sahnesi (Sahne ${stimulusScene['sceneNumber'] ?? '1'}):',
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF0F172A)),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Prompt: ${(stimulusScene['videoPrompt'] ?? '').toString()}',
+                                          style: const TextStyle(fontSize: 10, color: Color(0xFF475569), fontStyle: FontStyle.italic),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Gözlenen Gecikme: ${stimulusScene['clinical']?['latencySeconds'] != null ? '${stimulusScene['clinical']!['latencySeconds']} sn' : 'Tepkisiz'}',
+                                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'FSM: ${stimulusScene['startState'] ?? '-'} → ${stimulusScene['endState'] ?? '-'}',
+                                              style: const TextStyle(fontSize: 9.5, color: Color(0xFF64748B)),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Kapat'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildComparisonArmTab(int idx, String label, int selected, Function(int) onSelect) {
+    final isSel = selected == idx;
+    return Expanded(
+      child: InkWell(
+        onTap: () => onSelect(idx),
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            color: isSel ? const Color(0xFF0F172A) : Colors.white,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: isSel ? const Color(0xFF0F172A) : const Color(0xFFCBD5E1)),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.bold,
+              color: isSel ? Colors.white : const Color(0xFF475569),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -993,16 +1478,60 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       ),
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Deney Kolu (Metodoloji v2):',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Kol B: Kural Enj. (RAG)', style: TextStyle(fontSize: 11)),
+                        selected: ServerApiService.selectedArm == 'B',
+                        selectedColor: const Color(0xFFDBEAFE),
+                        onSelected: (val) {
+                          if (val) {
+                            ServerApiService.setSelectedArm('B');
+                            setDialogState(() {});
+                          }
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Kol A: Baseline (Saf)', style: TextStyle(fontSize: 11)),
+                        selected: ServerApiService.selectedArm == 'A',
+                        selectedColor: const Color(0xFFE2E8F0),
+                        onSelected: (val) {
+                          if (val) {
+                            ServerApiService.setSelectedArm('A');
+                            setDialogState(() {});
+                          }
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Kol C: Full-Context', style: TextStyle(fontSize: 11)),
+                        selected: ServerApiService.selectedArm == 'C',
+                        selectedColor: const Color(0xFFF3E8FF),
+                        onSelected: (val) {
+                          if (val) {
+                            ServerApiService.setSelectedArm('C');
+                            setDialogState(() {});
+                          }
+                        },
+                      ),
+                    ],
+                  ),
                   if (testResult != null) ...[
                     const SizedBox(height: 10),
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: testResult!.startsWith('✅') ? const Color(0xFFF0FDF4) : const Color(0xFFFFF1F2),
+                        color: testResult!.startsWith('Bağlantı Başarılı') ? const Color(0xFFF0FDF4) : const Color(0xFFFFF1F2),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: testResult!.startsWith('✅') ? const Color(0xFFBBF7D0) : const Color(0xFFFECDD3),
+                          color: testResult!.startsWith('Bağlantı Başarılı') ? const Color(0xFFBBF7D0) : const Color(0xFFFECDD3),
                         ),
                       ),
                       child: Text(
@@ -1010,7 +1539,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: testResult!.startsWith('✅') ? const Color(0xFF166534) : const Color(0xFF9F1239),
+                          color: testResult!.startsWith('Bağlantı Başarılı') ? const Color(0xFF166534) : const Color(0xFF9F1239),
                         ),
                       ),
                     ),
@@ -1030,9 +1559,9 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                           setDialogState(() {
                             isTesting = false;
                             if (status.isOnline) {
-                              testResult = '✅ Bağlantı Başarılı!\n${status.message}';
+                              testResult = 'Bağlantı Başarılı\n${status.message}';
                             } else {
-                              testResult = '❌ Bağlanılamadı:\n${status.message}\n(Bilgisayar ve telefon aynı Wi-Fi ağında mı?)';
+                              testResult = 'Bağlantı Başarısız\n${status.message}\n(Bilgisayar ve telefon aynı Wi-Fi ağında mı?)';
                             }
                           });
                         },
@@ -3298,7 +3827,8 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('💡 ', style: TextStyle(fontSize: 11)),
+              Icon(Icons.info_outline, size: 14, color: tagText),
+              const SizedBox(width: 4),
               Expanded(
                 child: Text(
                   'Klinik Anlam: ${branch.clinicalOutcome}',

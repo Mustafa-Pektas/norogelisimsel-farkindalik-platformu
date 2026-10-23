@@ -38,13 +38,13 @@ class LlmRagService {
     final ctx = contextEnvironment.trim().isEmpty ? 'Ev ortamında serbest oyun alanı' : contextEnvironment.trim();
     final items = specificItems.trim().isEmpty ? 'oyuncaklar' : specificItems.trim();
 
-    onProgress?.call('🔍 1. Adım: RAG Bilgi Tabanı Taranıyor (Klinik PDF Ontolojileri)...');
+    onProgress?.call('1. Adım: RAG Bilgi Tabanı Taranıyor (Klinik PDF Ontolojileri)...');
     await Future.delayed(const Duration(milliseconds: 300));
 
     // 1. ADIM: RAG RETRIEVAL (Tasarım belgelerinden klinik kuralları çekme)
     final ragRules = _retrieveClinicalRules(behaviorCode, ageGroup);
 
-    onProgress?.call('🤖 2. Adım: LLM Senaryo ve FSM Durum Ağacını Kuruyor...');
+    onProgress?.call('2. Adım: LLM Senaryo ve FSM Durum Ağacını Kuruyor...');
 
     final apiKey = await getApiKey();
     ScenarioModel? generatedScenario;
@@ -77,7 +77,7 @@ class LlmRagService {
       isAiGenerated: apiKey != null && apiKey.isNotEmpty,
     );
 
-    onProgress?.call('✅ 3. Adım: Senaryo Başarıyla FSM Grafiğine Eklendi!');
+    onProgress?.call('3. Adım: Senaryo Başarıyla FSM Grafiğine Eklendi.');
     await Future.delayed(const Duration(milliseconds: 200));
 
     // Senaryoyu listeye ekle

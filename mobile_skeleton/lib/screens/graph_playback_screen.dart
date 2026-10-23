@@ -55,6 +55,7 @@ class GraphPlaybackScreen extends StatefulWidget {
     required this.plan,
     required this.videoStore,
     this.createPlayer,
+    this.prepareNextClip = true,
     this.title = 'Grafı dene',
     this.notice = 'Geliştirici denemesi; video içeriği ve sürekliliği doğrulanmadı',
   });
@@ -63,6 +64,7 @@ class GraphPlaybackScreen extends StatefulWidget {
   final ScenarioClipPlan plan;
   final ClipVideoStore videoStore;
   final GraphClipPlayer Function(File)? createPlayer;
+  final bool prepareNextClip;
   final String title;
   final String notice;
 
@@ -82,6 +84,7 @@ class _GraphPlaybackScreenState extends State<GraphPlaybackScreen>
       plan: widget.plan,
       videoStore: widget.videoStore,
       createPlayer: widget.createPlayer ?? _NativeClipPlayer.new,
+      prepareNextClip: widget.prepareNextClip,
     )..addListener(_changed);
     WidgetsBinding.instance.addObserver(this);
     final lifecycle = WidgetsBinding.instance.lifecycleState;
@@ -222,16 +225,25 @@ class _GraphPlaybackScreenState extends State<GraphPlaybackScreen>
                         icon: Icon(playing ? Icons.pause : Icons.play_arrow),
                         label: Text(playing ? 'Duraklat' : 'Devam et'),
                       ),
+                    if (_flow.canReplayCompletedPath)
+                      FilledButton.icon(
+                        key: const ValueKey('graph-playback-replay-path'),
+                        onPressed: () => _flow.replayCompletedPath(),
+                        icon: const Icon(Icons.replay),
+                        label: const Text('Seçtiğim yolu tekrar oynat'),
+                      ),
                     OutlinedButton.icon(
                       key: const ValueKey('graph-playback-restart'),
                       onPressed: phase == GraphPlaybackPhase.ready ||
                           phase == GraphPlaybackPhase.loading || _flow.controlsBusy
                           ? null : () => _flow.restart(),
                       icon: const Icon(Icons.replay),
-                      label: const Text('Baştan başlat'),
+                      label: const Text('Yeniden seçimle baştan başlat'),
                     ),
                   ],
                 ),
+                if (phase == GraphPlaybackPhase.completed)
+                  const Text('Aynı klipler sırayla yeniden oynatılır; yol yalnız bu ekran oturumunda tutulur.'),
               ],
             ),
           ),

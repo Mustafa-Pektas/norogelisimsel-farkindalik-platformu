@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neuro_awareness_app/screens/simulation_mode_screen.dart';
 import 'package:neuro_awareness_app/screens/synthetic_video_studio_screen.dart';
+import 'package:neuro_awareness_app/services/synthetic_video_service.dart';
 // Mevcut path_provider paketinin kontrollü test sınırı; yeni paket yok.
 // ignore: depend_on_referenced_packages
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -25,6 +26,28 @@ void main() {
     PathProviderPlatform.instance = originalPaths;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, null);
+  });
+
+  test('Ortak eski şablon servisi kaynak ve dışa aktarmada model çıkarımı iddia etmez', () {
+    final result = SyntheticVideoPromptService.generateSession(
+      ageMonths: 30, totalTargetSec: 24, blockDurationSec: 8,
+      riskProfile: 'tipik', ontologyCodes: ['ONT-01'],
+    );
+    expect(result.title, contains('Şablon Senaryo Taslağı'));
+    expect(result.title, isNot(contains('Llama')));
+    expect(result.exportDoctorCleanScenario(), contains('Şablon Senaryo Taslağı'));
+    expect(result.exportGroundTruthJson(), isNotEmpty);
+    expect(result.exportEnglishPromptsOnly(), isNotEmpty);
+  });
+
+  test('Eski doktor şablonu da Llama çıkarımı kaynağı iddia etmez', () async {
+    final result = SyntheticVideoPromptService.generateDoctorScenario(
+      ageMonths: 30,
+      ontologyCode: 'ONT-01',
+      riskProfile: 'tipik',
+    );
+    expect(result.engineUsed, 'Hazır şablon; model çıkarımı yapılmadı');
+    expect(result.exportDoctorMarkdown(), isNot(contains('On-Device (GGUF)')));
   });
 
   testWidgets('Aktif Stüdyo eski şablon üretim ve export arayüzünü içermez', (tester) async {
