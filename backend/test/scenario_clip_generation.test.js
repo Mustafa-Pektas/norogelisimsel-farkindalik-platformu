@@ -157,6 +157,28 @@ test('D01 plan istemi tek çağrıyı, alan uyumunu ve bağımsız klip sürekli
   }
 });
 
+test('Klip istemi açık kamera tercihini korur; D02 nesne/konum/hedef eksiklerini öneri diye ayırır', async () => {
+  const cameraRequest = { ...request, additionalInstructions: 'Sabit kamera, geniş açı.' };
+  const cameraPrompts = buildPlanPrompts({ ...input, request: cameraRequest }, sourceCard);
+  assert.ok(cameraPrompts.system.includes('İstek, ek yönerge veya graf sabit kamera açısı/kadrajı açıkça belirtiyorsa'));
+  assert.ok(cameraPrompts.system.includes('gerekçesiz yakın plan, zoom veya yeniden kadraj ekleme'));
+  assert.ok(cameraPrompts.system.includes('Sabit açı/kadraj belirtilmemişse bunu kullanıcı tercihi gibi varsayma'));
+
+  const d02Request = { ...request, behaviorId: 'D02', additionalInstructions: 'Sabit kamera.' };
+  const d02Input = { ...input, request: d02Request, graph: { ...graph, behaviorId: 'D02' } };
+  const d02Card = await loadCard(d02Request);
+  const d02Prompts = buildPlanPrompts(d02Input, d02Card);
+  assert.ok(d02Prompts.system.includes('D02 NESNE VE HEDEF SÜREKLİLİĞİ'));
+  assert.ok(d02Prompts.system.includes('iki sabit nesneyi birbirinden ayırt edilebilir kimlik ve görünür konumlarıyla belirt'));
+  assert.ok(d02Prompts.system.includes('hangi nesnenin işaret edilen hedef olduğunu açıkça yaz'));
+  assert.ok(d02Prompts.system.includes('Üretilmiş görsel öneri'));
+  assert.ok(d02Prompts.system.includes('anlamsal olarak doğrulamaz ve içerik onayı değildir'));
+  assert.deepEqual(JSON.parse(d02Prompts.user), d02Input);
+
+  const d01Prompts = buildPlanPrompts(input, sourceCard);
+  assert.ok(!d01Prompts.system.includes('D02 NESNE VE HEDEF SÜREKLİLİĞİ'));
+});
+
 test('Pilot pencere güncel kart metninden gelir; istemde bağımsız sabit süre veya klinik eşik yoktur', async () => {
   const card = await loadCard(request);
   assert.ok(card.commonRules.includes('10 saniyelik kesintisiz gözlem'));

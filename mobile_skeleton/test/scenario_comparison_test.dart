@@ -75,14 +75,15 @@ Future<void> tap(WidgetTester tester, String key) async {
   await tester.ensureVisible(target); await tester.pumpAndSettle();
   expect(target.hitTestable(), findsOneWidget); await tester.tap(target); await tester.pumpAndSettle();
 }
-Future<void> _open(WidgetTester tester, _Server server, {bool narrow = false, String initialSelection = 'ALL'}) async {
+Future<void> _open(WidgetTester tester, _Server server, {bool narrow = false, String initialSelection = 'ALL',
+  ScenarioGenerationRequest? request}) async {
   await tester.binding.setSurfaceSize(narrow ? const Size(320, 800) : const Size(1100, 1000));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(MaterialApp(builder: (context, child) => MediaQuery(data: MediaQuery.of(context)
     .copyWith(textScaler: TextScaler.linear(narrow ? 2 : 1)), child: child!),
     home: Builder(builder: (ctx) => Scaffold(body: TextButton(key: const ValueKey('open-comparison'),
       onPressed: () => showDialog<void>(context: ctx, barrierDismissible: false,
-        builder: (_) => ScenarioComparisonDialog(request: input, service: server.service(),
+        builder: (_) => ScenarioComparisonDialog(request: request ?? input, service: server.service(),
           initialSelection: initialSelection)), child: const Text('Aç'))))));
   await tap(tester, 'open-comparison');
 }
@@ -108,6 +109,34 @@ void main() {
       expect(server.arms, expected);
     });
   }
+  testWidgets('Sabit istek özeti tüm davranışları, yaşı ve doğrusal düzeni gösterir; A/B/C kaynak farkı açıktır', (tester) async {
+    final request = ScenarioGenerationRequest.fromJson({
+      'requestVersion': '2.0',
+      'behaviors': [
+        {'behaviorId': 'D01', 'cardVersion': '0.2'},
+        {'behaviorId': 'D02', 'cardVersion': '0.2'},
+        {'behaviorId': 'D03', 'cardVersion': '0.2'},
+      ],
+      'ageMonths': 31,
+      'sceneContext': 'Evde oyuncaklarla oyun.',
+      'additionalInstructions': 'Sabit kamera.',
+      'production': {'structure': 'linear26', 'targetDurationS': 210, 'maxClipDurationS': 8, 'targetSceneCount': 26},
+    });
+    final server = _Server();
+    await _open(tester, server, request: request);
+    expect(find.byKey(const ValueKey('comparison-request-summary')), findsOneWidget);
+    final behaviorSummary = find.byKey(const ValueKey('comparison-request-behaviors'));
+    expect(tester.widget<Text>(behaviorSummary).data, contains('D01 — İsme tepki verme (kart 0.2)'));
+    expect(tester.widget<Text>(behaviorSummary).data, contains('D02 — Yetişkinin işaret ettiği hedefe yönelme (kart 0.2)'));
+    expect(tester.widget<Text>(behaviorSummary).data, contains('D03 — İstemek için işaret etme (kart 0.2)'));
+    expect(find.text('Yaş: 31 ay'), findsOneWidget);
+    expect(find.text('Senaryo düzeni: 26 sahnelik doğrusal anlatı'), findsOneWidget);
+    expect(find.text('A — Ek kart metni yok; ortak görev ve güvenlik talimatları ile seçili davranış adları korunur.'), findsOneWidget);
+    expect(find.text('B — Seçilen bütün davranış kartlarının metni ve ortak kart kuralları eklenir.'), findsOneWidget);
+    expect(find.text('C — Kanonik davranış kartı dosyasının tüm içeriği eklenir.'), findsOneWidget);
+    expect(find.textContaining('aynı istek, görev, anlatı sözleşmesi, model ve ayarları'), findsOneWidget);
+    expect(server.requests, isEmpty);
+  });
   testWidgets('Servis anahtarı bir kez alınır; temizlenince gizli geri dönüş ve kalıcı kayıt yoktur', (tester) async {
     final server = _Server();
     await _open(tester, server);
@@ -170,6 +199,13 @@ void main() {
     expect(find.textContaining('en fazla 1 sağlayıcı çağrısı'), findsOneWidget);
     await tap(tester, 'comparison-preview'); await tap(tester, 'comparison-start');
     expect(server.arms, ['B']); expect(tester.takeException(), isNull);
+    final result = find.byKey(const ValueKey('comparison-result-summary-B'));
+    await tester.ensureVisible(result); await tester.pumpAndSettle();
+    expect(result, findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('comparison-metric-prompt-tokens-B'))).data, 'Bilinmiyor');
+    expect(tester.widget<Text>(find.byKey(const ValueKey('comparison-metric-output-tokens-B'))).data, '0');
+    expect(tester.widget<Text>(find.byKey(const ValueKey('comparison-metric-provider-ms-B'))).data, '15');
+    expect(tester.takeException(), isNull);
   });
   test('Karşılaştırma 401 erişim hatasıdır; ham cevap veya hazır sonuç üretilmez', () async {
     final server = _Server()..unauthorized = true;

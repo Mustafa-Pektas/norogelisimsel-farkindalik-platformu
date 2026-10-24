@@ -185,6 +185,45 @@ class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
   }
 
   String _value(Object? value) => value?.toString() ?? 'Bilinmiyor';
+
+  Widget _mobileMetric(_Trial trial, String id, String label, Object? value) =>
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 170),
+        child: Padding(
+          padding: const EdgeInsets.only(right: 8, bottom: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.labelSmall),
+              Text(_value(value), key: ValueKey('comparison-metric-$id-${trial.arm}'), softWrap: true),
+            ],
+          ),
+        ),
+      );
+
+  Widget _resultSummary(_Trial trial, int index) => Card(
+        key: ValueKey('comparison-result-summary-${trial.arm}'),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('${index + 1}. Kol ${trial.arm} — ${trial.status}', softWrap: true),
+              const SizedBox(height: 8),
+              Wrap(
+                children: [
+                  _mobileMetric(trial, 'provider-ms', 'Sağlayıcı süresi (ms)', trial.measurement?['providerDurationMs']),
+                  _mobileMetric(trial, 'endpoint-ms', 'Toplam istek süresi (ms)', trial.measurement?['endpointDurationMs']),
+                  _mobileMetric(trial, 'prompt-tokens', 'Girdi tokenı', trial.measurement?['promptTokens']),
+                  _mobileMetric(trial, 'output-tokens', 'Çıktı tokenı', trial.measurement?['outputTokens']),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+
   Future<void> _continue(_Trial trial) async {
     final result = trial.result;
     if (_busy || _openingResult || result == null || widget.onContinue == null) return;
@@ -229,9 +268,42 @@ class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
             ),
           ),
           const Text('Anahtar yalnız bu karşılaştırma penceresi açıkken bellekte tutulur.'),
-          Text('Sabit girdi: ${widget.request.behaviorId}, kart ${widget.request.cardVersion}, ${widget.request.ageMonths} ay. '
-            'Bağlam: ${widget.request.sceneContext}'),
-          if (widget.request.additionalInstructions != null) Text('Ek yönerge: ${widget.request.additionalInstructions}'),
+          Card(
+            key: const ValueKey('comparison-request-summary'),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Davranışlar: ${widget.request.cards.map((card) => '${card.id} — ${card.title} (kart ${card.cardVersion})').join('; ')}',
+                    key: const ValueKey('comparison-request-behaviors'), softWrap: true),
+                  Text('Yaş: ${widget.request.ageMonths} ay', key: const ValueKey('comparison-request-age')),
+                  Text('Senaryo düzeni: ${widget.request.linear ? '26 sahnelik doğrusal anlatı' : 'Alternatifli anlatı'}',
+                    key: const ValueKey('comparison-request-structure'), softWrap: true),
+                  Text('Ortam: ${widget.request.sceneContext}', softWrap: true),
+                  if (widget.request.additionalInstructions != null)
+                    Text('Ek yönerge: ${widget.request.additionalInstructions}', softWrap: true),
+                ],
+              ),
+            ),
+          ),
+          Card(
+            key: const ValueKey('comparison-source-arms'),
+            child: const Padding(
+              padding: EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Kaynak farkı'),
+                  SizedBox(height: 6),
+                  Text('A — Ek kart metni yok; ortak görev ve güvenlik talimatları ile seçili davranış adları korunur.'),
+                  Text('B — Seçilen bütün davranış kartlarının metni ve ortak kart kuralları eklenir.'),
+                  Text('C — Kanonik davranış kartı dosyasının tüm içeriği eklenir.'),
+                  Text('Üç kol aynı istek, görev, anlatı sözleşmesi, model ve ayarları kullanır; yalnız kaynak bağlamı miktarı değişir.'),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(key: const ValueKey('comparison-arms'), initialValue: _selection,
             isExpanded: true, itemHeight: null,
@@ -256,15 +328,29 @@ class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
           if (_notice != null) Text(_notice!, key: const ValueKey('comparison-notice')),
           if (_trials.isNotEmpty) ...[
             const Text('Sonuçlar — önceki hatalar da korunur'),
-            SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(dataRowMinHeight: 56, dataRowMaxHeight: 120, columns: const [
-              DataColumn(label: Text('Kol')), DataColumn(label: Text('Durum')), DataColumn(label: Text('Sağlayıcı ms')),
-              DataColumn(label: Text('Handler ms')), DataColumn(label: Text('Girdi / çıktı token')),
-            ], rows: [for (var i = 0; i < _trials.length; i++) DataRow(cells: [
-              DataCell(Text('${i + 1}: ${_trials[i].arm}')), DataCell(Text(_trials[i].status)),
-              DataCell(Text(_value(_trials[i].measurement?['providerDurationMs']))),
-              DataCell(Text(_value(_trials[i].measurement?['endpointDurationMs']))),
-              DataCell(Text('${_value(_trials[i].measurement?['promptTokens'])} / ${_value(_trials[i].measurement?['outputTokens'])}')),
-            ])])),
+            LayoutBuilder(builder: (context, constraints) {
+              if (constraints.maxWidth < 560) {
+                return Column(
+                  key: const ValueKey('comparison-results-narrow'),
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [for (var i = 0; i < _trials.length; i++) _resultSummary(_trials[i], i)],
+                );
+              }
+              return SingleChildScrollView(
+                key: const ValueKey('comparison-results-wide'),
+                scrollDirection: Axis.horizontal,
+                child: DataTable(dataRowMinHeight: 56, dataRowMaxHeight: 120, columns: const [
+                  DataColumn(label: Text('Kol')), DataColumn(label: Text('Durum')), DataColumn(label: Text('Sağlayıcı ms')),
+                  DataColumn(label: Text('İstek ms')), DataColumn(label: Text('Girdi token')), DataColumn(label: Text('Çıktı token')),
+                ], rows: [for (var i = 0; i < _trials.length; i++) DataRow(cells: [
+                  DataCell(Text('${i + 1}: ${_trials[i].arm}', softWrap: true)), DataCell(Text(_trials[i].status, softWrap: true)),
+                  DataCell(Text(_value(_trials[i].measurement?['providerDurationMs']))),
+                  DataCell(Text(_value(_trials[i].measurement?['endpointDurationMs']))),
+                  DataCell(Text(_value(_trials[i].measurement?['promptTokens']))),
+                  DataCell(Text(_value(_trials[i].measurement?['outputTokens']))),
+                ])]),
+              );
+            }),
             for (var i = 0; i < _trials.length; i++) ExpansionTile(key: ValueKey('comparison-result-$i'),
               title: Text('${i + 1}. ${_trials[i].arm} — ${_trials[i].status}'), children: [
                 Text('Model: ${_trials[i].preview['model']}; ayarlar: ${jsonEncode(_trials[i].preview['settings'])}'),

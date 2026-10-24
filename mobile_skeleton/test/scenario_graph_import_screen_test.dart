@@ -191,7 +191,7 @@ void main() {
     await enter(tester, validText);
     await tap(tester, 'scenario-import-validate');
     expect(find.text('Senaryo kimliği: ${expected.scenarioId}'), findsOneWidget);
-    expect(find.text('Davranış: ${expected.behaviorId} · Kart sürümü: ${expected.cardVersion}'), findsOneWidget);
+    expect(find.text('Davranışlar: D01 (0.2)'), findsOneWidget);
     expect(find.text('Sahne: ${expected.scenes.length} · Bağlantı: ${expected.transitions.length}'), findsOneWidget);
     expect(find.text('Graf yapısı geçerli; içerik doğrulanmadı.'), findsOneWidget);
     await tap(tester, 'scenario-import-view');

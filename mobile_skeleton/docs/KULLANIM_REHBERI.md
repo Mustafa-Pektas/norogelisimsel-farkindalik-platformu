@@ -15,7 +15,7 @@ Senaryo/prompt hazırlama ve model karşılaştırması proje ekibinin araçlar�
 | Graf | Sahnelerin hangi sırada ve hangi alternatif bağlantılarla ilerlediğini gösterir. |
 | Klip | Dış video aracında tek üretimde hazırlanacak, en fazla 8 saniyelik parça. Toplam senaryo süresi 8 saniye değildir. |
 | Prompt | Dış video aracına verilecek görsel üretim yönergesi. Anlatı veya gerçek video değildir. |
-| Süreklilik | Karakter, yaş, kıyafet, ortam, nesne, kamera ve klip başlangıç/bitişlerinin tutarlılığı. Üretim istemi genel süreklilik ister; sabit açı ile D02 nesne/konum/hedef eşleşmesi otomatik olarak güvence altında değildir ve insan incelemesi gerekir. Gerçek videoda ayrıca kontrol edilir. |
+| Süreklilik | Karakter, yaş, kıyafet, ortam, nesne, kamera ve klip başlangıç/bitişlerinin tutarlılığı. İstek sabit açı/kadraj belirtiyorsa istem ilgili kliplerde bunu korumayı ister. D02 için iki nesnenin kimliği/konumu ve işaret hedefinin kliplerde tutarlı taşınması istenir; kaynakta eksik ayrıntılar doğrulanmış bilgi değil, açıkça etiketli öneridir. Bunlar anlamsal doğrulama değildir; insan incelemesi ve gerçek videoda kontrol gerekir. |
 | Seslendirme | Görsel prompttan ayrı söylenecek söz/sessizlik yönergesi. Uygulama henüz ses üretmez. |
 | A/B/C | Aynı isteği aynı görev/çıktı/ayarlarla farklı kaynak miktarları kullanarak karşılaştırma. |
 | Hazır D01 | Elle hazırlanmış sabit graf/plan ve cihazda ayrıca bağlanan videolar. Yeni üretimin otomatik video kütüphanesi değildir. |
@@ -35,7 +35,7 @@ Senaryo/prompt hazırlama ve model karşılaştırması proje ekibinin araçlar�
 | Alternatifli anlatı | Ortak başlangıç ve bağımsız devam/bitişler. | Düzen olarak Alternatifli anlatı seçin, Senaryo üret’e basın. | Okunabilir anlatı/sahne kartları; ardından “Bu senaryoyla devam et”. |
 | 26 sahnelik doğrusal anlatı | Eski 26 sahne hazırlama ihtiyacının aynı formdaki açık düzeni. | 26 sahnelik doğrusal anlatı seçin. Süre/klip hedeflerini kontrol edip üretin. | 26 sıralı anlatı sahnesi; dönüştürücü tek yol kurar. Eski 26 sahne JSON’ları yeni grafmış gibi yeniden etiketlenmez. |
 | Süre ve klip hedefleri | İsteğe bağlı toplam süre hedefi ve klip başına zorunlu üst sınır (en fazla 8 saniye). | Ayrıntıyı açın. Hedef süreyi ve klip üst sınırını seçin. 26 sahne için birer klip varsayımı hedefe yetmiyorsa form gerekli asgari klip sayısını bildirir; klip sayısı sabit değildir. | Plan ekranı sahne ve klip adetlerini ayırır; her dallı yolun planlanan toplamını, hedefe farkını ayrı gösterir. Dallar toplanmaz. Bunlar video ölçümü değildir. |
-| A/B/C karşılaştırması | Aynı formun kaynak bağlamı deneyi. | Kol/ALL seçin, istemleri inceleyin, çağrı sayısını görün, ayrıca Başlat’a basın. | Her kolun ham cevabı, hata/durum, varsa süre/token bilgisi. Başarılı sonucu seçmek yeni çağrı yapmaz. |
+| A/B/C karşılaştırması | Aynı formdaki bütün seçili davranış, yaş, ortam, senaryo düzeni ve ek yönergeyi kullanan kaynak bağlamı deneyi. | Kol/ALL seçin, istek özetini ve kaynak farkını inceleyin, istemleri/çağrı sayısını görün, ayrıca Başlat’a basın. Dar ekranda sonuç özetlerini kaydırarak okuyun. | Her kolun ham cevabı, hata/durum, varsa sağlayıcı ve toplam istek süresi ile girdi/çıktı tokenı. Bilinmeyen ölçüm “Bilinmiyor” kalır; sıfır yalnız ölçülen sıfırdır. Başarılı sonucu seçmek yeni çağrı yapmaz. |
 | Stüdyo: **2. İncele** | Üretilen gerçek cevabın okunabilir anlatı ve sahneleri. | Sahne kartlarını açın. Kaynak/ham cevap ayrıntısını gerekirse inceleyip kopyalayın. | İncelenmemiş taslak; “Bu senaryoyla devam et” ile çalışma alanı. |
 | Senaryo çalışma alanı | Sonuç inceleme, ayrı JSON içe aktarma, düzenleme ve doğrulama. İkinci üretim formu değildir. | Gelen sonucu açıkça aktarın. Dolu taslakta onay verin veya koruyun. JSON’u düzenleyip Graf oluştur/Doğrula seçin. | Yapısal olarak doğrulanmış graf. İçerik doğruluğu ayrıca insan incelemesi gerektirir. |
 | Taslağı kaydet / yeniden aç | Ham cevap ve düzenlenmiş metni ayrı saklama. | Çalışma alanında Taslağı kaydet’i seçin. Sonraki açılışta kayıt yüklenir. | İstek/kimlik/kaynak ve metinler geri gelir; graf yeniden doğrulanır. Çalışan iş yeniden başlatılmaz. |
@@ -52,9 +52,11 @@ Senaryo/prompt hazırlama ve model karşılaştırması proje ekibinin araçlar�
 
 ## A/B/C kaynakları ve sonuçları
 
-- **A:** Aynı temel görev ve davranış adları; ilave kart metni yok.
-- **B:** Ortak kurallar ve seçilen **bütün** kartların tam metni.
-- **C:** Kanonik kart Markdown’ının tamamı.
+- **A:** Ek kart metni yoktur; ortak görev ve güvenlik talimatları ile seçili davranış adları korunur.
+- **B:** Ortak kart kuralları ve seçilen **bütün** davranış kartlarının metni kullanılır.
+- **C:** Kanonik davranış kartı Markdown dosyasının tüm içeriği kullanılır.
+
+Üç kol aynı istek, görev, anlatı sözleşmesi, model ve ayarları kullanır; yalnız kaynak bağlamının miktarı değişir. Sabit istek özeti bütün davranışları, yaş ve senaryo düzenini gösterir.
 
 Bu kurallı kaynak seçimidir; embedding/vector arama diye sunulmaz.
 Model/istem/şema/ayar/kaynak değişirse önizleme yenilenir. Protokol v3’tür;
