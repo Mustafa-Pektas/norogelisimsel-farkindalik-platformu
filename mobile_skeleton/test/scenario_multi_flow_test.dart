@@ -180,8 +180,25 @@ void main() {
       await _field(tester,'scenario-request-age','31'); await _field(tester,'scenario-request-context','  Evde oyun.  ');
       if (linear) {
         await _tap(tester,'scenario-structure-linear26');
-        expect(find.byKey(const ValueKey('scenario-production-duration-capacity-note')), findsOneWidget);
-        expect(find.textContaining('en az 27 klip gerekir'), findsOneWidget);
+        final goals = find.text('Süre ve klip hedefleri');
+        await tester.ensureVisible(goals); await tester.tap(goals); await tester.pumpAndSettle();
+        expect(find.text('Toplam süre hedefi'), findsOneWidget);
+        expect(find.text('Klip başına zorunlu üst sınır'), findsOneWidget);
+        final form = find.byKey(const ValueKey('studio-request-form'));
+        final timePickers = find.descendant(of: form, matching: find.byType(PopupMenuButton<int>));
+        expect(timePickers, findsNWidgets(2));
+        await tester.ensureVisible(timePickers.at(0)); await tester.tap(timePickers.at(0));
+        await tester.pumpAndSettle(); await tester.tap(find.text('210 saniye').last); await tester.pumpAndSettle();
+        await tester.ensureVisible(timePickers.at(1)); await tester.tap(timePickers.at(1));
+        await tester.pumpAndSettle(); await tester.tap(find.text('8 saniye').last); await tester.pumpAndSettle();
+        expect(find.text('210 saniye'), findsOneWidget);
+        expect(find.text('8 saniye'), findsOneWidget);
+        final capacityNote = find.byKey(const ValueKey('scenario-production-duration-capacity-note'));
+        await tester.ensureVisible(capacityNote);
+        await tester.pumpAndSettle();
+        expect(capacityNote, findsOneWidget);
+        expect(capacityNote.hitTestable(), findsOneWidget);
+        expect(find.textContaining('En az 27 klip gerekir; klip sayısı sabit değildir'), findsOneWidget);
       }
       expect(service.requests,isEmpty); await _tap(tester,'studio-generate-scenario');
       expect(service.requests.single.behaviors.map((ref) => ref.behaviorId), ['D01','D02','D03']);

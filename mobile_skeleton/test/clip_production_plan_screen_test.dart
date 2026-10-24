@@ -180,7 +180,12 @@ void main() {
     addTearDown(() => messenger.setMockMethodCallHandler(SystemChannels.platform, null));
     await tester.pumpWidget(_app(_PlanBundle(read)));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Oyuncakla oyun'));
+    final scene = find.byKey(const ValueKey('clip-scene:oyuncakla_oyun'));
+    final sceneTitle = find.descendant(of: scene, matching: find.text('Oyuncakla oyun'));
+    await tester.ensureVisible(sceneTitle);
+    await tester.pumpAndSettle();
+    expect(sceneTitle.hitTestable(), findsOneWidget);
+    await tester.tap(sceneTitle);
     await tester.pumpAndSettle();
     final clip = plan.clipsForScene('oyuncakla_oyun').single;
     for (final value in [clip.plannedAction, clip.initialState, clip.finalState, clip.productionPrompt]) {
