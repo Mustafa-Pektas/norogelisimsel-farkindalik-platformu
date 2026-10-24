@@ -1,4 +1,4 @@
-const { InputError, validateRequest } = require('./scenario_input_generation');
+const { InputError, validateRequest, requestBehaviors, hasBehavior } = require('./scenario_input_generation');
 const text = value => typeof value === 'string' && value.trim().length > 0;
 function check(condition, message) { if (!condition) throw new InputError(message); }
 function keys(value, allowed) {
@@ -11,18 +11,29 @@ function validatePlanRequest(input) {
   check(text(input.planId) && /^generated-[A-Za-z0-9_-]+$/.test(input.planId), 'Yeni plan kimliği gerekli.');
   const g = input.graph;
   check(keys(g, ['schemaVersion', 'scenarioId', 'title', 'language', 'ageMonths', 'behaviorId',
-    'cardVersion', 'startSceneId', 'scenes', 'transitions', 'endSceneIds', 'authoringNote']), 'Graf nesnesi gerekli.');
-  check(g.schemaVersion === '1.0' && ['scenarioId', 'title', 'language', 'startSceneId'].every(k => text(g[k])) &&
+    'cardVersion', 'behaviors', 'startSceneId', 'scenes', 'transitions', 'endSceneIds', 'authoringNote']), 'Graf nesnesi gerekli.');
+  check(['1.0','1.1'].includes(g.schemaVersion) && ['scenarioId', 'title', 'language', 'startSceneId'].every(k => text(g[k])) &&
     (g.authoringNote == null || text(g.authoringNote)), 'Graf metadata alanları geçersiz.');
-  check(['behaviorId', 'cardVersion', 'ageMonths'].every(k => g[k] === request[k]), 'Graf ile üretim isteği uyuşmuyor.');
+  const refs = requestBehaviors(request);
+  const graphRefs = g.behaviors || [{ behaviorId: g.behaviorId, cardVersion: g.cardVersion }];
+  check(g.behaviorId === refs[0].behaviorId && g.cardVersion === refs[0].cardVersion && g.ageMonths === request.ageMonths &&
+    Array.isArray(graphRefs) && graphRefs.length === refs.length && graphRefs.every((ref, i) =>
+      keys(ref, ['behaviorId','cardVersion']) && ref.behaviorId === refs[i].behaviorId && ref.cardVersion === refs[i].cardVersion) &&
+    (g.schemaVersion !== '1.1' || Array.isArray(g.behaviors)) &&
+    (request.requestVersion !== '2.0' || g.schemaVersion === '1.1'), 'Graf ile üretim isteği uyuşmuyor.');
   check(Array.isArray(g.scenes) && g.scenes.length > 0 && Array.isArray(g.transitions) &&
     Array.isArray(g.endSceneIds) && g.endSceneIds.length > 0, 'Graf sahne/geçiş/bitiş listeleri gerekli.');
   const ids = new Set();
   for (const scene of g.scenes) {
-    check(keys(scene, ['id', 'description', 'title', 'summary']) && text(scene.id) && text(scene.description) &&
+    check(keys(scene, ['id', 'description', 'title', 'summary', 'behaviorIds']) && text(scene.id) && text(scene.description) &&
       ['title', 'summary'].every(k => scene[k] == null || text(scene[k])) && !ids.has(scene.id), 'Sahne kimliği/metni geçersiz veya tekrarlı.');
     ids.add(scene.id);
+    if (g.schemaVersion === '1.1') check(Array.isArray(scene.behaviorIds) && scene.behaviorIds.length > 0 &&
+      new Set(scene.behaviorIds).size === scene.behaviorIds.length &&
+      scene.behaviorIds.every(id => refs.some(ref => ref.behaviorId === id)), 'Sahne/davranış ilişkisi geçersiz.');
   }
+  if (g.schemaVersion === '1.1') check(refs.every(ref => g.scenes.some(s => s.behaviorIds.includes(ref.behaviorId))),
+    'Graf bütün seçilen davranışları kapsamıyor.');
   check(ids.has(g.startSceneId) && new Set(g.endSceneIds).size === g.endSceneIds.length &&
     g.endSceneIds.every(id => ids.has(id)), 'Başlangıç/bitiş referansları geçersiz.');
   const outgoing = new Map([...ids].map(id => [id, []]));
@@ -40,6 +51,8 @@ function validatePlanRequest(input) {
     return seen.size === ids.size;
   }
   check(reaches([g.startSceneId], outgoing) && reaches(g.endSceneIds, incoming), 'Erişilemeyen veya bitişe ulaşamayan sahne var.');
+  if (request.production?.structure === 'linear26') check(g.scenes.length === 26 &&
+    [...outgoing.values()].every(next => next.length <= 1), '26 sahnelik doğrusal düzenle graf uyuşmuyor.');
   return { request, graph: g, planId: input.planId };
 }
 const string = { type: 'string' };
@@ -60,11 +73,13 @@ function requiredD01ObservationSeconds(card) {
   return Number(matches[0][1]);
 }
 function planSchemaFor(input) {
-  if (input.request.behaviorId !== 'D01') return planSchema;
+  if (!hasBehavior(input.request, 'D01')) return planSchema;
   return { ...planSchema, properties: { ...planSchema.properties,
-    d01CallTiming: { type: 'array', items: { type: 'object', properties: {
-      clipId: string, callEndS: { type: 'number' },
-    }, required: ['clipId', 'callEndS'] } },
+    d01CallTiming: { type: 'array', description: 'Her benzersiz çağrı klibi için tek kayıt; dallar aynı çağrı klibini paylaşıyorsa kaydı tekrarlama.', items: {
+      type: 'object', description: 'Aynı klipteki tek çağrının planlanan bitişi.', properties: {
+        clipId: { ...string, description: 'Graf sahnesinde çağrının yer aldığı klibin benzersiz kimliği.' },
+        callEndS: { type: 'number', description: 'Çağrının bu klip başlangıcından itibaren planlanan bitiş saniyesi.' },
+      }, required: ['clipId', 'callEndS'] } },
   }, required: [...planSchema.required, 'd01CallTiming'] };
 }
 function validateD01Observation(plan, input, card) {
@@ -76,6 +91,8 @@ function validateD01Observation(plan, input, card) {
     const clip = plan.clips.find(c => c.id === call.clipId);
     check(clip && Number.isFinite(call.callEndS) && call.callEndS > 0 && call.callEndS <= clip.targetDurationS,
       'D01 çağrı bitişi, mevcut klibin içinde pozitif sayısal saniye olmalıdır.');
+    check((input.graph.scenes.find(scene => scene.id === clip.sceneId).behaviorIds || [input.graph.behaviorId]).includes('D01'),
+      'Çağrı klibi D01 ile ilişkili bir sahneye bağlanmalıdır.');
     calls.set(call.clipId, call.callEndS);
   }
   const paths = [];
@@ -88,6 +105,11 @@ function validateD01Observation(plan, input, card) {
     }
     check(paths.length < 1000, 'D01 gözlem hesabı için çok fazla yol var.');
     const clips = path.flatMap(id => plan.clips.filter(c => c.sceneId === id).sort((a, b) => a.orderInScene - b.orderInScene));
+    const relevant = path.some(id => (input.graph.scenes.find(s => s.id === id).behaviorIds || [input.graph.behaviorId]).includes('D01'));
+    if (!relevant) {
+      check(!clips.some(clip => calls.has(clip.id)), 'D01 içermeyen yolda çağrı zamanlaması var.');
+      return;
+    }
     let count = 0, seconds = 0;
     for (const clip of clips) {
       if (calls.has(clip.id)) {
@@ -108,13 +130,16 @@ function validateD01Observation(plan, input, card) {
   return paths;
 }
 function buildPlanPrompts(input, card) {
-  const required = input.request.behaviorId === 'D01' ? requiredD01ObservationSeconds(card) : null;
-  const d01 = input.request.behaviorId === 'D01' ? `
+  const required = hasBehavior(input.request, 'D01') ? requiredD01ObservationSeconds(card) : null;
+  const d01 = hasBehavior(input.request, 'D01') ? `
 D01 ÇAĞRI VE GÖZLEM PLANI:
-d01CallTiming listesine her çağrıyı {"clipId":"gerçek klip kimliği","callEndS":sayısal klip içi bitiş saniyesi}
-olarak yaz. Her izlenen yolda tam bir çağrı zamanlaması bulunmalı. 0 < callEndS <= ilgili klibin süresi.
+d01CallTiming listesine çağrı içeren HER BENZERSİZ KLİP için yalnız bir kayıt yaz:
+{"clipId":"gerçek klip kimliği","callEndS":sayısal klip içi bitiş saniyesi}.
+Aynı ortak klip birden fazla alternatif yolunda kullanılıyorsa clipId kaydını dallar için TEKRARLAMA.
+Birbirinden ayrı kliplerde ayrı çağrılar planlanmışsa her klibin bir kaydı bulunur; doğrulama her izlenen yolda tam bir çağrı olmasını ayrıca denetler.
+0 < callEndS <= ilgili klibin süresi.
 callEndS ölçülmüş video zamanı değil planlanan zamandır; serbest metinden çıkarılmaz.
-Güncel kart kaynağından gerekli pilot gözlem süresi: ${required} saniye. Her yol bunu çağrı bitiminden
+Güncel kart kaynağından gerekli pilot gözlem süresi: ${required} saniye. D01 ilişkili sahne içeren her yol bunu çağrı bitiminden
 sonra sağlamalı; yetersiz plan 'pencere tamamlandı' metniyle geçerli olmaz ve sunucuda reddedilir.
 Anne çocuğun başlangıç görüş alanı dışında, fakat kamera kadrajında görünür olmalı.
 Çağıran kişi anne değilse istekteki kişiyi değiştirme; aynı görünür yerleşimi o yetişkin için öner.
@@ -142,10 +167,13 @@ Bu sınırı authoringNote içinde belirt: kesintisiz D01 denemesi ve zaman kan�
 ` : '';
   return { system: `Türkçe, incelenmemiş bir video üretim planı öner. Yalnız şemaya uygun JSON yaz.
 Grafı değiştirme: ortak başlangıcı çoğaltma, alternatifleri birleştirme, sahne/bağlantı kimliklerini koru.
+authoringNote içindeki genel anlatı bir özettir; ek sahne, uyaran veya tekrarlı çağrı talimatı değildir.
 Her sahneyi en az bir kliple kapsa; sahne içinde orderInScene 1'den başlayıp kesintisiz olsun.
-Her klip 0 < targetDurationS <= 8 saniye; toplam senaryo 8 saniye değildir. Eylemler süreye sığsın.
+Her klip 0 < targetDurationS <= ${input.request.production?.maxClipDurationS || 8} saniye; toplam senaryo 8 saniye değildir. Eylemler süreye sığsın.
+İstenen üretim düzeni/süre HEDEFLERİ: ${JSON.stringify(input.request.production || null)}. Bunlar gerçek video ölçümü değildir.
+Graf sahnelerinin behaviorIds ilişkilerini sceneId üzerinden kliplere taşı; hiçbir seçilen kartı atlama.
 schemaVersion 1.0; planId ve scenarioId istektekilerle aynı. Klip kimlikleri benzersiz olsun.
-Yaş, isim/karakter, ortam ve olaylar verilen istek ve graf metninden gelsin; sabit yaş veya 26 sahne kullanma.
+Yaş, isim/karakter, ortam ve olaylar verilen istek ve graf metninden gelsin; istenmedikçe sabit yaş veya 26 sahne kullanma.
 Belirtilmemiş kıyafet, ışık, görünüm ve nesne ayrıntılarını visualSuggestions alanında açıkça
 'Üretilmiş görsel öneri' olarak belirt; continuityNotes ve her productionPrompt bunlarla tutarlı olsun.
 Bağlı sahnelerin başlangıç/bitiş durumu ve karakter/nesne/ortam sürekliliğini koru.
@@ -180,12 +208,13 @@ function validatePlan(raw, input, card) {
     check(keys(c, Object.keys(clipFields)) && Object.keys(clipFields).every(k => k in c), 'Klip alanları eksik/geçersiz.');
     for (const k of ['id', 'sceneId', 'plannedAction', 'initialState', 'finalState', 'productionPrompt', 'voiceoverInstructions']) check(text(c[k]), `Klip metni eksik: ${k}.`);
     check(!ids.has(c.id) && orders.has(c.sceneId), 'Klip kimliği tekrarlı veya sahne referansı geçersiz.'); ids.add(c.id);
-    check(Number.isFinite(c.targetDurationS) && c.targetDurationS > 0 && c.targetDurationS <= 8, 'Klip süresi 0–8 sınırına uymuyor.');
+    check(Number.isFinite(c.targetDurationS) && c.targetDurationS > 0 &&
+      c.targetDurationS <= (input.request.production?.maxClipDurationS || 8), 'Klip süresi 0–8 / seçilen üst süre sınırına uymuyor.');
     const set = orders.get(c.sceneId);
     check(Number.isInteger(c.orderInScene) && c.orderInScene > 0 && !set.has(c.orderInScene), 'Klip sırası geçersiz/tekrarlı.'); set.add(c.orderInScene);
   }
   for (const set of orders.values()) check(set.size > 0 && [...set].every(n => n <= set.size), 'Eksik sahne veya kesintili klip sırası.');
-  if (input.request.behaviorId === 'D01') validateD01Observation(plan, input, card);
+  if (hasBehavior(input.request, 'D01')) validateD01Observation(plan, input, card);
   return plan; // Eksik içerik eklenmez; metinler değiştirilmez.
 }
 module.exports = { validatePlanRequest, planSchema, planSchemaFor, buildPlanPrompts, validatePlan,

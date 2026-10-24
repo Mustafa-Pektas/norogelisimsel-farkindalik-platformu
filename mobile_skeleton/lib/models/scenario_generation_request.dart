@@ -2,11 +2,36 @@ import 'dart:convert';
 
 import 'behavior_cards.dart';
 import 'scenario_graph.dart';
+import 'scenario_behavior_ref.dart';
+
+class ScenarioProductionSettings {
+  ScenarioProductionSettings({required this.structure, required this.targetDurationS, required this.maxClipDurationS}) {
+    if (!['branched', 'linear26'].contains(structure) || targetDurationS <= 0 ||
+        maxClipDurationS <= 0 || maxClipDurationS > 8) {
+      throw const FormatException('Üretim hedefi geçersiz; klipler en fazla 8 saniye olabilir.');
+    }
+  }
+  final String structure;
+  final int targetDurationS, maxClipDurationS;
+  Map<String, dynamic> toJson() => {'structure': structure, 'targetDurationS': targetDurationS,
+    'maxClipDurationS': maxClipDurationS, if (structure == 'linear26') 'targetSceneCount': 26};
+  factory ScenarioProductionSettings.fromJson(Map<String, dynamic> value) {
+    if (value['structure'] is! String || value['targetDurationS'] is! int || value['maxClipDurationS'] is! int ||
+        value.keys.any((key) => !['structure','targetDurationS','maxClipDurationS','targetSceneCount'].contains(key)) ||
+        (value['structure'] == 'linear26' ? value['targetSceneCount'] != 26 : value.containsKey('targetSceneCount'))) {
+      throw const FormatException('Üretim hedefi alanları geçersiz.');
+    }
+    return ScenarioProductionSettings(structure: value['structure'] as String,
+      targetDurationS: value['targetDurationS'] as int, maxClipDurationS: value['maxClipDurationS'] as int);
+  }
+}
 
 /// Üretim girdisi; ScenarioInput çıktısı veya içerik onayı değildir.
 class ScenarioGenerationRequest {
   ScenarioGenerationRequest({required this.behaviorId, required this.cardVersion,
-    required this.ageMonths, required this.sceneContext, this.additionalInstructions}) {
+    required this.ageMonths, required this.sceneContext, this.additionalInstructions,
+    List<ScenarioBehaviorRef>? behaviors, this.production, this._extendedContract = false})
+      : behaviors = List.unmodifiable(behaviors ?? [ScenarioBehaviorRef(behaviorId: behaviorId, cardVersion: cardVersion)]) {
     final matches = BehaviorCards.all.where((card) => card.id == behaviorId);
     if (matches.isEmpty || matches.single.cardVersion != cardVersion) {
       throw const FormatException('Davranış kimliği/kart sürümü geçerli değil.');
@@ -17,6 +42,16 @@ class ScenarioGenerationRequest {
     if (sceneContext.trim().isEmpty) {
       throw const FormatException('Sahne/ortam bağlamını girin.');
     }
+    if (this.behaviors.isEmpty || this.behaviors.first.behaviorId != behaviorId ||
+        this.behaviors.first.cardVersion != cardVersion ||
+        this.behaviors.map((ref) => ref.behaviorId).toSet().length != this.behaviors.length) {
+      throw const FormatException('Davranış listesi/uyumluluk alanları uyuşmuyor.');
+    }
+    for (final ref in this.behaviors) {
+      if (!BehaviorCards.all.any((card) => card.id == ref.behaviorId && card.cardVersion == ref.cardVersion)) {
+        throw const FormatException('Seçilen davranış/kart sürümü güncel değil.');
+      }
+    }
   }
 
   final String behaviorId;
@@ -24,9 +59,47 @@ class ScenarioGenerationRequest {
   final int ageMonths;
   final String sceneContext;
   final String? additionalInstructions;
+  final List<ScenarioBehaviorRef> behaviors;
+  final ScenarioProductionSettings? production;
+  final bool _extendedContract;
+  bool get extended => _extendedContract || behaviors.length > 1 || production != null;
+  bool get linear => production?.structure == 'linear26';
+  List<BehaviorCard> get cards => [for (final ref in behaviors)
+    BehaviorCards.all.firstWhere((card) => card.id == ref.behaviorId)];
+  factory ScenarioGenerationRequest.fromJson(Map<String, dynamic> json) {
+    if (json.containsKey('requestVersion') && json['requestVersion'] != '2.0') {
+      throw const FormatException('Üretim isteği sürümü desteklenmiyor.');
+    }
+    if (json['requestVersion'] == '2.0') {
+      final refs = readScenarioBehaviors(json['behaviors']);
+      if (refs == null || json.keys.any((key) => !['requestVersion','behaviors','ageMonths','sceneContext','additionalInstructions','production'].contains(key)) ||
+          json['ageMonths'] is! int || json['sceneContext'] is! String ||
+          (json['additionalInstructions'] != null && json['additionalInstructions'] is! String)) {
+        throw const FormatException('Üretim isteği v2 alanları geçersiz.');
+      }
+      return ScenarioGenerationRequest(behaviorId: refs.first.behaviorId, cardVersion: refs.first.cardVersion,
+        behaviors: refs, extendedContract: true, ageMonths: json['ageMonths'] as int, sceneContext: json['sceneContext'] as String,
+        additionalInstructions: json['additionalInstructions'] as String?,
+        production: json['production'] == null ? null : ScenarioProductionSettings.fromJson(Map<String,dynamic>.from(json['production'] as Map)));
+    }
+    if (json.keys.any((key) => !['behaviorId','cardVersion','ageMonths','sceneContext','additionalInstructions'].contains(key)) ||
+        json['behaviorId'] is! String || json['cardVersion'] is! String ||
+        json['ageMonths'] is! int || json['sceneContext'] is! String ||
+        (json['additionalInstructions'] != null && json['additionalInstructions'] is! String)) {
+      throw const FormatException('Üretim isteği alanları geçersiz.');
+    }
+    return ScenarioGenerationRequest(behaviorId: json['behaviorId'] as String,
+      cardVersion: json['cardVersion'] as String, ageMonths: json['ageMonths'] as int,
+      sceneContext: json['sceneContext'] as String,
+      additionalInstructions: json['additionalInstructions'] as String?);
+  }
   BehaviorCard get card => BehaviorCards.all.firstWhere((card) => card.id == behaviorId);
 
-  Map<String, Object?> toJson() => {
+  Map<String, Object?> toJson() => extended ? {
+    'requestVersion': '2.0', 'behaviors': behaviors.map((ref) => ref.toJson()).toList(),
+    'ageMonths': ageMonths, 'sceneContext': sceneContext, 'additionalInstructions': additionalInstructions,
+    if (production != null) 'production': production!.toJson(),
+  } : {
     'behaviorId': behaviorId, 'cardVersion': cardVersion, 'ageMonths': ageMonths,
     'sceneContext': sceneContext, 'additionalInstructions': additionalInstructions,
   };
@@ -56,12 +129,41 @@ class ScenarioGenerationRequest {
       changes.add('Tek scenarioInput sarmalayıcısı açıldı.');
     }
     final metadata = <String, Object>{
-      'schemaVersion': ScenarioGraph.currentSchemaVersion,
+      'schemaVersion': extended ? '1.1' : ScenarioGraph.currentSchemaVersion,
       'scenarioId': scenarioId,
-      'title': '${card.title} senaryo taslağı',
+      'title': '${cards.map((card) => card.title).join(' / ')} senaryo taslağı',
       'language': 'tr', 'behaviorId': behaviorId,
       'cardVersion': cardVersion, 'ageMonths': ageMonths,
     };
+    if (extended) {
+      final expected = behaviors.map((ref) => ref.toJson()).toList();
+      if (decoded.containsKey('behaviors') && jsonEncode(decoded['behaviors']) != jsonEncode(expected)) {
+        throw const FormatException('Davranış listesi doğrulanmış istekle uyuşmuyor.');
+      }
+      decoded = {...decoded, 'behaviors': expected};
+      if (decoded['structure'] != (linear ? 'linear26' : 'branched')) {
+        throw const FormatException('Anlatının üretim düzeni istekle uyuşmuyor.');
+      }
+      final allowed = behaviors.map((ref) => ref.behaviorId).toSet();
+      final seen = <String>{};
+      void binding(Object? value) {
+        if (value is! List || value.isEmpty || value.toSet().length != value.length ||
+            value.any((id) => id is! String || !allowed.contains(id))) {
+          throw const FormatException('Sahne/davranış ilişkisi eksik veya geçersiz.');
+        }
+        seen.addAll(value.cast<String>());
+      }
+      if (linear) {
+        final scenes = decoded['linearScenes'];
+        if (scenes is! List || scenes.length != 26) throw const FormatException('Doğrusal düzen tam 26 sahne gerektirir.');
+        for (final scene in scenes) { binding((scene as Map)['behaviorIds']); }
+      } else {
+        binding(decoded['commonBehaviorIds']);
+        if (decoded['alternatives'] is! List) throw const FormatException('Alternatifler eksik.');
+        for (final alternative in decoded['alternatives'] as List) { binding((alternative as Map)['behaviorIds']); }
+      }
+      if (!seen.containsAll(allowed)) throw const FormatException('Seçilen davranışların tümü anlatıda kapsanmalı.');
+    }
     for (final entry in metadata.entries) {
       if (decoded.containsKey(entry.key) && decoded[entry.key] != entry.value) {
         throw FormatException('${entry.key} doğrulanmış istekle uyuşmuyor; değiştirilmedi.');

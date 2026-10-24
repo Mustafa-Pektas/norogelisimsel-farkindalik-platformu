@@ -6,9 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
-import 'package:neuro_awareness_app/services/http_scenario_generation_service.dart';
 import 'package:neuro_awareness_app/models/behavior_cards.dart';
 import 'package:neuro_awareness_app/models/scenario_input.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_request.dart';
@@ -16,6 +13,11 @@ import 'package:neuro_awareness_app/screens/scenario_graph_import_screen.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_screen.dart';
 import 'package:neuro_awareness_app/services/scenario_graph_converter.dart';
 import 'package:neuro_awareness_app/services/scenario_generation_service.dart';
+
+import 'package:neuro_awareness_app/models/scenario_generation_result.dart';
+import 'package:neuro_awareness_app/services/scenario_draft_store.dart';
+import 'package:neuro_awareness_app/models/scenario_workspace_draft.dart';
+import 'package:neuro_awareness_app/screens/synthetic_video_studio_screen.dart';
 
 // Kontrollü hizmet; gerçek ağ, yerel model veya video motoru kullanılmaz.
 class _GenerationService implements ScenarioGenerationService {
@@ -76,95 +78,84 @@ class _NoAssets extends CachingAssetBundle {
   Future<ByteData> load(String key) => throw UnimplementedError();
 }
 
+class _MemoryStore extends ScenarioDraftStore {
+  ScenarioWorkspaceDraft? value;
+  @override
+  Future<ScenarioWorkspaceDraft?> load() async => value;
+  @override
+  Future<void> save(ScenarioWorkspaceDraft draft) async { value = draft; }
+  @override
+  Future<void> delete() async { value = null; }
+}
+Future<void> tap(WidgetTester tester, String key, {bool settle = true}) async {
+  final title = switch (key) {
+    'studio-result-details' => 'Tam ham cevap ve üretim kaynağı',
+    'studio-error-raw-details' => 'Başarısız isteğin ham cevabı',
+    'scenario-generation-raw-details' => 'Ham cevap ve kaynak',
+    'scenario-request-rules' => 'Kaynak ve kullanım sınırları',
+    _ => null,
+  };
+  final root = find.byKey(ValueKey(key));
+  final target = title == null ? root : find.descendant(of: root, matching: find.text(title));
+  await tester.ensureVisible(target); expect(target.hitTestable(), findsOneWidget); await tester.tap(target);
+  if (settle) { await tester.pumpAndSettle(); }
+  else { await tester.pump(); await tester.pump(const Duration(milliseconds: 300)); }
+}
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
-  final example = jsonDecode(
-    File(ScenarioGraphImportScreen.d01InputAssetPath).readAsStringSync(),
-  ) as Map<String, dynamic>;
-  final content = jsonEncode({
-    'commonStart': example['commonStart'],
-    'alternatives': example['alternatives'],
+  String? copied;
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    copied = null;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
+        return null;
+      });
   });
-
-  Future<void> mount(WidgetTester tester, _NoAssets bundle, {
-    ScenarioGenerationService generationService = const UnavailableScenarioGenerationService(),
-    Size size = const Size(1100, 1000), double textScale = 1,
-  }) async {
-    await tester.binding.setSurfaceSize(size);
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(DefaultAssetBundle(
-      bundle: bundle,
-      child: MaterialApp(
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
-          child: child!,
-        ),
-        home: ScenarioGraphImportScreen(generationService: generationService)),
-    ));
-    await tester.pumpAndSettle();
-    await tap(tester, 'scenario-import-mode-scenario');
+  tearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+  final example = jsonDecode(File(ScenarioGraphImportScreen.d01InputAssetPath).readAsStringSync()) as Map<String, dynamic>;
+  final content = jsonEncode({'commonStart': example['commonStart'], 'alternatives': example['alternatives']});
+  final request = ScenarioGenerationRequest(behaviorId: 'D02', cardVersion: '0.2', ageMonths: 24, sceneContext: '  Evde  ', additionalInstructions: 'Sade ortam.');
+  String editor(WidgetTester tester) => tester.widget<TextField>(find.byKey(const ValueKey('scenario-import-json'))).controller!.text;
+  Future<void> field(WidgetTester tester, String key, String value) async {
+    final finder = find.byKey(ValueKey(key)); await tester.ensureVisible(finder); await tester.enterText(finder, value);
+    await tester.testTextInput.receiveAction(TextInputAction.done); await tester.pump();
   }
-
-  String editor(WidgetTester tester) => tester.widget<TextField>(
-    find.byKey(const ValueKey('scenario-import-json')),
-  ).controller!.text;
-
-  List<String?> summaryTexts(WidgetTester tester) => tester.widgetList<Text>(
-    find.descendant(
-      of: find.byKey(const ValueKey('scenario-import-summary')),
-      matching: find.byType(Text),
-    ),
-  ).map((text) => text.data).toList();
-
-  Future<void> requestText(WidgetTester tester, String field, String value) async {
-    final target = find.byKey(ValueKey('scenario-request-$field'));
-    await tester.ensureVisible(target);
-    await tester.enterText(target, value);
-    await tester.pump();
+  Future<void> close(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle(); expect(tester.takeException(), isNull);
   }
-
-  String requestValue(WidgetTester tester, String field) => tester.widget<TextField>(
-    find.byKey(ValueKey('scenario-request-$field')),
-  ).controller!.text;
-
-  Future<void> selectBehavior(WidgetTester tester, String id) async {
-    final card = BehaviorCards.all.firstWhere((card) => card.id == id);
-    await tap(tester, 'scenario-request-behavior');
-    final item = find.text(card.title).last;
-    await tester.scrollUntilVisible(item, 100, scrollable: find.byType(Scrollable).last);
-    await tester.tap(item);
-    await tester.pumpAndSettle();
-  }
-
-  Future<void> mountRoute(WidgetTester tester, {
-    ScenarioGenerationService generationService = const UnavailableScenarioGenerationService(),
-  }) async {
-    await tester.binding.setSurfaceSize(const Size(1100, 1000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(DefaultAssetBundle(
-      bundle: _NoAssets(),
-      child: MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: TextButton(
-              key: const ValueKey('open-import'),
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => ScenarioGraphImportScreen(generationService: generationService),
-              )),
-              child: const Text('İçe aktarmayı aç'),
-            ),
-          ),
-        ),
-      ),
-    ));
+  Future<void> mountRoute(WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(1100, 1000)); addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) => Scaffold(body: TextButton(
+      key: const ValueKey('open-import'), onPressed: () => Navigator.push(context, MaterialPageRoute<void>(
+        builder: (_) => ScenarioGraphImportScreen(draftStore: _MemoryStore()))), child: const Text('Aç'))))));
     await tap(tester, 'open-import');
   }
-
-  Future<void> appBarBack(WidgetTester tester) async {
-    await tester.tap(find.byType(BackButton));
-    await tester.pumpAndSettle();
+  Future<void> appBarBack(WidgetTester tester) async { await tester.tap(find.byType(BackButton)); await tester.pumpAndSettle(); }
+  Future<void> studio(WidgetTester tester, ScenarioGenerationService service, {String behavior = 'D02', bool route = false}) async {
+    await tester.binding.setSurfaceSize(const Size(1100, 1000)); addTearDown(() => tester.binding.setSurfaceSize(null));
+    final screen = SyntheticVideoStudioScreen(initialOntologyCode: behavior, initialAgeMonths: 24,
+      generationService: service, scenarioDraftStore: _MemoryStore());
+    await tester.pumpWidget(DefaultAssetBundle(bundle: _NoAssets(), child: MaterialApp(home: route
+      ? Builder(builder: (context) => Scaffold(body: TextButton(key: const ValueKey('open-studio'),
+        onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => screen)), child: const Text('Aç'))))
+      : screen)));
+    await tester.pumpAndSettle(); if (route) await tap(tester, 'open-studio'); await tap(tester, 'studio-engine-server');
   }
-
+  Future<void> configure(WidgetTester tester) async {
+    await field(tester, 'scenario-request-age', '24'); await field(tester, 'scenario-request-context', '  Evde  ');
+    await field(tester, 'scenario-request-instructions', 'Sade ortam.'); await tap(tester, 'scenario-request-validate');
+  }
+  Future<void> workspace(WidgetTester tester, String raw, {bool narrow = false}) async {
+    await tester.binding.setSurfaceSize(narrow ? const Size(320, 800) : const Size(1100, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final result = ScenarioGenerationResult.fromServer(request, {'rawResponse': raw});
+    await tester.pumpWidget(DefaultAssetBundle(bundle: _NoAssets(), child: MaterialApp(
+      builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(narrow ? 2 : 1)), child: child!),
+      home: ScenarioGraphImportScreen(initialScenarioContent: true, incomingResult: result, draftStore: _MemoryStore()))));
+    await tester.pumpAndSettle(); expect(editor(tester), isEmpty); await tap(tester, 'scenario-accept-result');
+    expect(ScenarioInput.fromJsonString(editor(tester)).scenarioId, result.scenarioId);
+  }
   for (final systemBack in [false, true]) {
     testWidgets('Boş ekranda ${systemBack ? 'sistem' : 'AppBar'} geri onaysız çıkar', (tester) async {
 
@@ -240,199 +231,160 @@ void main() {
 
   });
 
-  testWidgets('İstek formu mevcut on kartı kullanır; sürüm otomatik, yaş boş ve alanlar zorunludur', (tester) async {
-
-    final bundle = _NoAssets();
-    await mount(tester, bundle);
-    final section = find.byKey(const ValueKey('scenario-import-request-form'));
-    expect(tester.widget<ExpansionTile>(section).initiallyExpanded, isFalse);
-    expect(tester.widget<ExpansionTile>(section).maintainState, isTrue);
-    await tap(tester, 'scenario-import-request-form');
-    final field = find.byKey(const ValueKey('scenario-request-behavior'));
-    final dropdown = tester.widget<DropdownButton<BehaviorCard>>(find.descendant(
-      of: field, matching: find.byType(DropdownButton<BehaviorCard>),
-    ));
-    expect(dropdown.items!.map((item) => item.value!.id),
-        BehaviorCards.all.map((card) => card.id));
-    for (var i = 0; i < dropdown.items!.length; i++) {
-      expect(dropdown.items![i].value, same(BehaviorCards.all[i]));
-      expect((dropdown.items![i].child as Text).data, BehaviorCards.all[i].title);
-    }
-    expect(tester.state<FormFieldState<BehaviorCard>>(field).value, isNull);
-    expect(requestValue(tester, 'age'), isEmpty);
-    await tap(tester, 'scenario-request-validate');
-    expect(find.text('Hedef davranış seçin.'), findsOneWidget);
-    expect(find.text('12–36 arasında tam ay girin.'), findsOneWidget);
-    expect(find.text('Sahne/ortam bağlamını girin.'), findsOneWidget);
-    expect(find.byKey(const ValueKey('scenario-request-summary')), findsNothing);
-    await selectBehavior(tester, 'D10');
-    final card = BehaviorCards.all.last;
-    expect(tester.state<FormFieldState<BehaviorCard>>(field).value, same(card));
-    expect(tester.widget<Text>(find.byKey(
-      const ValueKey('scenario-request-card-version'),
-    )).data, 'Kart sürümü: ${card.cardVersion}');
-    await requestText(tester, 'context', '   ');
-    await tap(tester, 'scenario-request-validate');
-    expect(find.text('Sahne/ortam bağlamını girin.'), findsOneWidget);
-    await requestText(tester, 'context', 'Evde masa başında.');
-    for (final value in ['11', '37', '-1', '12.5', 'abc']) {
-      await requestText(tester, 'age', value);
-      await tap(tester, 'scenario-request-validate');
-      expect(requestValue(tester, 'age'), value);
-      expect(find.text('12–36 arasında tam ay girin.'), findsOneWidget);
-      expect(find.byKey(const ValueKey('scenario-request-summary')), findsNothing);
-    }
-    for (final value in ['12', '36']) {
-      await requestText(tester, 'age', value);
-      await tap(tester, 'scenario-request-validate');
-      expect(find.text('Karakter yaşı: $value ay'), findsOneWidget);
-      expect(find.text('Davranış: ${card.title}'), findsOneWidget);
-      expect(find.text('Bu yaş için görev uyarlaması gerekli.'),
-          value == '12' ? findsOneWidget : findsNothing);
-    }
-    expect(requestValue(tester, 'instructions'), isEmpty);
-
-    expect(editor(tester), isEmpty);
-    expect(bundle.reads, isEmpty);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('İstek özeti düzenlemede geçersizleşir; mevcut JSON ve graf değişmez', (tester) async {
-
-    final bundle = _NoAssets();
-    await mount(tester, bundle);
-    final json = jsonEncode(example);
-    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), json);
-    await tap(tester, 'scenario-import-validate');
-    final summary = summaryTexts(tester);
-    await tap(tester, 'scenario-import-view');
-    final originalGraph = tester.widget<ScenarioGraphScreen>(find.byType(ScenarioGraphScreen)).graph;
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    await tap(tester, 'scenario-import-request-form');
-    await selectBehavior(tester, 'D02');
-    await requestText(tester, 'age', '31');
-    await requestText(tester, 'context', '  Evde oyuncakların yanında.  ');
-    await tap(tester, 'scenario-request-validate');
-    expect(find.byKey(const ValueKey('scenario-request-summary')), findsOneWidget);
-    expect(find.text('Bağlam:   Evde oyuncakların yanında.  '), findsOneWidget);
-    for (final edit in [
-      ('instructions', '  Gün ışığı kullan.  '),
-      ('context', 'Aynı odada yerde.'),
-      ('age', '32'),
-    ]) {
-      await requestText(tester, edit.$1, edit.$2);
-      expect(find.byKey(const ValueKey('scenario-request-summary')), findsNothing);
-      await tap(tester, 'scenario-request-validate');
-      expect(find.byKey(const ValueKey('scenario-request-summary')), findsOneWidget);
-    }
-    expect(find.text('Ek yönerge:   Gün ışığı kullan.  '), findsOneWidget);
-    await selectBehavior(tester, 'D01');
-    expect(find.byKey(const ValueKey('scenario-request-summary')), findsNothing);
-    await tap(tester, 'scenario-request-validate');
-    expect(find.text('Davranış: ${BehaviorCards.all.first.title}'), findsOneWidget);
-    expect(editor(tester), json);
-    expect(summaryTexts(tester), summary);
-
-    await tap(tester, 'scenario-import-view');
-    expect(tester.widget<ScenarioGraphScreen>(find.byType(ScenarioGraphScreen)).graph,
-        same(originalGraph));
-    expect(find.byType(AlertDialog), findsNothing);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    expect(requestValue(tester, 'age'), '32');
-    expect(find.byKey(const ValueKey('scenario-request-summary')), findsOneWidget);
-    expect(bundle.reads, isEmpty);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets('Tür/bölüm değişimi formu korur; yalnız form taslağı da F04 onayı ister', (tester) async {
-
-    await mountRoute(tester);
-    await tap(tester, 'scenario-import-mode-scenario');
-    await tap(tester, 'scenario-import-request-form');
-    await selectBehavior(tester, 'D03');
-    await requestText(tester, 'age', '30');
-    await requestText(tester, 'context', 'Oturma odasında.');
-    await requestText(tester, 'instructions', 'Sabit kamera.');
-    await tap(tester, 'scenario-request-validate');
-    await tap(tester, 'scenario-import-request-form');
-    await tap(tester, 'scenario-import-request-form');
-    expect(requestValue(tester, 'age'), '30');
-    expect(find.byKey(const ValueKey('scenario-request-summary')), findsOneWidget);
-    await tap(tester, 'scenario-import-mode-graph');
-    expect(editor(tester), isEmpty);
-    expect(find.byKey(const ValueKey('scenario-import-request-form')), findsNothing);
-    await appBarBack(tester);
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tap(tester, 'scenario-import-stay');
-    await tap(tester, 'scenario-import-mode-scenario');
-    await tap(tester, 'scenario-import-request-form');
-    expect(requestValue(tester, 'age'), '30');
-    expect(requestValue(tester, 'context'), 'Oturma odasında.');
-    expect(requestValue(tester, 'instructions'), 'Sabit kamera.');
-    expect(tester.state<FormFieldState<BehaviorCard>>(find.byKey(
-      const ValueKey('scenario-request-behavior'),
-    )).value!.id, 'D03');
-    expect(find.byKey(const ValueKey('scenario-request-summary')), findsOneWidget);
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tap(tester, 'scenario-import-stay');
-    expect(requestValue(tester, 'context'), 'Oturma odasında.');
-    await appBarBack(tester);
-    await tap(tester, 'scenario-import-exit');
-    expect(find.byType(ScenarioGraphImportScreen), findsNothing);
-
-  });
-
-  for (final field in ['age', 'context', 'instructions']) {
-    testWidgets('Yalnız $field girilmiş istek F04 ile korunur; temizlenince boş çıkış serbesttir', (tester) async {
-
-      await mountRoute(tester);
-      await tap(tester, 'scenario-import-mode-scenario');
-      await tap(tester, 'scenario-import-request-form');
-      final value = field == 'age' ? '27' : 'Kısmi ekip taslağı';
-      await requestText(tester, field, value);
-      await appBarBack(tester);
-      expect(find.byType(AlertDialog), findsOneWidget);
-      await tap(tester, 'scenario-import-stay');
-      expect(requestValue(tester, field), value);
-      expect(editor(tester), isEmpty);
-
-      await requestText(tester, field, '');
-      await appBarBack(tester);
-      expect(find.byType(AlertDialog), findsNothing);
-      expect(find.byType(ScenarioGraphImportScreen), findsNothing);
-
+  for (final card in BehaviorCards.all) {
+    final id=card.id, version=card.cardVersion;
+    testWidgets('Tek Stüdyo formu $id ve doğru kart sürümünü taşır; otomatik çağrı yoktur', (tester) async {
+      final service=_GenerationService(); await studio(tester,service,behavior:id);
+      expect(service.requests,isEmpty); await tap(tester, 'scenario-request-rules');
+      expect(find.text('${card.title} · Kart sürümü: $version'),findsOneWidget);
+      await tap(tester, 'scenario-request-rules');
+      await configure(tester); await tap(tester,'studio-generate-scenario',settle:false);
+      expect(service.requests.single.behaviorId,id); expect(service.requests.single.cardVersion,version);
+      expect(service.requests.single.ageMonths,24); expect(service.requests.single.sceneContext,'  Evde  ');
+      expect(service.requests.single.additionalInstructions,'Sade ortam.');
+      service.jobs.single.answer.complete(content); await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('studio-continue-result')),findsOneWidget);
+      await close(tester); expect(service.jobs.single.disposals,1);
     });
   }
-
-  Future<void> generationTap(WidgetTester tester, String key) async {
-    final target = key == 'scenario-import-request-form'
-        ? find.descendant(of: find.byKey(ValueKey(key)), matching: find.text('Senaryo üretim isteği'))
-        : find.byKey(ValueKey(key));
-    await tester.ensureVisible(target);
-    await tester.pumpAndSettle();
-    expect(target.hitTestable(), findsOneWidget);
-    await tester.tap(target);
-    await tester.pumpAndSettle();
+  for (final age in ['', '11', '37', '-1', '12.5', 'ay', '12', '36']) {
+    testWidgets('Stüdyo yaş doğrulaması $age; doğrulama model çağırmaz', (tester) async {
+      final service=_GenerationService(); await studio(tester,service); await field(tester,'scenario-request-context','Ev');
+      await field(tester,'scenario-request-age',age); await tap(tester,'scenario-request-validate');
+      expect(find.byKey(ValueKey(['12','36'].contains(age) ? 'scenario-request-summary':'scenario-request-error')),findsOneWidget);
+      expect(service.requests,isEmpty); await close(tester);
+    });
   }
-
-  Future<void> fillGeneration(WidgetTester tester) async {
-    await generationTap(tester, 'scenario-import-request-form');
-    await selectBehavior(tester, 'D02');
-    await requestText(tester, 'age', '24');
-    await requestText(tester, 'context', '  Evde oyun alanı  ');
-    await requestText(tester, 'instructions', '  Sade ortam  ');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
-    await generationTap(tester, 'scenario-request-validate');
+  for (final name in ['age','context','instructions']) {
+    testWidgets('Yalnız $name değişmiş form F04 ile korunur; temizlenince boş çıkış serbesttir', (tester) async {
+      await studio(tester,_GenerationService(),route:true); final value=name=='age'?'25':'Taslak';
+      await field(tester,'scenario-request-$name',value); await appBarBack(tester); await tap(tester,'studio-exit-stay');
+      expect(tester.widget<TextField>(find.byKey(ValueKey('scenario-request-$name'))).controller!.text,value);
+      await field(tester,'scenario-request-$name',''); await appBarBack(tester);
+      expect(find.byType(SyntheticVideoStudioScreen),findsNothing); await close(tester);
+    });
   }
-
+  testWidgets('Özet düzenlemede geçersizleşir; tür/admin değişimi formu ve kaynağı korur', (tester) async {
+    final service=_GenerationService(); await studio(tester,service); await configure(tester);
+    expect(find.byKey(const ValueKey('scenario-request-summary')),findsOneWidget);
+    await field(tester,'scenario-request-context','Yeni bağlam');
+    expect(find.byKey(const ValueKey('scenario-request-summary')),findsNothing);
+    for(var i=0;i<10;i++){await tester.tap(find.byKey(const ValueKey('studio-admin-title')));await tester.pump();}
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('scenario-request-context'))).controller!.text,'Yeni bağlam');
+    expect(service.requests,isEmpty); await close(tester);
+  });
+  testWidgets('Hizmet bağlı değilken hazır sonuç veya üretim başarısı yoktur', (tester) async {
+    await studio(tester,const UnavailableScenarioGenerationService());await configure(tester);
+    await tap(tester,'studio-generate-scenario',settle:false);await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('scenario-generation-error')),findsOneWidget);
+    expect(find.byKey(const ValueKey('studio-continue-result')),findsNothing);await close(tester);
+  });
+  testWidgets('Çift başlatma tek iş açar; cevap ayrıdır ve seçmek yeni çağrı yapmaz', (tester) async {
+    final service=_GenerationService();await studio(tester,service);await configure(tester);
+    final button=find.byKey(const ValueKey('studio-generate-scenario'));await tester.ensureVisible(button);
+    final point=tester.getCenter(button);await tester.tapAt(point);await tester.tapAt(point);
+    await tester.pump();await tester.pump(const Duration(milliseconds:300));expect(service.jobs,hasLength(1));
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('scenario-request-context'))).readOnly,isTrue);
+    final raw=' \n$content\n ';service.jobs.single.answer.complete(raw);await tester.pumpAndSettle();
+    await tap(tester,'studio-result-details');await tap(tester,'studio-copy-result-raw');expect(copied,raw);
+    await tester.tap(find.byTooltip('Sunucu ham cevabını kopyala')); await tester.pumpAndSettle(); expect(copied,raw);
+    await tap(tester,'studio-continue-result');expect(editor(tester),isEmpty);await tap(tester,'scenario-accept-result');
+    expect(service.requests,hasLength(1));expect(find.byKey(const ValueKey('scenario-import-summary')),findsNothing);
+    await tap(tester,'scenario-import-validate');expect(find.byKey(const ValueKey('scenario-import-summary')),findsOneWidget);
+    await close(tester);expect(service.jobs.single.disposals,1);
+  });
+  for(final failure in ['start','response','invalid']) {
+    testWidgets('Üretim $failure hatası başarı olmaz; ham hata ve önceki araçlar korunur', (tester) async {
+      final service=_GenerationService()..failStart=failure=='start';await studio(tester,service);await configure(tester);
+      await tap(tester,'studio-generate-scenario',settle:false);
+      if(failure=='response')service.jobs.single.answer.completeError(const ScenarioGenerationFailure('Kontrollü hata',rawResponse:' bozuk ham '));
+      if(failure=='invalid')service.jobs.single.answer.complete(' bozuk ham ');
+      await tester.pumpAndSettle();expect(find.byKey(const ValueKey('scenario-generation-error')),findsOneWidget);
+      expect(find.byKey(const ValueKey('studio-continue-result')),findsNothing);
+      if(failure!='start'){await tap(tester,'studio-error-raw-details');
+        expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-error-raw'))).data,' bozuk ham ');
+        expect(service.jobs.single.disposals,1);}
+      await close(tester);
+    });
+  }
+  for(final localOnly in [false,true]) {
+    testWidgets('İptal türü $localOnly başarılı üretim değildir; tek dispose ve geç cevap reddi korunur', (tester) async {
+      final service=_GenerationService();await studio(tester,service);await configure(tester);await tap(tester,'studio-generate-scenario',settle:false);
+      final job=service.jobs.single..localCancelOnly=localOnly..failCancel=!localOnly..completeOnDispose=false;
+      await tap(tester,'studio-cancel-generation');expect(job.cancellations,1);expect(job.disposals,1);
+      expect(find.textContaining(localOnly?'iptali doğrulanmadı':'İptal isteği başarısız'),findsWidgets);
+      job.answer.complete(content);await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('studio-continue-result')),findsNothing);await close(tester);
+    });
+  }
+  testWidgets('Geç eski cevap yeni sonucu ve kimliğini ezmez', (tester) async {
+    final service=_GenerationService();await studio(tester,service);await configure(tester);await tap(tester,'studio-generate-scenario',settle:false);
+    final old=service.jobs.single..completeOnDispose=false;await tap(tester,'studio-cancel-generation');
+    await tap(tester,'studio-generate-scenario',settle:false);service.jobs.last.answer.complete(content);await tester.pumpAndSettle();
+    final summary=tester.widget<Text>(find.byKey(const ValueKey('studio-result-summary'))).data;
+    old.answer.complete(content);await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const ValueKey('studio-result-summary'))).data,summary);
+    expect(service.jobs.map((job)=>job.disposals),[1,1]);await close(tester);
+  });
+  testWidgets('Süren işte çift geri tek onay açar; kalmak işi korur ve bekleyen iptalde çıkış tek dispose yapar', (tester) async {
+    final service=_GenerationService();await studio(tester,service,route:true);await configure(tester);await tap(tester,'studio-generate-scenario',settle:false);
+    final job=service.jobs.single..cancelGate=Completer<void>()..completeOnDispose=false;
+    await tester.binding.handlePopRoute();await tester.pump();await tester.pump(const Duration(milliseconds:300));
+    expect(find.byType(AlertDialog),findsOneWidget);
+    await tester.binding.handlePopRoute();await tester.pump();await tester.pump(const Duration(milliseconds:300));
+    expect(find.byType(AlertDialog),findsNothing);expect(job.disposals,0);
+    await tester.tap(find.byType(BackButton));await tester.pump();await tester.pump(const Duration(milliseconds:300));
+    await tap(tester,'studio-exit-stay',settle:false);expect(job.cancellations,0);
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('scenario-request-context'))).controller!.text,'  Evde  ');
+    await tap(tester,'studio-cancel-generation',settle:false);expect(job.disposals,1);
+    await appBarBack(tester);await tap(tester,'studio-exit-confirm');
+    job.answer.complete(content);await tester.pumpAndSettle();expect(job.cancellations,1);expect(job.disposals,1);
+    expect(find.byType(SyntheticVideoStudioScreen),findsNothing);await close(tester);
+  });
+  testWidgets('Graf görüntüleme ham cevap, düzenlenmiş kaynak, JSON ve aynı kimliği korur', (tester) async {
+    await workspace(tester,content);final edited=jsonDecode(editor(tester)) as Map<String,dynamic>;
+    final id=edited['scenarioId'];edited['commonStart']='  Ekibin düzenlediği başlangıç  ';
+    await field(tester,'scenario-import-json',jsonEncode(edited));await tap(tester,'scenario-import-validate');
+    final before=editor(tester);await tap(tester,'scenario-import-view');
+    final graph=tester.widget<ScenarioGraphScreen>(find.byType(ScenarioGraphScreen)).graph!;
+    expect(graph.scenarioId,id);expect(graph.authoringNote,contains('düzenlenmiş'));expect(find.byType(AlertDialog),findsNothing);
+    await appBarBack(tester);expect(editor(tester),before);await tap(tester,'scenario-generation-raw-details');
+    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data,content);await close(tester);
+  });
+  testWidgets('320px büyük yazı: ham cevap sınırlı alanda, tam ham kopya ve JSON eylemleri erişilir', (tester) async {
+    final value=jsonDecode(content) as Map<String,dynamic>;value['commonStart']=List.filled(150,' Uzun anlatı. ').join();
+    final raw=' \n${jsonEncode(value)}\n ';await workspace(tester,raw,narrow:true);await tap(tester,'scenario-generation-raw-details');
+    expect(tester.getSize(find.byWidgetPredicate((w)=>w is SizedBox && w.height==240)).height,240);
+    await tap(tester,'scenario-generation-copy-raw');expect(copied,raw);
+    final field=find.byKey(const ValueKey('scenario-import-json'));await tester.ensureVisible(field);expect(field.hitTestable(),findsOneWidget);
+    expect(tester.takeException(),isNull);await close(tester);
+  });
+  final fence='\u0060\u0060\u0060json', endFence='\u0060\u0060\u0060';
+  for(final raw in [content,'$fence\n$content\n$endFence',jsonEncode({'scenarioInput':jsonDecode(content)}),
+    '$fence\n${jsonEncode({'scenarioInput':jsonDecode(content)})}\n$endFence']) {
+    testWidgets('Normalizasyon tüm anlatıları ve ham cevabı değiştirmeden korur: $raw', (tester) async {
+      await workspace(tester,raw);await tap(tester,'scenario-import-validate');final input=ScenarioInput.fromJsonString(editor(tester));
+      expect(input.commonStart,example['commonStart']);
+      expect(input.alternatives.map((a)=>a.continuation),(example['alternatives'] as List).map((a)=>a['continuation']));
+      expect(input.alternatives.map((a)=>a.ending),(example['alternatives'] as List).map((a)=>a['ending']));
+      expect(input.behaviorId,'D02');expect(input.ageMonths,24);await tap(tester,'scenario-generation-raw-details');
+      expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data,raw);await close(tester);
+    });
+  }
+  for(final invalid in ['Cevap:\n$fence\n$content\n$endFence','$fence\n$content\n$endFence\nBitti.',
+    '$fence\n$content\n$endFence\n$fence\n$content\n$endFence','$fence\n$content',
+    '{"scenarioInput":{"commonStart":"Eksik",}}','{"scenarioInput":"Metin"}',
+    jsonEncode({'scenarioInput':jsonDecode(content),'extra':'Ek'}),jsonEncode({'scenarioInput':{'scenarioInput':jsonDecode(content)}}),
+    '{"commonStart":"Eksik anlatı"}']) {
+    testWidgets('Bozuk/eksik cevap onarılmaz; ham hata korunur ve devam verilmez: $invalid', (tester) async {
+      final service=_GenerationService();await studio(tester,service);await configure(tester);await tap(tester,'studio-generate-scenario',settle:false);
+      service.jobs.single.answer.complete(invalid);await tester.pumpAndSettle();expect(find.byKey(const ValueKey('studio-continue-result')),findsNothing);
+      await tap(tester,'studio-error-raw-details');
+      expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-error-raw'))).data,invalid);
+      expect(service.requests,hasLength(1));expect(service.jobs.single.disposals,1);await close(tester);
+    });
+  }
   test('Üretim isteği çıktıdan ayrıdır; kimlik/sürüm/yaş sınırı ve metadata çelişkisi doğrulanır', () {
     ScenarioGenerationRequest make({String id = 'D02', String version = '0.2', int age = 24}) =>
         ScenarioGenerationRequest(behaviorId: id, cardVersion: version, ageMonths: age,
@@ -465,502 +417,6 @@ void main() {
       'three');
   });
 
-  testWidgets('Üretim hizmeti bağlı değilken form doğrulanır ama üretim başlatılamaz', (tester) async {
-
-    await mount(tester, _NoAssets());
-    await fillGeneration(tester);
-    expect(find.text('Senaryo üretim hizmeti henüz bağlı değil.'), findsOneWidget);
-    expect(find.byKey(const ValueKey('scenario-generation-start')), findsNothing);
-    expect(find.byKey(const ValueKey('scenario-generation-raw')), findsNothing);
-    expect(editor(tester), isEmpty);
-
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets('Üretim cevabı ayrı korunur; mevcut graf yalnız bilinçli aktarımda değişir', (tester) async {
-    final service = _GenerationService();
-
-    await mount(tester, _NoAssets(), generationService: service);
-    final old = jsonEncode(example);
-    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), old);
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await generationTap(tester, 'scenario-import-validate');
-    final previous = summaryTexts(tester);
-    await fillGeneration(tester);
-    await generationTap(tester, 'scenario-generation-start');
-    final sent = service.requests.single;
-    expect(sent.behaviorId, 'D02');
-    expect(sent.cardVersion, '0.2');
-    expect(sent.ageMonths, 24);
-    expect(sent.sceneContext, '  Evde oyun alanı  ');
-    expect(sent.additionalInstructions, '  Sade ortam  ');
-    expect(tester.widget<TextField>(find.byKey(const ValueKey('scenario-request-age'))).readOnly, isTrue);
-    await tester.tap(find.byKey(const ValueKey('scenario-generation-start')));
-    await tester.pumpAndSettle();
-    expect(service.jobs, hasLength(1));
-    final raw = ' \n$content\n ';
-    service.jobs.single.answer.complete(raw);
-    await tester.pumpAndSettle();
-    expect(editor(tester), old);
-    expect(summaryTexts(tester), previous);
-    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, raw);
-    expect(service.jobs.single.disposals, 1);
-    await generationTap(tester, 'scenario-generation-transfer');
-    await tester.tap(find.text('Taslağı koru'));
-    await tester.pumpAndSettle();
-    expect(editor(tester), old);
-    expect(summaryTexts(tester), previous);
-    await generationTap(tester, 'scenario-generation-transfer');
-    await tester.tap(find.text('Aktar'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
-    var input = ScenarioInput.fromJsonString(editor(tester));
-    expect(input.ageMonths, 24);
-    expect(input.behaviorId, 'D02');
-    expect(input.source, ScenarioInputSource.modelOutput);
-    expect(input.scenarioId, isNot('d01-qwen-yerel-demo'));
-    await generationTap(tester, 'scenario-import-validate');
-    final edited = jsonDecode(editor(tester)) as Map<String, dynamic>;
-    edited['commonStart'] = '  Ekibin değiştirdiği başlangıç  ';
-    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), jsonEncode(edited));
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await generationTap(tester, 'scenario-import-validate');
-    input = ScenarioInput.fromJsonString(editor(tester));
-    expect(input.source, ScenarioInputSource.editedModelOutput);
-    expect(input.commonStart, '  Ekibin değiştirdiği başlangıç  ');
-    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, raw);
-    final conflicting = jsonDecode(editor(tester)) as Map<String, dynamic>;
-    conflicting['ageMonths'] = 30;
-    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), jsonEncode(conflicting));
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await generationTap(tester, 'scenario-import-validate');
-    expect(find.textContaining('ageMonths doğrulanmış istekle uyuşmuyor'), findsOneWidget);
-    expect((jsonDecode(editor(tester)) as Map<String, dynamic>)['ageMonths'], 30);
-    expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
-
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-  for (final failure in ['start', 'response', 'metadata', 'cancel']) {
-    testWidgets('Üretim $failure hatası taslağı korur ve başarı sayılmaz', (tester) async {
-      final service = _GenerationService()..failStart = failure == 'start';
-      await mount(tester, _NoAssets(), generationService: service);
-      await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), '{"önceki": true}');
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await fillGeneration(tester);
-      await generationTap(tester, 'scenario-generation-start');
-      if (failure != 'start') {
-        final job = service.jobs.single;
-        switch (failure) {
-          case 'response': job.answer.completeError(StateError('Kontrollü hata'));
-          case 'metadata': job.answer.complete(jsonEncode({
-            ...(jsonDecode(content) as Map<String, dynamic>), 'ageMonths': 30,
-          }));
-          case 'cancel':
-            job.failCancel = true;
-            await generationTap(tester, 'scenario-generation-cancel');
-        }
-        await tester.pumpAndSettle();
-        if (failure == 'metadata') {
-          await generationTap(tester, 'scenario-generation-transfer');
-          await tester.tap(find.text('Aktar'));
-          await tester.pumpAndSettle();
-          expect(find.textContaining('ageMonths doğrulanmış istekle uyuşmuyor'), findsOneWidget);
-        }
-        expect(job.disposals, 1);
-      }
-      expect(find.byKey(const ValueKey('scenario-generation-error')), findsOneWidget);
-      expect(editor(tester), '{"önceki": true}');
-      expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    });
-  }
-
-
-
-  testWidgets('HTTP adaptörü mevcut formu ve bilinçli aktarımı kullanır; kendiliğinden çağrı/graf yoktur', (tester) async {
-    var calls = 0;
-    final raw = ' \n$content\n ';
-    final adapter = HttpScenarioGenerationService(resolveServerUrl: () async => 'http://localhost:8000',
-      clientFactory: () => MockClient((request) async {
-        ++calls;
-        expect(request.url.path, '/api/generate-scenario-input');
-        final sent = jsonDecode(request.body) as Map<String, dynamic>;
-        expect(sent['behaviorId'], 'D02');
-        expect(sent['cardVersion'], '0.2');
-        expect(sent['ageMonths'], 24);
-        return http.Response.bytes(utf8.encode(jsonEncode({
-          'success': true, 'rawResponse': raw, 'request': sent, 'validation': 'structure_only',
-        })), 200, headers: {'content-type': 'application/json; charset=utf-8'});
-      }));
-    await mount(tester, _NoAssets(), generationService: adapter);
-    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), jsonEncode(example));
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    final previous = editor(tester);
-    await fillGeneration(tester);
-    expect(calls, 0);
-    await generationTap(tester, 'scenario-generation-start');
-    expect(calls, 1);
-    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, raw);
-    expect(editor(tester), previous);
-    expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
-    await generationTap(tester, 'scenario-generation-transfer');
-    await tester.tap(find.text('Taslağı koru'));
-    await tester.pumpAndSettle();
-    expect(editor(tester), previous);
-    await generationTap(tester, 'scenario-generation-transfer');
-    await tester.tap(find.text('Aktar'));
-    await tester.pumpAndSettle();
-    await generationTap(tester, 'scenario-import-validate');
-    final input = ScenarioInput.fromJsonString(editor(tester));
-    expect(input.behaviorId, 'D02');
-    expect(input.ageMonths, 24);
-    expect(input.commonStart, example['commonStart']);
-    expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
-    expect(calls, 1);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-
-  for (final outcome in ['success', 'error']) {
-    testWidgets('Üretim düğmesi: dar ekranda işlem ve $outcome geri bildirimi aynı yerde görünür', (tester) async {
-      final response = Completer<http.Response>();
-      var calls = 0;
-      Map<String, dynamic>? sent;
-      final adapter = HttpScenarioGenerationService(
-        resolveServerUrl: () async => 'http://localhost:8000',
-        clientFactory: () => MockClient((request) {
-          ++calls;
-          expect(request.url.path, '/api/generate-scenario-input');
-          sent = jsonDecode(request.body) as Map<String, dynamic>;
-          return response.future;
-        }),
-      );
-      await mount(tester, _NoAssets(), generationService: adapter,
-        size: const Size(320, 800), textScale: 1.5);
-      await fillGeneration(tester);
-      final start = find.byKey(const ValueKey('scenario-generation-start'));
-      await tester.ensureVisible(start);
-      await tester.pumpAndSettle();
-      expect(start.hitTestable(), findsOneWidget);
-      expect(tester.widget<FilledButton>(start).onPressed, isNotNull);
-      await tester.tap(start); // Gerçek callback; doğrudan servis/metot çağrılmaz.
-      await tester.pump();
-      expect(calls, 1);
-      expect(sent!['behaviorId'], 'D02');
-      expect(sent!['ageMonths'], 24);
-      final status = find.byKey(const ValueKey('scenario-generation-status'));
-      final error = find.byKey(const ValueKey('scenario-generation-error'));
-      final cancel = find.byKey(const ValueKey('scenario-generation-cancel'));
-      expect(status.hitTestable(), findsOneWidget);
-      expect(cancel.hitTestable(), findsOneWidget);
-      expect(find.descendant(of: start, matching: find.text('Yanıt bekleniyor…')), findsOneWidget);
-      expect(tester.widget<FilledButton>(start).onPressed, isNull);
-      // Başlatmadan sonra durum için yukarı kaydırma yapılmaz.
-      expect(find.descendant(of: find.byKey(const ValueKey('scenario-import-request-form')),
-        matching: status), findsOneWidget);
-      response.complete(http.Response.bytes(utf8.encode(jsonEncode(outcome == 'success'
-        ? {'success': true, 'rawResponse': content, 'request': sent}
-        : {'success': false, 'error': 'Kontrollü sunucu hatası'})),
-        outcome == 'success' ? 200 : 503,
-        headers: {'content-type': 'application/json; charset=utf-8'}));
-      await tester.pumpAndSettle();
-      expect(status.hitTestable(), findsOneWidget);
-      if (outcome == 'error') {
-        expect(error.hitTestable(), findsOneWidget);
-        expect(find.text('Kontrollü sunucu hatası'), findsOneWidget);
-      } else {
-        expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, content);
-      }
-      expect(editor(tester), isEmpty);
-      expect(calls, 1);
-      await generationTap(tester, 'scenario-import-request-form');
-      expect(status, findsOneWidget); // Kapalı formda tek kopya ana alandadır.
-      expect(error, outcome == 'error' ? findsOneWidget : findsNothing);
-      expect(calls, 1);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-    });
-  }
-
-  testWidgets('Geçersiz sunucu ham cevabı inceleme için kalır; taslak/graf sessizce değiştirilmez', (tester) async {
-    final service = _GenerationService();
-    await mount(tester, _NoAssets(), generationService: service);
-    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), jsonEncode(example));
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await generationTap(tester, 'scenario-import-validate');
-    final before = editor(tester);
-    final summary = summaryTexts(tester);
-    await fillGeneration(tester);
-    await generationTap(tester, 'scenario-generation-start');
-    const raw = ' \n{bozuk ham cevap\n ';
-    service.jobs.single.answer.completeError(const ScenarioGenerationFailure('Model JSON geçersiz.', rawResponse: raw));
-    await tester.pumpAndSettle();
-    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, raw);
-    expect(find.text('Üretim hatası'), findsOneWidget);
-    expect(editor(tester), before);
-    expect(summaryTexts(tester), summary);
-    expect(service.requests, hasLength(1));
-    expect(service.jobs.single.disposals, 1);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets('HTTP yerel iptali sunucuda doğrulanmış iptal gibi gösterilmez', (tester) async {
-    final service = _GenerationService();
-    await mount(tester, _NoAssets(), generationService: service);
-    await fillGeneration(tester);
-    await generationTap(tester, 'scenario-generation-start');
-    final job = service.jobs.single..localCancelOnly = true..completeOnDispose = false;
-    await generationTap(tester, 'scenario-generation-cancel');
-    expect(find.text('Yerel bekleme durduruldu.'), findsOneWidget);
-    expect(find.textContaining('Sunucudaki model işinin iptali doğrulanmadı'), findsOneWidget);
-    expect(find.text('Üretim iptal edildi.'), findsNothing);
-    job.answer.complete(content);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('scenario-generation-raw')), findsNothing);
-    expect(editor(tester), isEmpty);
-    expect(job.disposals, 1);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets('Üretim iptali ve yeni istekte geç cevap eski taslağı ezmez', (tester) async {
-    final service = _GenerationService();
-    await mount(tester, _NoAssets(), generationService: service);
-    await fillGeneration(tester);
-    await generationTap(tester, 'scenario-generation-start');
-    final first = service.jobs.single..completeOnDispose = false;
-    first.cancelGate = Completer<void>();
-    await generationTap(tester, 'scenario-generation-cancel');
-    expect(first.cancellations, 1);
-    expect(first.disposals, 0);
-    expect(find.text('İptal bekleniyor'), findsOneWidget);
-    first.cancelGate!.complete();
-    await tester.pumpAndSettle();
-    expect(first.disposals, 1);
-    expect(find.text('Üretim iptal edildi.'), findsOneWidget);
-    await generationTap(tester, 'scenario-generation-start');
-    service.jobs.last.answer.complete(content);
-    await tester.pumpAndSettle();
-    first.answer.complete('ESKİ İSTEĞİN GEÇ CEVABI');
-    await tester.pumpAndSettle();
-    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, content);
-    expect(editor(tester), isEmpty);
-    expect(first.disposals, 1);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets('Üretim iptali beklerken F04 kal taslağı korur; çıkış yerel kaynakları bir kez kapatır', (tester) async {
-    final service = _GenerationService();
-
-    await mountRoute(tester, generationService: service);
-    await tap(tester, 'scenario-import-mode-scenario');
-    await fillGeneration(tester);
-    await generationTap(tester, 'scenario-generation-start');
-    final job = service.jobs.single;
-    job.cancelGate = Completer<void>();
-    await generationTap(tester, 'scenario-generation-cancel');
-    await appBarBack(tester);
-    await tap(tester, 'scenario-import-stay');
-    expect(job.disposals, 0);
-    expect(job.cancelGate!.isCompleted, isFalse);
-    expect(requestValue(tester, 'age'), '24');
-    await appBarBack(tester);
-    await tap(tester, 'scenario-import-exit');
-    expect(job.cancellations, 1);
-    expect(job.disposals, 1);
-
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('Üretim ham cevabı 320 piksel büyük yazıda sınırlıdır; bölüm kapanınca kaybolmaz', (tester) async {
-    final service = _GenerationService();
-    await mount(tester, _NoAssets(), generationService: service,
-      size: const Size(320, 800), textScale: 2);
-    await fillGeneration(tester);
-    await generationTap(tester, 'scenario-generation-start');
-    // Bölümü kapatmak işi durdurmaz; iptal ana alanda erişilebilirdir.
-    await generationTap(tester, 'scenario-import-request-form');
-    expect(service.jobs.single.cancellations, 0);
-    expect(find.byKey(const ValueKey('scenario-generation-cancel')), findsOneWidget);
-    final raw = ' \n${List.filled(80, 'Uzun ham cevap').join('\n')}\n ';
-    service.jobs.single.answer.complete(raw);
-    await tester.pumpAndSettle();
-    await generationTap(tester, 'scenario-import-request-form');
-    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, raw);
-    await generationTap(tester, 'scenario-generation-transfer');
-    expect(find.byKey(const ValueKey('scenario-generation-error')), findsOneWidget);
-    expect(editor(tester), isEmpty);
-    await generationTap(tester, 'scenario-import-validate');
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets('Süren hizmette çift geri tek onay açar; kalmak işi korur ve çıkış bir kez kapatır', (tester) async {
-    final service = _GenerationService();
-    await mountRoute(tester, generationService: service);
-    await tap(tester, 'scenario-import-mode-scenario');
-    await fillGeneration(tester);
-    await generationTap(tester, 'scenario-generation-start');
-    final job = service.jobs.single;
-    expect(editor(tester), isEmpty);
-    expect(tester.widget<TextField>(find.byKey(const ValueKey('scenario-request-age'))).readOnly, isTrue);
-    await generationTap(tester, 'scenario-import-request-form');
-    expect(find.byKey(const ValueKey('scenario-generation-cancel')), findsOneWidget);
-    expect(job.cancellations, 0);
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(job.disposals, 0);
-    await appBarBack(tester);
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tap(tester, 'scenario-import-stay');
-    expect(job.cancellations, 0);
-    expect(job.disposals, 0);
-    await generationTap(tester, 'scenario-import-request-form');
-    expect(requestValue(tester, 'age'), '24');
-    await appBarBack(tester);
-    await tap(tester, 'scenario-import-exit');
-    expect(find.byType(ScenarioGraphImportScreen), findsNothing);
-    expect(job.cancellations, 1);
-    expect(job.disposals, 1);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('Graf görüntüleme taslağı terk etmez; ham cevap, düzenlenmiş JSON ve aynı graf korunur', (tester) async {
-    final service = _GenerationService();
-    await mountRoute(tester, generationService: service);
-    await tap(tester, 'scenario-import-mode-scenario');
-    await fillGeneration(tester);
-    await generationTap(tester, 'scenario-generation-start');
-    final raw = ' \n$content\n ';
-    service.jobs.single.answer.complete(raw);
-    await tester.pumpAndSettle();
-    await generationTap(tester, 'scenario-generation-transfer');
-    final edited = jsonDecode(editor(tester)) as Map<String, dynamic>;
-    edited['commonStart'] = '  Ekibin düzenlediği başlangıç  ';
-    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), jsonEncode(edited));
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await generationTap(tester, 'scenario-import-validate');
-    final before = editor(tester);
-    await generationTap(tester, 'scenario-import-view');
-    final graph = tester.widget<ScenarioGraphScreen>(find.byType(ScenarioGraphScreen)).graph;
-    expect(find.byType(AlertDialog), findsNothing);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    await appBarBack(tester);
-    await tap(tester, 'scenario-import-stay');
-    expect(editor(tester), before);
-    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, raw);
-    await generationTap(tester, 'scenario-import-view');
-    expect(tester.widget<ScenarioGraphScreen>(find.byType(ScenarioGraphScreen)).graph, same(graph));
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    await appBarBack(tester);
-    await tap(tester, 'scenario-import-exit');
-    expect(service.jobs.single.disposals, 1);
-  });
-
-  testWidgets('Uzun hizmet ham cevabı sınırlıdır; gerçek kopyalama düğmesi tam ham metni alır', (tester) async {
-    String? copied;
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
-      return null;
-    });
-    addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
-    final service = _GenerationService();
-    await mount(tester, _NoAssets(), generationService: service,
-      size: const Size(320, 800), textScale: 2);
-    await fillGeneration(tester);
-    await generationTap(tester, 'scenario-generation-start');
-    final raw = ' \n${List.filled(80, 'Ham cevabın uzun satırı').join('\n')}\n ';
-    service.jobs.single.answer.complete(raw);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('scenario-import-json')), 'AYRI EDİTÖR TASLAĞI');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
-    await generationTap(tester, 'scenario-generation-copy-raw');
-    expect(copied, raw);
-    expect(copied, isNot(editor(tester)));
-    final bounds = tester.widgetList<ConstrainedBox>(find.ancestor(
-      of: find.byKey(const ValueKey('scenario-generation-raw')), matching: find.byType(ConstrainedBox)));
-    expect(bounds.any((box) => box.constraints.maxHeight == 240), isTrue);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-  for (final formatted in [
-    ('Çitsiz', content),
-    ('Çitli', '```json\n$content\n```'),
-    ('Sarmalı', jsonEncode({'scenarioInput': jsonDecode(content)})),
-    ('Çit ve sarmalayıcı', '```json\n${jsonEncode({'scenarioInput': jsonDecode(content)})}\n```'),
-  ]) {
-    testWidgets('${formatted.$1}: hizmet ham cevabı korunur; yalnız biçim ve istek metadata’sı hazırlanır', (tester) async {
-      final service = _GenerationService();
-      await mount(tester, _NoAssets(), generationService: service);
-      await fillGeneration(tester);
-      await generationTap(tester, 'scenario-generation-start');
-      service.jobs.single.answer.complete(formatted.$2);
-      await tester.pumpAndSettle();
-      expect(editor(tester), isEmpty);
-      await generationTap(tester, 'scenario-generation-transfer');
-      await generationTap(tester, 'scenario-import-validate');
-      final input = ScenarioInput.fromJsonString(editor(tester));
-      expect(input.commonStart, example['commonStart']);
-      expect(input.alternatives.map((a) => a.continuation),
-        (example['alternatives'] as List).map((a) => a['continuation']));
-      expect(input.alternatives.map((a) => a.ending),
-        (example['alternatives'] as List).map((a) => a['ending']));
-      expect(input.behaviorId, 'D02');
-      expect(input.ageMonths, 24);
-      expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, formatted.$2);
-      expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
-      expect(service.requests, hasLength(1));
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-    });
-  }
-
-  for (final invalid in [
-    'Cevap:\n```json\n$content\n```', '```json\n$content\n```\nBitti.',
-    '```json\n$content\n```\n```json\n$content\n```', '```json\n$content',
-    '{"scenarioInput": {"commonStart": "Eksik",}}',
-    '{"scenarioInput": "Metin"}',
-    jsonEncode({'scenarioInput': jsonDecode(content), 'extra': 'Ek'}),
-    jsonEncode({'scenarioInput': {'scenarioInput': jsonDecode(content)}}),
-    '{"commonStart": "Eksik anlatı"}',
-  ]) {
-    testWidgets('Geçersiz hizmet cevabı onarılmaz/tamamlanmaz: $invalid', (tester) async {
-      final service = _GenerationService();
-      await mount(tester, _NoAssets(), generationService: service);
-      await fillGeneration(tester);
-      await generationTap(tester, 'scenario-generation-start');
-      service.jobs.single.answer.complete(invalid);
-      await tester.pumpAndSettle();
-      await generationTap(tester, 'scenario-generation-transfer');
-      await generationTap(tester, 'scenario-import-validate');
-      expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, invalid);
-      expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
-      expect(tester.widget<OutlinedButton>(find.byKey(const ValueKey('scenario-import-view'))).onPressed, isNull);
-      expect(service.requests, hasLength(1));
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-    });
-  }
-
   test('Düzenlenmiş kaynak mevcut sözleşme ve dönüştürücüyle korunur', () {
     final input = ScenarioInput.fromJson({
       ...example,
@@ -971,23 +427,4 @@ void main() {
     expect(graph.validate, returnsNormally);
   });
 
-}
-Future<void> tap(WidgetTester tester, String key, {bool settle = true}) async {
-  final sectionTitle = switch (key) {
-    'scenario-import-format-details' => 'Biçim ve kaynak ayrıntıları',
-    'scenario-import-request-form' => 'Senaryo üretim isteği',
-    _ => null,
-  };
-  final target = sectionTitle == null ? find.byKey(ValueKey(key)) : find.descendant(
-    of: find.byKey(ValueKey(key)), matching: find.text(sectionTitle),
-  );
-  await tester.ensureVisible(target);
-  await tester.tap(target);
-  if (settle) {
-    await tester.pumpAndSettle();
-  } else {
-    await tester.pump();
-    // Açılır bölüm animasyonu; süren modelin progress animasyonunu bekleme.
-    await tester.pump(const Duration(milliseconds: 300));
-  }
 }

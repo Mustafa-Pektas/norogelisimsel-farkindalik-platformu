@@ -6,26 +6,60 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const multer = require('multer');
 const path = require('path');
-const { performance } = require('perf_hooks');
+const { createHash, timingSafeEqual } = require('node:crypto');
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
-
-const retriever = require('./rag/retriever');
-const fsmValidator = require('./validators/fsm_validator');
-const benchmarkService = require('./services/benchmark_service');
-const { generateText } = require('./gemini_text');
+const { generateText, generateTextWithUsage } = require('./gemini_text');
 const { createScenarioInputHandler, defaultCardsPath } = require('./scenario_input_generation');
+const { createGenerationCapacity } = require('./generation_capacity');
 
-// .env yapılandırmasını yükle
-dotenv.config({ path: path.join(__dirname, '.env') });
-dotenv.config();
+function createApp({ env = process.env, generate = generateTextWithUsage, genAI: injectedGenAI, generationTimers,
+  reportMeasurement } = {}) {
+const mode = env.BACKEND_MODE || 'development';
+if (!['development', 'deployment'].includes(mode)) {
+  throw new Error('BACKEND_MODE development veya deployment olmalıdır.');
+}
+const deployment = mode === 'deployment';
+const capacity = deployment ? createGenerationCapacity(env.GENERATION_MAX_CONCURRENT) : null;
+let teamKeyHash;
+if (deployment) {
+  if (typeof env.TEAM_ACCESS_KEY !== 'string' || !/^[\x21-\x7e]+$/.test(env.TEAM_ACCESS_KEY)) {
+    throw new Error('Deployment için TEAM_ACCESS_KEY boş olmayan, boşluksuz bir erişim anahtarı olmalıdır.');
+  }
+  teamKeyHash = createHash('sha256').update(env.TEAM_ACCESS_KEY).digest();
+}
 
 const app = express();
-const port = process.env.PORT || 8000;
 
 // Middleware
+if (deployment) {
+  // Ayrıştırıcı ve upload/sağlayıcı yollarından önce kapatılır.
+  app.use((req, res, next) => {
+    const allowed = (req.path === '/health' && ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) ||
+      (['/api/generate-scenario-input', '/api/generate-clip-plan', '/api/compare-scenario'].includes(req.path) &&
+        ['POST', 'OPTIONS'].includes(req.method));
+    if (!allowed) return res.status(404).json({ success: false, error: 'Endpoint bu çalışma modunda açık değil.' });
+    next();
+  });
+}
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+if (deployment) {
+  app.use((req, res, next) => {
+    if (req.path === '/health' || req.method === 'OPTIONS') return next();
+    const authorization = req.get('authorization');
+    const match = typeof authorization === 'string' ? /^Bearer ([^\s]+)$/i.exec(authorization) : null;
+    // Sabit boyutlu hash'ler: uzunluk farkında erken secret karşılaştırması yapılmaz.
+    const received = createHash('sha256').update(match ? match[1] : '').digest();
+    const valid = timingSafeEqual(teamKeyHash, received);
+    if (!match || !valid) {
+      res.set('WWW-Authenticate', 'Bearer');
+      return res.status(401).json({ success: false, code: 'team_access_required',
+        error: 'Ekip erişimi doğrulanamadı. Oturum erişim anahtarını kontrol edin.' });
+    }
+    next();
+  });
+}
+app.use(express.json({ limit: deployment ? '1mb' : '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: deployment ? '1mb' : '50mb' }));
 
 // Multer (Video yüklemeleri için bellekte tutucu)
 const upload = multer({
@@ -34,41 +68,29 @@ const upload = multer({
 });
 
 // Gemini İstemcisi
-const rawKey = (process.env.GEMINI_API_KEY || '').trim();
+const rawKey = (env.GEMINI_API_KEY || '').trim();
 const apiKey = rawKey.replace(/^["']|["']$/g, '').trim();
 const hasApiKey = Boolean(apiKey && !apiKey.includes('BURAYA_GEMINI') && apiKey.length > 15);
-const genAI = hasApiKey ? new GoogleGenerativeAI(apiKey) : null;
+const genAI = injectedGenAI ?? (hasApiKey ? new GoogleGenerativeAI(apiKey) : null);
 
 // ==========================================
 // 1. SAĞLIK KONTROLÜ (HEALTH CHECK)
 // ==========================================
 app.get('/health', (req, res) => {
+  if (deployment) {
+    return res.json({ status: 'online', service: 'Nörogelişimsel Farkındalık Platformu API',
+      timestamp: new Date().toISOString() });
+  }
   res.json({
     status: 'online',
     service: 'Nörogelişimsel Farkındalık Platformu API',
     geminiConfigured: hasApiKey,
     message: hasApiKey
-      ? 'Gemini API ve 26 Sahneli Veo Motoru hazır ve bağlı.'
-      : 'API anahtarı henüz girilmedi (.env dosyasını kontrol edin).',
+      ? 'API anahtarı tanımlı; model erişimi ve çıktı doğruluğu henüz sınanmış sayılmaz.'
+      : 'Üretim sağlayıcısı yapılandırılmadı.',
     timestamp: new Date().toISOString(),
   });
 });
-
-// ==========================================
-// 1.5. KARAR AĞACI ANLATI VE KLİP PLANI MOTORU (MERT ENTEGRASYONU)
-// ==========================================
-app.post('/api/generate-scenario-input', createScenarioInputHandler({
-  generate: genAI ? (model, prompts, options) => generateText(genAI, model, prompts, options) : null,
-  modelName: (process.env.SCENARIO_INPUT_MODEL || 'gemini-3.5-flash-lite').trim(),
-  cardsPath: process.env.BEHAVIOR_CARDS_PATH || defaultCardsPath,
-}));
-
-app.post('/api/generate-clip-plan', createScenarioInputHandler({
-  clipPlan: true,
-  generate: genAI ? (model, prompts, options) => generateText(genAI, model, prompts, options) : null,
-  modelName: (process.env.SCENARIO_INPUT_MODEL || 'gemini-3.5-flash-lite').trim(),
-  cardsPath: process.env.BEHAVIOR_CARDS_PATH || defaultCardsPath,
-}));
 
 // ==========================================
 // 2. 26 SAHNELİK VEO / ADOS-2 SENARYO MOTORU
@@ -109,9 +131,7 @@ const ONTOLOGIES = {
 
 const RISK_PROFILES = {
   'TİPİK': 'Çağrıya 0-2 sn içinde bakış, sosyal gülümseme, göz teması, paylaşımlı oyun.',
-  'TIPIK': 'Çağrıya 0-2 sn içinde bakış, sosyal gülümseme, göz teması, paylaşımlı oyun.',
   'ATİPİK': 'Çağrıya 3+ sn gecikme veya tepkisizlik, sınırlı göz teması, nesneye odaklı tekrarlayan oyun.',
-  'ATIPIK': 'Çağrıya 3+ sn gecikme veya tepkisizlik, sınırlı göz teması, nesneye odaklı tekrarlayan oyun.',
   'SINIRDA': 'Tepkiler tutarsız: bazı denemelerde yanıt, bazılarında gecikme.',
 };
 
@@ -168,50 +188,23 @@ const scenarioSchema = {
   required: ['title', 'summary', 'scenes', 'assessment'],
 };
 
-function buildPrompts({ arm = 'B', ageMonths, childName, ontologyCodes, riskProfile, materials, variation }) {
+function buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation }) {
   const ontList = ontologyCodes.map((c) => `- ${c}: ${ONTOLOGIES[c] || c}`).join('\n');
   const riskKey = (riskProfile || 'ATİPİK').toUpperCase();
 
-  // Ortak Sabit Blok (Ek B) - Her 3 kola da harfi harfine eşit olarak verilir
-  const commonStaticBlock = `[ORTAK SİNEMATİK VE ORTAM KİLİDİ]
-${CHARACTER}`;
+  const system = `Sen çocuk nörogelişimi (ADOS-2 Toddler / M-CHAT-R/F) ve Google Veo / Sora video üretim parametreleri konusunda uzmanlaşmış kıdemli bir klinik simülasyon ve görsel yönetmenisin.
+Çıktın doğrudan Google Veo ile fotogerçekçi klinik eğitim videoları üretiminde kullanılacak. Videolarda sıfır bozulma (no morphing), kusursuz anatomi, sabit kamera açısı ve tam nörogelişimsel davranış doğruluğu şarttır.
 
-  let clinicalSection = '';
-  let retrievalInfo = null;
-
-  if (arm === 'B') {
-    // Kol B: Vaka bazlı seçici kural enjeksiyonu
-    retrievalInfo = retriever.timedRetrieval({
-      behaviorCode: ontologyCodes[0],
-      ageMonths,
-      riskProfile: riskKey,
-    });
-    clinicalSection = `\n${retrievalInfo.ruleText}\n`;
-  } else if (arm === 'C') {
-    // Kol C: Tüm bilgi tabanı (10 kart ve yaş tablosu)
-    const full = retriever.getFullContext();
-    clinicalSection = `\n${full.fullText}\n`;
-  }
-  // Kol A (Baseline): clinicalSection boş kalır.
-
-  const system = `Sen çocuk nörogelişimi (Davranış Kartları v02 standartları) ve Google Veo video üretim parametreleri konusunda uzmanlaşmış bir simülasyon yönetmenisin.
-Çıktın doğrudan Google Veo ile fotogerçekçi eğitim videoları üretiminde kullanılacak. Videolarda sıfır bozulma (no morphing), sabit kamera açısı ve tam nörogelişimsel davranış doğruluğu şarttır.
-
-${commonStaticBlock}
-${clinicalSection}
 Kurallar:
-- "summary" alanına tüm 3.5 dakikalık senaryoyu anlatan, tutarlı ve akıcı bir Türkçe özet yaz (120-180 kelime).
+- "summary" alanına tüm 3.5 dakikalık senaryoyu anlatan, klinik olarak tutarlı, akıcı bir Türkçe özet yaz (120-180 kelime).
 - Tam ${SCENE_COUNT} sahne üret. Fazlar sırayla: TABAN (6 sahne), UYARAN (11 sahne), KAPANIS (9 sahne).
 - "videoPrompt": İngilizce yazılır. Yalnızca kamerada doğrudan görünen fiziksel mikrodavranışı, vücut postürünü, el/parmak hareketini, bakış yönünü (göz bebeği odağı), baş açısını (Yaw/Pitch) ve nesne manipülasyonunu yüksek detayla tarif et.
   * Tıbbi tanı kelimeleri ("autistic", "atypical", "delay") KULLANMA. Bunun yerine somut davranışı anlat ("keeps rolling the wheel forward, head stays stationary at Yaw 0°, eyes fixated on the spinning axle, ignoring the auditory stimulus").
   * Kamera hareket etmez (static locked tripod), lens açısı sabittir.
   * Her 8 saniyelik klipte net bir mikro zaman akışı belirt: "Seconds 0-4: ... Seconds 4-8: ..."
-- "startState" ve "endState" KESİN FSM SÜREKLİLİK KURALI:
-  * Sahne 1'in startState'i çocuğun ilk duruşudur.
-  * Her sonraki sahnenin (Sahne N) "startState" değeri, bir önceki sahnenin (Sahne N-1) "endState" metni ile KELİMESİ KELİMESİNE BİREBİR AYNI olmalıdır (scenes[i].startState === scenes[i-1].endState). 
-  * Asla bağımsız yeni bir duruş yazma; önceki sahnenin son karesi bir sonrakinin ilk karesidir. Örneğin Sahne 1'in endState'i "Child sitting, holding red car, eyes fixed on wheels" ise Sahne 2'nin startState'i BİREBİR "Child sitting, holding red car, eyes fixed on wheels" olmalıdır. Bu kural 26 sahnenin tamamında zincirleme korunmalıdır.
+- "startState" ve "endState": Sahnenin ilk ve son karesindeki net fiziksel duruşu tarif et (Sahne N'in startState'i, Sahne N-1'in endState'i ile süreklilik sağlar).
 - "dialogue": Varsa konuşulan cümle (en fazla 1 cümle). "speaker": 'ADULT' veya 'CHILD'.
-- "clinical": note (Türkçe klinik gözlem ve kriter notu), latencySeconds (varsa tepki süresi sn cinsinden sayı, yoksa null), atypical (boolean).
+- "clinical": note (Türkçe klinik gözlem ve ADOS-2 kriteri notu), latencySeconds (varsa tepki süresi sn cinsinden), atypical (boolean).
 - summary ve clinical.note Türkçe, videoPrompt ve durumlar İngilizce yazılır.`;
 
   const user = `${ageMonths} aylık ${childName} için senaryo üret.
@@ -219,10 +212,9 @@ Hedef davranışlar:
 ${ontList}
 Risk profili: ${riskKey} → ${RISK_PROFILES[riskKey] || RISK_PROFILES['ATİPİK']}
 Materyal: ${materials}
-Çeşitlilik tohumu: ${variation}
-Deney Kolu: ${arm}`;
+Çeşitlilik tohumu: ${variation}`;
 
-  return { system, user, retrievalInfo };
+  return { system, user };
 }
 
 const mmss = (sec) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
@@ -261,39 +253,39 @@ function buildVeoPrompt(sc, name = 'the child') {
 }
 
 async function generateOnce(genAI, modelName, prompts) {
-  const model = genAI.getGenerativeModel({
-    model: modelName,
-    systemInstruction: prompts.system,
-    generationConfig: {
-      temperature: 0.2,
-      topP: 0.95,
-      maxOutputTokens: 16384,
-      responseMimeType: 'application/json',
-      responseSchema: scenarioSchema,
-    },
-  });
-
-  const tStart = performance.now();
-  const result = await model.generateContent(prompts.user);
-  const tEnd = performance.now();
-  const latencyApiMs = Math.round(tEnd - tStart);
-
-  const rawJson = JSON.parse(result.response.text());
-  const usage = result.response.usageMetadata || {};
-
-  return {
-    rawJson,
-    latencyApiMs,
-    promptTokens: usage.promptTokenCount || 0,
-    outputTokens: usage.candidatesTokenCount || 0,
-  };
+  const raw = await generateText(genAI, modelName, prompts,
+    { schema: scenarioSchema, maxOutputTokens: 16384 });
+  return JSON.parse(raw);
 }
+
+// Anlatı girdisi üretir; 26 sahne endpoint'inden bağımsızdır, graf üretmez.
+app.post('/api/generate-scenario-input', createScenarioInputHandler({
+  capacity, reportMeasurement, ...(generationTimers ? { timers: generationTimers } : {}),
+  generate: genAI ? (model, prompts, options) => generate(genAI, model, prompts, options) : null,
+  modelName: (env.SCENARIO_INPUT_MODEL || '').trim(),
+  cardsPath: env.BEHAVIOR_CARDS_PATH || defaultCardsPath,
+}));
+
+// Dalları/kimlikleri koruyan plan; doğrusal 26 sahne yolunu kullanmaz.
+app.post('/api/generate-clip-plan', createScenarioInputHandler({
+  capacity, reportMeasurement, ...(generationTimers ? { timers: generationTimers } : {}),
+  clipPlan: true,
+  generate: genAI ? (model, prompts, options) => generate(genAI, model, prompts, options) : null,
+  modelName: (env.SCENARIO_INPUT_MODEL || '').trim(),
+  cardsPath: env.BEHAVIOR_CARDS_PATH || defaultCardsPath,
+}));
+
+// Ekip A/B/C deneyi: aynı Bearer/gövde/kapasite/timeout sınırları; tek kol = en fazla bir çağrı.
+app.post('/api/compare-scenario', createScenarioInputHandler({
+  comparison: true, capacity, reportMeasurement, ...(generationTimers ? { timers: generationTimers } : {}),
+  generate: genAI ? (model, prompts, options) => generate(genAI, model, prompts, options) : null,
+  modelName: (env.SCENARIO_INPUT_MODEL || '').trim(),
+  cardsPath: env.BEHAVIOR_CARDS_PATH || defaultCardsPath,
+}));
 
 app.post('/api/generate-scenario', async (req, res) => {
   try {
     const {
-      arm = 'B', // 'A' (Baseline), 'B' (Kural Enj.), 'C' (Full-Context)
-      caseId = null,
       ageMonths = 24,
       childName = 'Deniz',
       riskProfile = 'ATİPİK',
@@ -301,133 +293,50 @@ app.post('/api/generate-scenario', async (req, res) => {
       materials = 'Kırmızı ahşap araba ve kayın bloklar',
     } = req.body;
 
-    const normalizedArm = ['A', 'B', 'C'].includes(String(arm).toUpperCase()) ? String(arm).toUpperCase() : 'B';
-
-    console.log(`[*] Senaryo isteği: Kol ${normalizedArm}, ${ageMonths} Ay, ${childName}, ${ontologyCodes.join('+')}, ${riskProfile}`);
+    console.log(`[*] Senaryo isteği: ${ageMonths} Ay, ${childName}, ${ontologyCodes.join('+')}, ${riskProfile}`);
 
     if (!hasApiKey || !genAI) {
       return res.status(400).json({ success: false, error: 'Gemini API anahtarı ayarlanmamış.' });
     }
 
     const variation = req.body.variation || Math.random().toString(36).slice(2, 8);
-    const prompts = buildPrompts({ arm: normalizedArm, ageMonths, childName, ontologyCodes, riskProfile, materials, variation });
-    const models = ['gemini-3.5-flash-lite'];
+    const prompts = buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation });
+    const models = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
     let lastErr;
 
     for (const m of models) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          console.log(`[*] Model deneniyor: ${m} (Kol ${normalizedArm}, deneme ${attempt + 1})...`);
-          const { rawJson, latencyApiMs, promptTokens, outputTokens } = await generateOnce(genAI, m, prompts);
-          const errors = validate(rawJson);
+          console.log(`[*] Model deneniyor: ${m} (deneme ${attempt + 1})...`);
+          const raw = await generateOnce(genAI, m, prompts);
+          const errors = validate(raw);
           if (errors.length) {
             lastErr = new Error(errors.join('; '));
             console.warn(`[!] ${m} doğrulama hatası:`, errors);
             continue;
           }
-          const scenario = finalize(rawJson);
+          const scenario = finalize(raw);
           scenario.scenes.forEach((sc) => {
             sc.veoPrompt = buildVeoPrompt(sc);
           });
-
-          // Otomatik FSM ve metrik doğrulaması
-          const validation = fsmValidator.validateFullScenario(scenario, {
-            riskProfile,
-            expectedAtypicalMin: prompts.retrievalInfo?.expectedAtypicalDelayMin || 2.5,
-            expectedTypicalMax: prompts.retrievalInfo?.expectedTypicalDelayMax || 2.0,
-          });
-
-          // Benchmark kaydı oluştur (JSONL satır ekleme)
-          const benchmarkRecord = benchmarkService.recordBenchmarkEntry({
-            arm: normalizedArm,
-            caseId: caseId || `vaka_${ageMonths}ay_${ontologyCodes[0]}`,
-            behaviorCode: ontologyCodes[0],
-            ageMonths,
-            riskProfile,
-            modelVersion: m,
-            promptTokens,
-            outputTokens,
-            latencyApiMs,
-            retrievalMs: prompts.retrievalInfo?.retrievalDurationMs || 0,
-            retryCount: attempt,
-            schemaValid: validation.schemaValid,
-            fsmMatchRate: validation.fsmMatchRate,
-            deltaTCompliant: validation.deltaTCompliant,
-            envKeywordPass: validation.envKeywordPass,
-          });
-
-          console.log(`[OK] Kol ${normalizedArm} senaryosu 26 sahne ile başarıyla üretildi (${m}, ${latencyApiMs} ms, FSM: %${Math.round(validation.fsmMatchRate * 100)})!`);
-
+          console.log(`[OK] Senaryo 26 sahne ile başarıyla üretildi (${m})!`);
           return res.json({
             success: true,
-            arm: normalizedArm,
             model: m,
-            benchmark: benchmarkRecord,
-            validation,
             scenario,
-            metadata: {
-              ageMonths,
-              ontologyCodes,
-              riskProfile,
-              variation,
-              retrieval: prompts.retrievalInfo
-                ? {
-                    cardId: prompts.retrievalInfo.cardId,
-                    bandLabel: prompts.retrievalInfo.bandLabel,
-                    durationMs: prompts.retrievalInfo.retrievalDurationMs,
-                  }
-                : null,
-            },
+            metadata: { ageMonths, ontologyCodes, riskProfile, variation },
           });
         } catch (e) {
           console.warn(`[!] [${m}] hata:`, e.message);
           lastErr = e;
-
-          // Kota (429) durumunda asla tekrar deneme yapma, kotayı tüketmemek için hemen dur
-          if (e.message.includes('429') || e.message.includes('quota') || e.message.includes('Quota')) {
-            break;
-          }
-
-          // Geçici ağ kopması (fetch failed) veya 503 yoğunluğunda tek seferlik 2 sn bekle ve tekrar dene
-          if (attempt === 0 && (e.message.includes('503') || e.message.includes('demand') || e.message.includes('fetch failed'))) {
-            console.log('[*] Google API geçici ağ/503 uyarısı, 2 sn sonra tek seferlik denenecek...');
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-          } else {
-            break;
-          }
         }
       }
     }
 
-    let cleanErrMsg = lastErr?.message || 'Senaryo üretilemedi.';
-    if (cleanErrMsg.includes('429') || cleanErrMsg.includes('quota') || cleanErrMsg.includes('Quota')) {
-      const match = cleanErrMsg.match(/retry in ([0-9.]+)s/i) || cleanErrMsg.match(/retryDelay"?:\s*"([0-9]+)s/i);
-      const sec = match && match[1] ? Math.ceil(parseFloat(match[1])) : 20;
-      if (cleanErrMsg.includes('PerMinute')) {
-        cleanErrMsg = `Google API dakikalık istek sınırına (15 istek/dk) ulaşıldı. Lütfen ${sec} saniye bekleyip tekrar deneyin.`;
-      } else if (cleanErrMsg.includes('PerDay')) {
-        cleanErrMsg = `Google API bu model için günlük ücretsiz kota sınırına ulaştı.`;
-      } else {
-        cleanErrMsg = `Google API kota sınırı (429). Lütfen ${sec} saniye bekleyip tekrar deneyin.`;
-      }
-    } else if (cleanErrMsg.includes('503') || cleanErrMsg.includes('demand')) {
-      cleanErrMsg = 'Google API sunucuları anlık olarak yoğun (503). Lütfen 5 saniye sonra tekrar deneyin.';
-    }
-
-    res.status(500).json({ success: false, error: cleanErrMsg });
+    res.status(500).json({ success: false, error: lastErr?.message || 'Senaryo üretilemedi.' });
   } catch (error) {
     console.error('[!] API Hata:', error);
     res.status(500).json({ success: false, error: error.message || 'Sunucu hatası' });
-  }
-});
-
-// Benchmark istatistiklerini dönen uç nokta
-app.get('/api/benchmark/stats', (req, res) => {
-  try {
-    const stats = benchmarkService.getBenchmarkStats();
-    res.json({ success: true, stats });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -506,12 +415,11 @@ Lütfen cevabını SADECE ve SADECE aşağıdaki JSON formatında ver (başka hi
       const jsonStr = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
       parsedData = JSON.parse(jsonStr);
     } catch (e) {
-      console.warn('[!] JSON parse uyarısı, ham metin döndürülüyor:', e.message);
-      parsedData = {
-        summary: rawResponse,
-        overallLevel: 'yellow',
-        findings: [],
-      };
+      console.warn('[!] Analiz yanıtı geçerli JSON değil.');
+      return res.status(502).json({
+        success: false,
+        error: 'Analiz yanıtı geçerli JSON değildi; sonuç üretilmedi.',
+      });
     }
 
     res.json({
@@ -527,7 +435,27 @@ Lütfen cevabını SADECE ve SADECE aşağıdaki JSON formatında ver (başka hi
   }
 });
 
-// Sunucuyu başlat
+app.use((error, req, res, next) => {
+  if (error.type === 'entity.too.large') {
+    return res.status(413).json({ success: false, error: 'İstek gövdesi boyut sınırını aşıyor.' });
+  }
+  if (error.type === 'entity.parse.failed') {
+    return res.status(400).json({ success: false, error: 'İstek geçerli JSON olmalıdır.' });
+  }
+  next(error);
+});
+return app;
+}
+
+module.exports = { createApp };
+
+// Modül testlerde yalnız uygulamayı oluşturur; dosya okumaz veya port açmaz.
+if (require.main === module) {
+dotenv.config({ path: path.join(__dirname, '.env') });
+dotenv.config();
+const app = createApp();
+const port = process.env.PORT || 8000;
+const deployment = process.env.BACKEND_MODE === 'deployment';
 const os = require('os');
 function getLocalIps() {
   const nets = os.networkInterfaces();
@@ -553,7 +481,7 @@ app.listen(port, '0.0.0.0', () => {
       console.log(`📶 Gerçek Telefon (${item.name}): http://${item.ip}:${port}`);
     });
   }
-  console.log(`🔑 Gemini Durumu:              ${hasApiKey ? '✅ Bağlı' : '⚠️ API Anahtarı Eksik'}`);
-  console.log(`🎬 Veo Kurgusu:               26 Sahne x 8 Sn = 3.5 Dakika`);
+  console.log(`Çalışma modu: ${deployment ? 'deployment' : 'development'}`);
   console.log('====================================================');
 });
+}

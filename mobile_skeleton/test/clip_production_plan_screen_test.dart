@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -77,6 +76,9 @@ void main() {
     pending.complete(planText);
     await tester.pumpAndSettle();
     expect(find.text('Elle hazırlanmış üretim planıdır; video veya gözlem kanıtı değildir'), findsOneWidget);
+    expect(find.textContaining('“Grafı dene” kontrolü yalnız debug derlemesinde görünür'), findsOneWidget);
+    expect(find.textContaining('Bu görünürlük kullanıcı yetkilendirmesi değildir'), findsOneWidget);
+    expect(find.textContaining('Normal release sürümünde Stüdyo girişi bulunmaz'), findsNothing);
     expect(find.text('Ortak sahneler · iki dal için tek kez'), findsOneWidget);
     expect(find.text('Alternatif: A · Yönelme'), findsOneWidget);
     expect(find.text('Alternatif: B · Oyuna devam'), findsOneWidget);
@@ -90,6 +92,81 @@ void main() {
     final sequence = plan.clipsForScene('yetiskine_yonelme');
     expect(tester.getTopLeft(find.byKey(ValueKey('production-clip:${sequence.first.id}'))).dy,
         lessThan(tester.getTopLeft(find.byKey(ValueKey('production-clip:${sequence.last.id}'))).dy));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Sahne ve klip sayıları ayrıdır; dallı plan süresini her yol için hedeften ayrı gösterir', (tester) async {
+    final durationGraph = ScenarioGraph(
+      schemaVersion: '1.0', scenarioId: 'multi-duration', title: 'Çok yollu plan', language: 'tr',
+      ageMonths: 31, behaviorId: 'D02', cardVersion: '0.2', startSceneId: 'start',
+      scenes: [
+        ScenarioScene(id: 'start', title: 'Ortak', description: 'Ortak sahne.'),
+        ScenarioScene(id: 'a', title: 'A yolu', description: 'A devamı.'),
+        ScenarioScene(id: 'b', title: 'B yolu', description: 'B devamı.'),
+      ],
+      transitions: [
+        ScenarioTransition(fromSceneId: 'start', toSceneId: 'a', label: 'Alternatif A', description: 'A açıklaması.'),
+        ScenarioTransition(fromSceneId: 'start', toSceneId: 'b', label: 'Alternatif B', description: 'B açıklaması.'),
+      ],
+      endSceneIds: ['a', 'b'],
+    );
+    List<PlannedClip> clips(String sceneId, int total) {
+      final result = <PlannedClip>[];
+      var remaining = total;
+      while (remaining > 0) {
+        final duration = remaining > 8 ? 8 : remaining;
+        result.add(PlannedClip(id: '$sceneId-${result.length + 1}', sceneId: sceneId,
+          orderInScene: result.length + 1, targetDurationS: duration.toDouble(),
+          plannedAction: 'Planlanan eylem.', initialState: 'Başlangıç.', finalState: 'Bitiş.',
+          productionPrompt: 'Üretim yönergesi.'));
+        remaining -= duration;
+      }
+      return result;
+    }
+    final durationPlan = ScenarioClipPlan(schemaVersion: '1.0', planId: 'duration-plan',
+      scenarioId: durationGraph.scenarioId, authoringNote: 'İncelenmemiş plan.',
+      continuityNotes: 'Süreklilik önerisi.', clips: [
+        ...clips('start', 8), ...clips('a', 194), ...clips('b', 186),
+      ]);
+    final source = {'source': 'test', 'request': {'production': {'targetDurationS': 210, 'maxClipDurationS': 8}}};
+    await tester.pumpWidget(_app(_PlanBundle(read), home: ClipProductionPlanScreen(
+      providedPlan: (graph: durationGraph, plan: durationPlan), sourceContext: source,
+      videoStore: _EmptyVideoStore())));
+    await tester.pumpAndSettle();
+    expect(find.text('3 sahne · 50 klip kaydı · zorunlu klip üst sınırı 8 sn'), findsOneWidget);
+    expect(find.textContaining('Dalların süreleri birbirine eklenmez.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('clip-plan-duration-target')), findsOneWidget);
+    final paths = find.byKey(const ValueKey('clip-plan-path-durations'));
+    await tester.ensureVisible(paths); await tester.tap(paths); await tester.pumpAndSettle();
+    expect(find.textContaining('Planlanan yol toplamı: 202 sn · hedef 210 sn · fark −8 sn'), findsOneWidget);
+    expect(find.textContaining('Planlanan yol toplamı: 194 sn · hedef 210 sn · fark −16 sn'), findsOneWidget);
+    expect(find.textContaining('388 sn'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('26 sahne ve 26 klip ayrı sayılır; 210 sn hedefe karşı 202 sn plan ve −8 sn fark gösterilir', (tester) async {
+    final linearGraph = ScenarioGraph(schemaVersion: '1.0', scenarioId: 'linear-26-duration',
+      title: 'Doğrusal örnek', language: 'tr', ageMonths: 31, behaviorId: 'D02', cardVersion: '0.2',
+      startSceneId: 's1', scenes: [for (var i = 1; i <= 26; i++)
+        ScenarioScene(id: 's$i', title: 'Sahne $i', description: 'Planlanan sahne $i.')],
+      transitions: [for (var i = 1; i < 26; i++) ScenarioTransition(
+        fromSceneId: 's$i', toSceneId: 's${i + 1}', description: 'Sıradaki sahne.')],
+      endSceneIds: ['s26']);
+    final linearPlan = ScenarioClipPlan(schemaVersion: '1.0', planId: 'linear-26-plan',
+      scenarioId: linearGraph.scenarioId, authoringNote: 'İncelenmemiş plan.', continuityNotes: 'Süreklilik önerisi.',
+      clips: [for (var i = 1; i <= 26; i++) PlannedClip(id: 'clip-$i', sceneId: 's$i',
+        orderInScene: 1, targetDurationS: i == 26 ? 2 : 8, plannedAction: 'Planlanan eylem.',
+        initialState: 'Başlangıç.', finalState: 'Bitiş.', productionPrompt: 'Üretim yönergesi.')]);
+    await tester.pumpWidget(_app(_PlanBundle(read), home: ClipProductionPlanScreen(
+      providedPlan: (graph: linearGraph, plan: linearPlan),
+      sourceContext: {'request': {'production': {'targetDurationS': 210, 'maxClipDurationS': 8}}},
+      videoStore: _EmptyVideoStore())));
+    await tester.pumpAndSettle();
+    expect(find.text('26 sahne · 26 klip kaydı · zorunlu klip üst sınırı 8 sn'), findsOneWidget);
+    final total = find.textContaining('Planlanan yol toplamı: 202 sn · hedef 210 sn · fark −8 sn');
+    await tester.ensureVisible(total);
+    expect(total, findsOneWidget);
+    expect(find.textContaining('208 sn'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -140,23 +217,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Debug Stüdyo girişi üretim planını açar ve yetkilendirme olmadığını belirtir', (tester) async {
+  testWidgets('Mevcut Stüdyo girişi D01 grafına bağlı klip üretim planını açar', (tester) async {
     final previousPaths = PathProviderPlatform.instance;
     PathProviderPlatform.instance = _NoDeviceDirectories();
     addTearDown(() => PathProviderPlatform.instance = previousPaths);
-    expect(kDebugMode, isTrue); // Widget testi debug; gerçek release derlemesi değildir.
-    await tester.pumpWidget(_app(_PlanBundle(read), home: const SyntheticVideoStudioScreen()));
+    final reads = <String>[];
+    await tester.pumpWidget(_app(_PlanBundle((key) async {
+      reads.add(key);
+      return read(key);
+    }), home: const SyntheticVideoStudioScreen()));
     await tester.pumpAndSettle();
     final entry = find.byKey(const ValueKey('open-clip-production-plan'));
-    expect(find.text('Hazır D01 örneği'), findsOneWidget);
-    expect(find.text('D01 klipleri ve video eşleme'), findsOneWidget);
+    expect(entry, findsOneWidget);
+    expect(tester.widget<ListTile>(entry).onTap, isNotNull);
+    expect(find.descendant(of: entry,
+      matching: find.text('Hazır D01 klip planı ve video eşleme')), findsOneWidget);
+    expect(reads, isEmpty);
     await tester.ensureVisible(entry);
     await tester.tap(entry);
     await tester.pumpAndSettle();
     expect(find.byType(ClipProductionPlanScreen), findsOneWidget);
-    expect(find.textContaining('gerçek kullanıcı yetkilendirmesi değildir'), findsOneWidget);
+    final screen = tester.widget<ClipProductionPlanScreen>(find.byType(ClipProductionPlanScreen));
+    expect(screen.graphAssetPath, ClipProductionPlanScreen.d01GraphAssetPath);
+    expect(screen.planAssetPath, ClipProductionPlanScreen.d01PlanAssetPath);
+    expect(reads, [ClipProductionPlanScreen.d01GraphAssetPath,
+      ClipProductionPlanScreen.d01PlanAssetPath]);
+    expect(plan.scenarioId, graph.scenarioId);
     expect(find.textContaining('Video eşlemeleri okunamadı.'), findsOneWidget);
-    expect(find.byKey(const ValueKey('clip-scene:oyuncakla_oyun')), findsOneWidget);
+    for (final scene in graph.scenes) {
+      expect(find.byKey(ValueKey('clip-scene:${scene.id}')), findsOneWidget);
+    }
     expect(tester.takeException(), isNull);
   });
 

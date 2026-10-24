@@ -17,6 +17,11 @@ abstract interface class ScenarioGenerationJob {
   Future<void> dispose();
 }
 
+/// Varsa gerçekten dönen sağlayıcı/ölçüm bilgisi; eski kontrollü işler bunu uydurmaz.
+abstract interface class ScenarioGenerationMetadataJob {
+  Map<String, dynamic>? get metadata;
+}
+
 class UnavailableScenarioGenerationService implements ScenarioGenerationService {
   const UnavailableScenarioGenerationService();
   @override
@@ -30,9 +35,10 @@ class UnavailableScenarioGenerationService implements ScenarioGenerationService 
 
 /// İncelenebilir ham cevap hatada da korunabilir; başarılı üretim sayılmaz.
 class ScenarioGenerationFailure implements Exception {
-  const ScenarioGenerationFailure(this.message, {this.rawResponse});
+  const ScenarioGenerationFailure(this.message, {this.rawResponse, this.measurement});
   final String message;
   final String? rawResponse;
+  final Map<String, dynamic>? measurement;
   @override
   String toString() => message;
 }

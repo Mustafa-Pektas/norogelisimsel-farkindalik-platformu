@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_request.dart';
+import 'package:neuro_awareness_app/models/scenario_generation_result.dart';
 import 'package:neuro_awareness_app/services/http_scenario_generation_service.dart';
 import 'package:neuro_awareness_app/services/scenario_generation_service.dart';
 import 'package:neuro_awareness_app/services/server_api_service.dart';
@@ -37,7 +38,7 @@ void main() {
   })}\n ';
   Map<String, Object?> envelope() => {
     'success': true, 'rawResponse': raw, 'request': request.toJson(),
-    'validation': 'structure_only',
+    'validation': 'structure_only', 'outputContract': ScenarioGenerationResult.contract,
   };
   HttpScenarioGenerationService service(_Http client, {Duration timeout = const Duration(seconds: 100)}) =>
       HttpScenarioGenerationService(clientFactory: () => client,
@@ -77,7 +78,7 @@ void main() {
     expect(client.closes, 1);
   });
 
-  for (final mode in ['bad-json', 'bad-content', 'metadata', 'http', 'transport']) {
+  for (final mode in ['bad-json', 'bad-content', 'metadata', 'protocol', 'http', 'transport']) {
     test('HTTP $mode: hata; şablon/başarı/tekrar yok', () async {
       final client = _Http();
       final job = service(client).start(request);
@@ -90,6 +91,8 @@ void main() {
           client.reply.complete(response({...envelope(), 'rawResponse': '{"commonStart":"Eksik"}'}));
         case 'metadata':
           client.reply.complete(response({...envelope(), 'request': {...request.toJson(), 'ageMonths': 30}}));
+        case 'protocol':
+          client.reply.complete(response({...envelope(), 'outputContract': 'scenario-input-narrative-v2'}));
         case 'http':
           client.reply.complete(response({'success': false, 'error': 'Yapılandırma eksik'}, status: 503));
         case 'transport':

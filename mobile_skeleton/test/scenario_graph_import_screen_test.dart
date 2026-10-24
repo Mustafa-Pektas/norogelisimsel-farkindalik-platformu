@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:neuro_awareness_app/models/behavior_cards.dart';
 import 'package:neuro_awareness_app/models/scenario_graph.dart';
 import 'package:neuro_awareness_app/screens/clip_production_plan_screen.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_import_screen.dart';
@@ -124,33 +123,10 @@ void main() {
       await tap(tester, 'scenario-import-format-details');
       expect(field.text, text);
       expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
-      if (scenario) {
-        await tap(tester, 'scenario-import-request-form');
-        await tap(tester, 'scenario-request-behavior');
-        final item = find.text(BehaviorCards.all.first.title).last;
-        await tester.scrollUntilVisible(item, 100, scrollable: find.byType(Scrollable).last);
-        await tester.tap(item);
-        await tester.pumpAndSettle();
-        for (final entry in [('age', '12'), ('context', 'Evde oyuncaklarla.'),
-          ('instructions', 'Gün ışığında.')]) {
-          final input = find.byKey(ValueKey('scenario-request-${entry.$1}'));
-          await tester.ensureVisible(input);
-          expect(input.hitTestable(), findsOneWidget);
-          await tester.enterText(input, entry.$2);
-          await tester.pumpAndSettle();
-        }
-        final validate = find.byKey(const ValueKey('scenario-request-validate'));
-        await tester.ensureVisible(validate);
-        expect(validate.hitTestable(), findsOneWidget);
-        await tap(tester, 'scenario-request-validate');
-        expect(find.byKey(const ValueKey('scenario-request-summary')), findsOneWidget);
-        expect(find.text('Karakter yaşı: 12 ay'), findsOneWidget);
-        expect(field.text, text);
-        expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
-        await tap(tester, 'scenario-import-request-form');
-      } else {
-        expect(find.byKey(const ValueKey('scenario-import-request-form')), findsNothing);
-      }
+      expect(find.byKey(const ValueKey('scenario-import-request-form')), findsNothing);
+      expect(find.byKey(const ValueKey('scenario-generation-start')), findsNothing);
+      expect(field.text, text);
+      expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
       final view = find.byKey(const ValueKey('scenario-import-view'));
       await tester.ensureVisible(view);
       expect(view.hitTestable(), findsOneWidget);

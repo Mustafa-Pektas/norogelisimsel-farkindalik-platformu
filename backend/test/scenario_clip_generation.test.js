@@ -77,6 +77,18 @@ test('Ayrı dallarda birer çağrı olabilir; ortak çağrı eklenirse aynı yol
   value.d01CallTiming.push({ clipId: 'start-1', callEndS: 3 });
   assert.throws(() => validatePlan(JSON.stringify(value), input, sourceCard), /birden fazla çağrı/);
 });
+test('Ortak çağrı klibi d01CallTiming içinde bir kez listelenir; şema ve istem aynı tekil kayıt kuralını açıklar', async () => {
+  const value = shortObservationPlan(4);
+  value.d01CallTiming = [{ clipId: 'start-1', callEndS: 3 }];
+  assert.deepEqual(validateD01Observation(value, input, sourceCard).map(path => path.postCallDurationS), [10, 10]);
+  const schema = require('../scenario_clip_generation').planSchemaFor(input);
+  assert.equal(schema.required.filter(field => field === 'd01CallTiming').length, 1);
+  assert.equal(Object.keys(schema.properties).filter(field => field === 'd01CallTiming').length, 1);
+  assert.match(schema.properties.d01CallTiming.description, /tek kayıt/);
+  const prompt = buildPlanPrompts(input, sourceCard).system;
+  assert.match(prompt, /HER BENZERSİZ KLİP için yalnız bir kayıt/);
+  assert.match(prompt, /clipId kaydını dallar için TEKRARLAMA/);
+});
 test('D01 zamanı başka davranışa genellenmez; kamera koşulu istemde insan incelemesi olarak kalır', async () => {
   const value = plan(); delete value.d01CallTiming;
   const other = { ...input, request: { ...request, behaviorId: 'D02' }, graph: { ...graph, behaviorId: 'D02' } };

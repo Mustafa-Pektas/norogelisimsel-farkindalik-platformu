@@ -5,8 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:neuro_awareness_app/screens/video_analysis_screen.dart';
-import 'package:neuro_awareness_app/models/video_analysis.dart';
-import 'package:neuro_awareness_app/services/video_analysis_service.dart';
 import 'package:neuro_awareness_app/widgets/expandable_finding_card.dart';
 import 'package:neuro_awareness_app/widgets/finding_notification_pill.dart';
 import 'package:neuro_awareness_app/widgets/floating_video_controls.dart';
@@ -14,64 +12,6 @@ import 'package:neuro_awareness_app/widgets/fullscreen_video_screen.dart';
 // Mevcut video_player paketinin test sınırı; gerçek video motoru kullanılmaz.
 // ignore: depend_on_referenced_packages
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
-
-class _AnalysisService implements VideoAnalysisService {
-  final requests = <VideoAnalysisRequest>[];
-  final jobs = <_AnalysisJob>[];
-  bool failStart = false;
-  @override
-  bool get isAvailable => true;
-  @override
-  String get scopeDescription => 'Kontrollü hizmet kapsamı: yalnız test davranışı.';
-  @override
-  VideoAnalysisJob start(VideoAnalysisRequest request) {
-    if (failStart) throw StateError('Kontrollü başlangıç hatası');
-    requests.add(request);
-    final job = _AnalysisJob(request);
-    jobs.add(job);
-    addTearDown(() async {
-      // done testi akışı FakeAsync içinde kapatıp kapanışı bekler.
-      // Aynı done Future'ını dışarıdaki teardown'da yeniden beklemek,
-      // artık ilerlemeyen FakeAsync alanına geç bir dinleyici ekler.
-      if (!job.controller.isClosed) {
-        await job.controller.close();
-      }
-    });
-    return job;
-  }
-}
-
-class _AnalysisJob implements VideoAnalysisJob {
-  _AnalysisJob(this.request);
-  final VideoAnalysisRequest request;
-  // İptalden sonra bildirim gönderebilen hatalı/geç hizmeti de sınar.
-  final controller = StreamController<VideoAnalysisEvent>.broadcast();
-  Completer<void>? cancelGate;
-  bool failCancel = false;
-  int cancellations = 0;
-  int disposals = 0;
-  @override
-  Stream<VideoAnalysisEvent> get events => controller.stream;
-  void emit(VideoAnalysisPhase phase, {VideoAnalysisResult? result, String? requestId}) {
-    controller.add(VideoAnalysisEvent(requestId: requestId ?? request.requestId,
-      phase: phase, result: result, message: phase == VideoAnalysisPhase.error ? 'Kontrollü hizmet hatası' : null));
-  }
-  void complete({List<VideoBehaviorResult> findings = const [], String? videoId}) =>
-      emit(VideoAnalysisPhase.completed, result: VideoAnalysisResult(
-        requestId: request.requestId, videoId: videoId ?? request.videoId, findings: findings));
-  @override
-  Future<void> cancel() async {
-    ++cancellations;
-    if (cancelGate != null) await cancelGate!.future;
-    if (failCancel) throw StateError('Kontrollü iptal hatası');
-  }
-  @override
-  Future<void> dispose() async {
-    ++disposals;
-    final gate = cancelGate;
-    if (gate != null && !gate.isCompleted) gate.complete();
-  }
-}
 
 class _VideoPlatform extends VideoPlayerPlatform {
   final sources = <DataSource>[];
@@ -175,7 +115,6 @@ void main() {
 
   Future<void> mount(WidgetTester tester, Future<XFile?> Function(ImageSource) pick,
       {bool settle = true, ValueNotifier<bool>? tabVisibility,
-      VideoAnalysisService analysisService = const UnavailableVideoAnalysisService(),
       Size surfaceSize = const Size(1000, 1000), double textScale = 1}) async {
     await tester.binding.setSurfaceSize(surfaceSize);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -184,8 +123,7 @@ void main() {
         data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
         child: child!,
       ),
-      home: VideoAnalysisScreen(pickVideo: pick, tabVisibility: tabVisibility,
-        analysisService: analysisService),
+      home: VideoAnalysisScreen(pickVideo: pick, tabVisibility: tabVisibility),
     ));
     if (settle) {
       await tester.pumpAndSettle();
@@ -195,12 +133,19 @@ void main() {
   }
 
   Future<void> pickFromGallery(WidgetTester tester, String label) async {
-    final button = find.text(label);
+    final button = find.byKey(const ValueKey('video-source-button'));
+    expect(button, findsOneWidget, reason: 'Video kaynağı eylemi: $label');
     await tester.ensureVisible(button);
     await tester.tap(button);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Galeri'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    final gallery = find.text('Galeri');
+    expect(gallery, findsOneWidget, reason: 'Video kaynağı seçici açılmalı.');
+    await tester.tap(gallery);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Galeri'), findsNothing, reason: 'Seçimden sonra video kaynağı seçici kapanmalı.');
+    await tester.pump();
   }
 
   void expectNoClinicalResults() {
@@ -215,38 +160,16 @@ void main() {
     expect(find.textContaining('Klinik İnceleme'), findsNothing);
     expect(find.text('Videoyu Analiz Et'), findsNothing);
     expect(find.text('Analiz Aşamaları'), findsNothing);
-    expect(find.byTooltip('Gemini API Anahtarı'), findsNothing);
-    expect(find.byIcon(Icons.key_outlined), findsNothing);
   }
 
   void expectNoAnalysisResults() {
-    expect(find.byKey(const ValueKey('video-not-analyzed')), findsOneWidget);
-    expect(find.text('Analiz hizmeti bağlı değil. Video seçip izleyebilirsiniz; bu video analiz edilmedi.'), findsOneWidget);
     expectNoClinicalResults();
   }
 
   FloatingVideoControls controls(WidgetTester tester) =>
       tester.widget<FloatingVideoControls>(find.byType(FloatingVideoControls));
 
-  TextField ageField(WidgetTester tester) => tester.widget<TextField>(
-    find.byKey(const ValueKey('video-age-months')),
-  );
-
-  String ageText(WidgetTester tester) => ageField(tester).controller!.text;
-
-  Future<void> enterAge(WidgetTester tester, String value,
-      {bool dismissKeyboard = true}) async {
-    final field = find.byKey(const ValueKey('video-age-months'));
-    await tester.ensureVisible(field);
-    await tester.enterText(field, value);
-    await tester.pump();
-    if (dismissKeyboard) {
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pumpAndSettle();
-    }
-  }
-
-  Future<void> checkFullscreen(WidgetTester tester, {bool expectUnanalyzed = true}) async {
+  Future<void> checkFullscreen(WidgetTester tester, {required String expectedTitle}) async {
     final current = controls(tester).controller;
     final position = current.value.position;
     final isPlaying = current.value.isPlaying;
@@ -274,8 +197,7 @@ void main() {
     expect(current.value.position, position);
     expect(current.value.isPlaying, isPlaying);
     expect(fullscreen.findings, isEmpty);
-    expect(fullscreen.title, expectUnanalyzed
-        ? contains('analiz edilmedi') : isNot(contains('analiz edilmedi')));
+    expect(fullscreen.title, expectedTitle);
     expectNoClinicalResults();
     final exitFullscreen = find.descendant(
       of: find.byType(FullscreenVideoScreen),
@@ -290,7 +212,6 @@ void main() {
     expect(controls(tester).controller, same(current));
     expect(current.value.position, position);
     expect(current.value.isPlaying, isPlaying);
-    if (expectUnanalyzed) expectNoAnalysisResults();
   }
 
   Future<void> close(WidgetTester tester) async {
@@ -303,109 +224,14 @@ void main() {
     expect(tester.takeException(), isNull);
   }
 
-  testWidgets('Yaş boş veya 12–36 dahil tam ay kabul eder; geçersiz metni sessizce dönüştürmez', (tester) async {
-    await mount(tester, (_) async => null);
-    expect(ageField(tester).enabled, isTrue);
-    expect(ageText(tester), isEmpty);
-    expect(find.text('Yaş: Bilinmiyor'), findsOneWidget);
-    expect(find.textContaining('Girilen yaş kullanıcı beyanıdır.'), findsOneWidget);
-    expect(find.textContaining('12–36 aydır; tüm aralıkta analiz desteği doğrulanmadı'), findsOneWidget);
-    final current = controls(tester).controller;
-    await current.seekTo(const Duration(seconds: 9));
-    final sources = platform.sources.length;
-    final plays = platform.calls.where((call) => call.startsWith('play:')).length;
-    // Aralık proje girdisi sınırıdır; klinik yorum veya otomatik düzeltme yoktur.
-    for (final value in ['12', '36', '18']) {
-      await enterAge(tester, value);
-      expect(ageText(tester), value);
-      expect(ageField(tester).decoration!.errorText, isNull);
-      expect(find.text('Yaş: $value ay'), findsOneWidget);
-    }
-    for (final value in ['11', '37', '0', '-1', '30.5', 'abc', '1e2']) {
-      await enterAge(tester, value);
-      expect(ageText(tester), value);
-      expect(ageField(tester).decoration!.errorText,
-          '12–36 arasında tam ay girin veya boş bırakın.');
-      expect(find.byKey(const ValueKey('video-age-summary')), findsNothing);
-    }
-    await enterAge(tester, '');
-    expect(ageField(tester).decoration!.errorText, isNull);
-    expect(find.text('Yaş: Bilinmiyor'), findsOneWidget);
-    expect(controls(tester).controller, same(current));
-    expect(current.value.position, const Duration(seconds: 9));
-    expect(current.value.isPlaying, isFalse);
-    expect(platform.sources, hasLength(sources));
-    expect(platform.calls.where((call) => call.startsWith('play:')), hasLength(plays));
-    await current.play();
-    await tester.pump();
-    final playingCalls = platform.calls.where((call) => call.startsWith('play:')).length;
-    await enterAge(tester, '24');
-    expect(current.value.isPlaying, isTrue);
-    expect(current.value.position, const Duration(seconds: 9));
-    expect(platform.calls.where((call) => call.startsWith('play:')), hasLength(playingCalls));
-    expect(platform.sources, hasLength(sources));
-    await current.pause();
-    await close(tester);
-  });
 
-  testWidgets('Rebuild ve tam ekran dönüşü aynı videoya ait yaş metnini korur', (tester) async {
-    Future<XFile?> pick(ImageSource source) async => XFile('age-context.mp4');
-    await mount(tester, pick);
-    await pickFromGallery(tester, 'Video seç');
-    await enterAge(tester, '27');
-    final state = tester.state(find.byType(VideoAnalysisScreen));
-    final current = controls(tester).controller;
-    await current.seekTo(const Duration(seconds: 8));
-    final sourceCount = platform.sources.length;
-    await mount(tester, pick);
-    expect(tester.state(find.byType(VideoAnalysisScreen)), same(state));
-    expect(controls(tester).controller, same(current));
-    expect(current.value.position, const Duration(seconds: 8));
-    expect(current.value.isPlaying, isFalse);
-    expect(ageText(tester), '27');
-    expect(platform.sources, hasLength(sourceCount));
-    await checkFullscreen(tester);
-    expect(ageText(tester), '27');
-    expect(find.text('Yaş: 27 ay'), findsOneWidget);
-    expect(platform.sources, hasLength(sourceCount));
-    await close(tester);
-  });
 
-  testWidgets('320 piksel ve büyük yazıda klavye açıkken yaş alanı ve hatası erişilir', (tester) async {
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetViewInsets);
-    await mount(tester, (_) async => null,
-        surfaceSize: const Size(320, 640), textScale: 2);
-    final current = controls(tester).controller;
-    tester.view.viewInsets = const FakeViewPadding(bottom: 240);
-    await tester.pump();
-    await enterAge(tester, '2.5', dismissKeyboard: false);
-    final field = find.byKey(const ValueKey('video-age-months'));
-    await tester.ensureVisible(field);
-    await tester.pumpAndSettle();
-    expect(tester.testTextInput.isVisible, isTrue);
-    expect(field.hitTestable(), findsOneWidget);
-    expect(find.text('12–36 arasında tam ay girin veya boş bırakın.'), findsOneWidget);
-    final rect = tester.getRect(field);
-    final scaffold = tester.getRect(find.byType(Scaffold));
-    expect(rect.bottom, lessThanOrEqualTo(scaffold.bottom - 240 + 1));
-    expect(rect.top, greaterThanOrEqualTo(scaffold.top + kToolbarHeight));
-    await enterAge(tester, '23', dismissKeyboard: false);
-    expect(ageText(tester), '23');
-    expect(ageField(tester).decoration!.errorText, isNull);
-    expect(controls(tester).controller, same(current));
-    expect(platform.sources, hasLength(1));
-    expect(current.value.isPlaying, isFalse);
-    await close(tester);
-  });
 
   testWidgets('Sekmeden hızlı ayrılıp dönmek seçili dosyayı ve konumu koruyarak duraklatır', (tester) async {
     final visibility = ValueNotifier<bool>(true);
     addTearDown(visibility.dispose);
     await mount(tester, (_) async => XFile('retained.mp4'), tabVisibility: visibility);
     await pickFromGallery(tester, 'Video seç');
-    await enterAge(tester, '28');
     final current = controls(tester).controller;
     await current.seekTo(const Duration(seconds: 7));
     await current.play();
@@ -423,7 +249,6 @@ void main() {
     expect(controls(tester).controller, same(current));
     expect(platform.sources, hasLength(sourceCount));
     expect(platform.sources.last.uri, contains('retained.mp4'));
-    expect(ageText(tester), '28');
     expect(find.text('retained.mp4'), findsOneWidget);
     expect(platform.calls.where((call) => call == 'pause:1').length, greaterThan(pauses));
     expect(platform.calls.where((call) => call == 'play:1'), hasLength(plays));
@@ -437,8 +262,7 @@ void main() {
     expect(current.value.isPlaying, isTrue);
     expect(platform.calls.where((call) => call == 'play:1'), hasLength(plays + 1));
     await current.pause();
-    await checkFullscreen(tester);
-    expect(ageText(tester), '28');
+    await checkFullscreen(tester, expectedTitle: 'retained.mp4');
     expect(controls(tester).controller, same(current));
     expect(current.value.position, const Duration(seconds: 7));
     await close(tester);
@@ -533,13 +357,15 @@ void main() {
     expect(find.widgetWithText(AppBar, 'Video Analizi'), findsOneWidget);
     expect(find.text('Video Analiz Modu'), findsNothing);
     expect(find.text('Video Yükle'), findsNothing);
+    expect(find.byKey(const ValueKey('video-analysis-example-notice')), findsOneWidget);
+    expect(find.text('Örnek video — analiz edilmedi.'), findsOneWidget);
     expectNoAnalysisResults();
     // Eski örnek bildirim aralığına gidilse de klinik içerik gösterilmemeli.
     final old = tester.widget<FloatingVideoControls>(find.byType(FloatingVideoControls)).controller;
     await old.seekTo(const Duration(seconds: 6));
     await tester.pumpAndSettle();
     expectNoAnalysisResults();
-    await checkFullscreen(tester);
+    await checkFullscreen(tester, expectedTitle: 'Örnek video — analiz edilmedi');
     expect(platform.sources, hasLength(1));
     expect(platform.calls, isNot(contains('dispose:0')));
     await pickFromGallery(tester, 'Video seç');
@@ -549,6 +375,7 @@ void main() {
         reason: 'Başarılı değişimden sonra önceki oynatıcı kapatılmalı.');
     expect(platform.calls, containsAllInOrder(['initialized:1', 'dispose:0']));
     expect(find.text('Video açıldı.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('video-analysis-example-notice')), findsNothing);
     expectNoAnalysisResults();
 
     final controls = tester.widget<FloatingVideoControls>(find.byType(FloatingVideoControls));
@@ -564,7 +391,7 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     expectNoAnalysisResults();
 
-    await checkFullscreen(tester);
+    await checkFullscreen(tester, expectedTitle: 'selected.mp4');
     expect(find.text('selected.mp4'), findsOneWidget);
     expect(tester.widget<FloatingVideoControls>(find.byType(FloatingVideoControls)).controller,
         same(controls.controller));
@@ -578,7 +405,6 @@ void main() {
     XFile? selection = XFile('chosen.mp4');
     await mount(tester, (_) async => selection);
     await pickFromGallery(tester, 'Video seç');
-    await enterAge(tester, '25');
     expect(platform.calls, containsAllInOrder(['dispose:0', 'disposed:0']),
         reason: 'Kapanış Future’ı testin sanal zamanında tamamlanmalı.');
     expectNoAnalysisResults();
@@ -591,19 +417,16 @@ void main() {
     expect(find.text('chosen.mp4'), findsOneWidget);
     expect(controls(tester).controller, same(previous));
     expect(previous.value.position, const Duration(seconds: 7));
-    expect(ageText(tester), '25');
     expectNoAnalysisResults();
-    final restore = find.byTooltip('Örnek video');
+    final restore = find.byKey(const ValueKey('video-reset-example'));
     await tester.ensureVisible(restore);
     await tester.tap(restore);
     await tester.pumpAndSettle();
     expect(platform.sources.last.sourceType, DataSourceType.asset);
     expect(find.text('chosen.mp4'), findsNothing);
     expect(controls(tester).controller, isNot(same(previous)));
-    expect(ageText(tester), isEmpty);
-    expect(find.text('Yaş: Bilinmiyor'), findsOneWidget);
     expectNoAnalysisResults();
-    await checkFullscreen(tester);
+    await checkFullscreen(tester, expectedTitle: 'Örnek video — analiz edilmedi');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -611,7 +434,6 @@ void main() {
 
   testWidgets('Aday açılana kadar çalışan örnek ve konumu korunur; yalnız başarıda değiştirilir', (tester) async {
     await mount(tester, (_) async => XFile('candidate.mp4'));
-    await enterAge(tester, '29');
     final previous = controls(tester).controller;
     await previous.seekTo(const Duration(seconds: 6));
     await previous.play();
@@ -623,8 +445,6 @@ void main() {
     expect(previous.value.position, const Duration(seconds: 6));
     expectNoAnalysisResults();
     expect(find.byKey(const ValueKey('video-opening')), findsOneWidget);
-    expect(ageText(tester), '29');
-    expect(ageField(tester).enabled, isFalse);
     expect(find.text('candidate.mp4'), findsNothing);
     expect(find.text('Video açıldı.'), findsNothing);
     expect(platform.calls, isNot(contains('dispose:0')));
@@ -634,8 +454,6 @@ void main() {
     expect(controls(tester).controller, isNot(same(previous)));
     expect(platform.calls, containsAllInOrder(['initialized:1', 'dispose:0', 'disposed:0']));
     expect(find.text('candidate.mp4'), findsOneWidget);
-    expect(ageText(tester), isEmpty);
-    expect(ageField(tester).enabled, isTrue);
     expect(find.text('Video açıldı.'), findsOneWidget);
     expectNoAnalysisResults();
     await close(tester);
@@ -645,7 +463,6 @@ void main() {
     var selected = 'working.mp4';
     await mount(tester, (_) async => XFile(selected));
     await pickFromGallery(tester, 'Video seç');
-    await enterAge(tester, '30.5');
     // Önceki başarılı yüklemenin bildirimi yeni başarısız denemeyle karışmasın.
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
@@ -666,10 +483,6 @@ void main() {
     expect(find.byKey(const ValueKey('video-open-error')), findsOneWidget);
     expect(find.text('Video açıldı.'), findsNothing);
     expect(find.byKey(const ValueKey('video-opening')), findsNothing);
-    expect(ageText(tester), '30.5');
-    expect(ageField(tester).decoration!.errorText,
-        '12–36 arasında tam ay girin veya boş bırakın.');
-    expect(ageField(tester).enabled, isTrue);
     expectNoAnalysisResults();
     await previous.pause();
     await close(tester);
@@ -681,19 +494,16 @@ void main() {
       if (failPicker) throw StateError('Kontrollü seçici hatası');
       return null;
     });
-    await enterAge(tester, '24');
     final previous = controls(tester).controller;
     await previous.seekTo(const Duration(seconds: 6));
     await pickFromGallery(tester, 'Video seç');
     expect(controls(tester).controller, same(previous));
     expect(find.byKey(const ValueKey('video-open-error')), findsNothing);
-    expect(ageText(tester), '24');
     expect(platform.sources, hasLength(1));
     failPicker = true;
     await pickFromGallery(tester, 'Video seç');
     expect(controls(tester).controller, same(previous));
     expect(previous.value.position, const Duration(seconds: 6));
-    expect(ageText(tester), '24');
     expectNoAnalysisResults();
     expect(platform.sources, hasLength(1));
     expect(find.text('Video seçilemedi. Mevcut videonuz korundu; tekrar deneyin.'), findsOneWidget);
@@ -707,9 +517,6 @@ void main() {
     expect(platform.calls, containsAllInOrder(['dispose:0', 'disposed:0']));
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(find.byType(FloatingVideoControls), findsNothing);
-    expect(ageField(tester).enabled, isFalse);
-    expect(ageText(tester), isEmpty);
-    expect(find.byKey(const ValueKey('video-age-summary')), findsNothing);
     final error = tester.widget<Text>(find.byKey(const ValueKey('video-open-error'))).data;
     expect(error, contains('Örnek video açılamadı'));
     expect(find.byKey(const ValueKey('video-retry-example')), findsOneWidget);
@@ -724,8 +531,6 @@ void main() {
     expect(platform.sources, hasLength(2));
     expect(platform.sources.last.sourceType, DataSourceType.asset);
     expect(find.byType(FloatingVideoControls), findsOneWidget);
-    expect(ageField(tester).enabled, isTrue);
-    expect(ageText(tester), isEmpty);
     expect(find.byKey(const ValueKey('video-open-error')), findsNothing);
     expect(find.text('Video açıldı.'), findsNothing);
     await close(tester);
@@ -746,18 +551,16 @@ void main() {
   testWidgets('Örneğe dönüş başarısızsa kullanıcı videosu ve analiz edilmedi açıklaması korunur', (tester) async {
     await mount(tester, (_) async => XFile('keep.mp4'));
     await pickFromGallery(tester, 'Video seç');
-    await enterAge(tester, '21');
     final previous = controls(tester).controller;
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
     platform.failInitialize = true;
-    final restore = find.byTooltip('Örnek video');
+    final restore = find.byKey(const ValueKey('video-reset-example'));
     await tester.ensureVisible(restore);
     await tester.tap(restore);
     await tester.pumpAndSettle();
     expect(controls(tester).controller, same(previous));
     expect(find.text('keep.mp4'), findsOneWidget);
-    expect(ageText(tester), '21');
     expect(platform.calls, contains('disposed:2'));
     expect(platform.calls, isNot(contains('dispose:1')));
     expect(find.textContaining('Örnek video açılamadı'), findsOneWidget);
@@ -795,13 +598,11 @@ void main() {
     selected = 'latest.mp4';
     await pickFromGallery(tester, 'Video seç');
     final current = controls(tester).controller;
-    await enterAge(tester, '26');
     expect(platform.calls, contains('disposed:1'));
     platform.ready(1);
     platform.fail(1);
     await tester.pumpAndSettle();
     expect(controls(tester).controller, same(current));
-    expect(ageText(tester), '26');
     expect(find.text('latest.mp4'), findsOneWidget);
     expect(find.text('slow.mp4'), findsNothing);
     expect(find.byKey(const ValueKey('video-open-error')), findsNothing);
@@ -874,307 +675,6 @@ void main() {
     expect(platform.sources, hasLength(1));
     expect(find.text('Video açıldı.'), findsNothing);
     expect(tester.takeException(), isNull);
-  });
-
-  Future<void> analysisTap(WidgetTester tester, String key) async {
-    final notification = find.byType(SnackBar);
-    if (notification.evaluate().isNotEmpty) {
-      await tester.drag(notification, Offset(0, tester.getSize(notification).height));
-      await tester.pumpAndSettle();
-    }
-    final button = find.byKey(ValueKey(key));
-    await tester.ensureVisible(button);
-    await tester.pumpAndSettle();
-    expect(button.hitTestable(), findsOneWidget);
-    await tester.tap(button);
-    await tester.pumpAndSettle();
-  }
-
-  testWidgets('Bağlı olmayan hizmet sonuç veya analiz başlatma üretmez', (tester) async {
-    await mount(tester, (_) async => null);
-    expect(find.byKey(const ValueKey('video-analysis-start')), findsNothing);
-    expect(find.textContaining('Analiz hizmeti bağlı değil'), findsOneWidget);
-    expect(find.text('Otomatik analiz hizmeti henüz bağlı değil.'), findsNothing);
-    expect(find.byKey(const ValueKey('video-analysis-status')), findsNothing);
-    expect(find.text('Analiz sonuçları'), findsNothing);
-    await close(tester);
-  });
-
-  testWidgets('Analiz isteği sabittir; durumlar hizmetten gelir ve çift başlatma engellenir', (tester) async {
-    final service = _AnalysisService();
-    await mount(tester, (_) async => null, analysisService: service);
-    await enterAge(tester, '24');
-    final player = controls(tester).controller;
-    await analysisTap(tester, 'video-analysis-start');
-    final request = service.requests.single;
-    expect(request.sourceKind, VideoSourceKind.asset);
-    expect(request.source, player.dataSource);
-    expect(request.duration, player.value.duration);
-    expect(request.ageMonths, 24);
-    expect(find.text('Hizmet bildirimi bekleniyor'), findsOneWidget);
-    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('video-analysis-start'))).onPressed, isNull);
-    expect(ageField(tester).enabled, isFalse);
-    await tester.tap(find.byKey(const ValueKey('video-analysis-start')));
-    await tester.pump();
-    expect(service.requests, hasLength(1));
-    final job = service.jobs.single;
-    expect(job.controller.hasListener, isTrue);
-    job.emit(VideoAnalysisPhase.sending);
-    // Asenkron olay setState'i mikro görevde çalıştırır. İlk pump yalnız
-    // olayı teslim edebilir; planlanan ekran karesini de tamamla.
-    await tester.pumpAndSettle();
-    expect(find.text('Gönderiliyor'), findsOneWidget);
-    job.emit(VideoAnalysisPhase.processing);
-    await tester.pumpAndSettle();
-    expect(find.text('İşleniyor'), findsOneWidget);
-    job.complete();
-    await tester.pumpAndSettle();
-    expect(find.text('Tamamlandı'), findsOneWidget);
-    expect(find.textContaining('bu, davranışın gözlenmediği anlamına gelmez'), findsOneWidget);
-    expect(job.disposals, 1);
-    expect(job.cancellations, 0);
-    expect(controls(tester).controller, same(player));
-    await enterAge(tester, '25');
-    expect(request.ageMonths, 24);
-    expect(find.text('Analiz sonuçları'), findsNothing);
-    await close(tester);
-  });
-
-  testWidgets('Geçersiz yaş analizi engeller; boş yaş bilinmiyor olarak gönderilir', (tester) async {
-    final service = _AnalysisService();
-    await mount(tester, (_) async => null, analysisService: service);
-    await enterAge(tester, '37');
-    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('video-analysis-start'))).onPressed, isNull);
-    expect(service.requests, isEmpty);
-    await enterAge(tester, '');
-    await analysisTap(tester, 'video-analysis-start');
-    expect(service.requests.single.ageMonths, isNull);
-    await close(tester);
-    expect(service.jobs.single.cancellations, 1);
-    expect(service.jobs.single.disposals, 1);
-  });
-
-  testWidgets('Video açılamadığında analiz kapalıdır; örnek yeniden açılabilir', (tester) async {
-    final service = _AnalysisService();
-    platform.failInitialize = true;
-    await mount(tester, (_) async => null, analysisService: service);
-    expect(find.text('Video seçilmedi. Önce bir video açın.'), findsOneWidget);
-    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('video-analysis-start'))).onPressed, isNull);
-    expect(service.requests, isEmpty);
-    platform.failInitialize = false;
-    await analysisTap(tester, 'video-retry-example');
-    expect(find.text('Analize hazır'), findsOneWidget);
-    await close(tester);
-  });
-
-  testWidgets('Dört gözlem durumu ve kanıt: dar ekranda aynı oynatıcı duraklayarak ilgili zamana gider', (tester) async {
-    final service = _AnalysisService();
-    await mount(tester, (_) async => null, analysisService: service,
-      surfaceSize: const Size(320, 800), textScale: 2);
-    final player = controls(tester).controller;
-    await analysisTap(tester, 'video-analysis-start');
-    service.jobs.single.complete(findings: [
-      for (final (index, status) in ObservationStatus.values.indexed)
-        VideoBehaviorResult(behaviorId: 'D01', cardVersion: '0.2', status: status,
-          explanation: 'Hizmet gerekçesi $index',
-          evidence: index == 0
-              ? const AnalysisEvidence(startSeconds: 1.25, endSeconds: 3, timeSource: 'Ölçülmüş medya zamanı')
-              : index == 1
-                  ? const AnalysisEvidence(startSeconds: 8, endSeconds: 7, timeSource: 'Geçersiz')
-                  : index == 2
-                      ? const AnalysisEvidence(startSeconds: 1, endSeconds: 121, timeSource: 'Süre dışı')
-                      : const AnalysisEvidence(startSeconds: double.nan, endSeconds: 3, timeSource: 'Bilinmiyor'),
-          confidence: index == 0
-              ? const AnalysisConfidence(value: 0, scale: '0–1', meaning: 'Hizmetin yöntem skoru', source: 'Kontrollü hizmet')
-              : null),
-    ]);
-    await tester.pumpAndSettle();
-    for (final status in ObservationStatus.values) {
-      expect(find.text(status.label), findsOneWidget);
-    }
-    expect(find.textContaining('Güven: 0.0'), findsOneWidget);
-    expect(find.textContaining('%'), findsNothing);
-    for (final index in [1, 2, 3]) {
-      expect(find.byKey(ValueKey('video-analysis-evidence-$index')), findsNothing);
-    }
-    await player.play();
-    await tester.pump();
-    await analysisTap(tester, 'video-analysis-evidence-0');
-    expect(player.value.isPlaying, isFalse);
-    expect(player.value.position, const Duration(milliseconds: 1250));
-    expect(controls(tester).controller, same(player));
-    expect(platform.sources, hasLength(1));
-    expect(tester.takeException(), isNull);
-    await close(tester);
-  });
-
-  for (final failure in ['start', 'event', 'stream', 'done', 'identity', 'request']) {
-    testWidgets('Analiz hatası açık gösterilir: $failure', (tester) async {
-      final service = _AnalysisService()..failStart = failure == 'start';
-      await mount(tester, (_) async => null, analysisService: service);
-      await analysisTap(tester, 'video-analysis-start');
-      if (failure != 'start') {
-        final job = service.jobs.single;
-        expect(job.controller.hasListener, isTrue);
-        switch (failure) {
-          case 'event': job.emit(VideoAnalysisPhase.error);
-          case 'stream': job.controller.addError(StateError('Kontrollü akış hatası'));
-          case 'done':
-            final closed = job.controller.close();
-            // done olayı ve kapanış Future'ı FakeAsync kuyruğundadır.
-            // Kuyruğu ilerletmeden closed'u beklemek testi kilitler.
-            await tester.pumpAndSettle();
-            await closed;
-            expect(job.controller.isClosed, isTrue);
-            expect(job.controller.hasListener, isFalse);
-          case 'identity': job.complete(videoId: 'başka-video');
-          case 'request': job.emit(VideoAnalysisPhase.processing, requestId: 'başka-istek');
-        }
-        await tester.pumpAndSettle();
-        expect(job.disposals, 1);
-      }
-      expect(find.text('Hata'), findsOneWidget);
-      expect(find.byKey(const ValueKey('video-analysis-error')), findsOneWidget);
-      expect(find.text('Tamamlandı'), findsNothing);
-      expect(find.text('Analiz sonuçları'), findsNothing);
-      expect(tester.widget<FilledButton>(find.byKey(const ValueKey('video-analysis-start'))).onPressed, isNotNull);
-      await close(tester);
-    });
-  }
-
-  testWidgets('İptal kabul edilmeden ve sonrasında geç tamamlanma uygulanmaz', (tester) async {
-    final service = _AnalysisService();
-    await mount(tester, (_) async => null, analysisService: service);
-    await analysisTap(tester, 'video-analysis-start');
-    final first = service.jobs.single;
-    first.cancelGate = Completer<void>();
-    await analysisTap(tester, 'video-analysis-cancel');
-    expect(find.text('İptal bekleniyor'), findsOneWidget);
-    expect(first.cancellations, 1);
-    expect(first.disposals, 0);
-    expect(first.controller.hasListener, isFalse);
-    first.complete();
-    await tester.pumpAndSettle();
-    expect(find.text('Tamamlandı'), findsNothing);
-    first.cancelGate!.complete();
-    await tester.pumpAndSettle();
-    expect(find.text('İptal edildi'), findsOneWidget);
-    expect(first.disposals, 1);
-    await analysisTap(tester, 'video-analysis-start');
-    first.complete();
-    await tester.pumpAndSettle();
-    expect(service.jobs, hasLength(2));
-    expect(find.text('Tamamlandı'), findsNothing);
-    await close(tester);
-    service.jobs.last.complete();
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('Hizmet iptal hatası başarı gibi sunulmaz', (tester) async {
-    final service = _AnalysisService();
-    await mount(tester, (_) async => null, analysisService: service);
-    await analysisTap(tester, 'video-analysis-start');
-    service.jobs.single.failCancel = true;
-    await analysisTap(tester, 'video-analysis-cancel');
-    expect(find.text('Sonuç takibi durduruldu; hizmetin iptali doğrulanamadı.'), findsOneWidget);
-    expect(find.text('İptal edildi'), findsNothing);
-    expect(service.jobs.single.cancellations, 1);
-    expect(service.jobs.single.disposals, 1);
-    await close(tester);
-  });
-
-  testWidgets('İptal beklenirken kapanış yerel kaynakları serbest bırakır', (tester) async {
-    final service = _AnalysisService();
-    await mount(tester, (_) async => null, analysisService: service);
-    await analysisTap(tester, 'video-analysis-start');
-    final job = service.jobs.single;
-    job.cancelGate = Completer<void>();
-    await analysisTap(tester, 'video-analysis-cancel');
-    expect(job.cancellations, 1);
-    expect(job.cancelGate!.isCompleted, isFalse);
-    expect(job.disposals, 0);
-    expect(job.controller.hasListener, isFalse);
-    await close(tester);
-    expect(job.cancellations, 1);
-    expect(job.disposals, 1);
-    job.complete();
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('Sekme dönüşü analiz isteğini ve sonucu korur; oynatma başlamaz', (tester) async {
-    final service = _AnalysisService();
-    final visible = ValueNotifier(true);
-    addTearDown(visible.dispose);
-    await mount(tester, (_) async => null, analysisService: service, tabVisibility: visible);
-    await enterAge(tester, '24');
-    final player = controls(tester).controller;
-    await player.seekTo(const Duration(seconds: 7));
-    await player.play();
-    await analysisTap(tester, 'video-analysis-start');
-    visible.value = false;
-    await tester.pumpAndSettle();
-    service.jobs.single.complete();
-    await tester.pumpAndSettle();
-    visible.value = true;
-    await tester.pumpAndSettle();
-    expect(find.text('Tamamlandı'), findsOneWidget);
-    expect(controls(tester).controller, same(player));
-    expect(player.value.isPlaying, isFalse);
-    expect(player.value.position, const Duration(seconds: 7));
-    expect(ageText(tester), '24');
-    expect(service.requests, hasLength(1));
-    await checkFullscreen(tester, expectUnanalyzed: false);
-    expect(find.text('Tamamlandı'), findsOneWidget);
-    await close(tester);
-  });
-
-  testWidgets('Seçim iptali ve açılış hatası video/yaş/sonucu korur; başarılı değişim temizler', (tester) async {
-    final service = _AnalysisService();
-    XFile? selection;
-    await mount(tester, (_) async => selection, analysisService: service);
-    await enterAge(tester, '30');
-    final player = controls(tester).controller;
-    await analysisTap(tester, 'video-analysis-start');
-    service.jobs.single.complete(findings: const [VideoBehaviorResult(
-      behaviorId: 'D01', cardVersion: '0.2', status: ObservationStatus.uncertain,
-      explanation: 'Korunacak hizmet cevabı')]);
-    await tester.pumpAndSettle();
-    await pickFromGallery(tester, 'Video seç');
-    expect(find.text('Korunacak hizmet cevabı'), findsOneWidget);
-    selection = XFile('fail.mp4');
-    platform.failInitialize = true;
-    await pickFromGallery(tester, 'Video seç');
-    expect(controls(tester).controller, same(player));
-    expect(ageText(tester), '30');
-    expect(find.text('Korunacak hizmet cevabı'), findsOneWidget);
-    platform.failInitialize = false;
-    selection = XFile('success.mp4');
-    await pickFromGallery(tester, 'Video seç');
-    expect(ageText(tester), isEmpty);
-    expect(find.text('Analiz sonuçları'), findsNothing);
-    await analysisTap(tester, 'video-analysis-start');
-    expect(service.requests.last.videoId, isNot(service.requests.first.videoId));
-    expect(service.requests.last.sourceKind, VideoSourceKind.file);
-    expect(service.requests.last.ageMonths, isNull);
-    await close(tester);
-  });
-
-  testWidgets('Başarılı video değişimi eski işi iptal eder; geç sonuç taşınmaz', (tester) async {
-    final service = _AnalysisService();
-    await mount(tester, (_) async => XFile('new.mp4'), analysisService: service);
-    await analysisTap(tester, 'video-analysis-start');
-    final old = service.jobs.single;
-    await pickFromGallery(tester, 'Video seç');
-    expect(old.cancellations, 1);
-    expect(old.disposals, 1);
-    old.complete();
-    await tester.pumpAndSettle();
-    expect(find.text('Tamamlandı'), findsNothing);
-    expect(find.text('Analize hazır'), findsOneWidget);
-    expect(find.text('new.mp4'), findsOneWidget);
-    await close(tester);
   });
 
   testWidgets('Ekran kapanınca bekleyen aday ve çalışan video kapanır; geç olay hata oluşturmaz', (tester) async {

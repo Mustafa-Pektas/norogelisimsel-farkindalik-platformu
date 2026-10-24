@@ -241,7 +241,7 @@ class ScenarioClipPlan {
   /// Plan aritmetiğidir; kesintisiz video/gözlem veya içerik onayı değildir.
   /// Eski elle hazırlanmış assetlerde zamanlama yokluğu geriye uyumlu kalır.
   Map<String, double> d01ObservationDurations(ScenarioGraph graph, {bool requireTiming = false}) {
-    if (graph.behaviorId != 'D01') {
+    if (!graph.hasBehavior('D01')) {
       if (d01CallTiming != null) {
         throw const FormatException('D01 zamanlaması başka davranışa uygulanamaz.');
       }
@@ -255,7 +255,8 @@ class ScenarioClipPlan {
       return {};
     }
     final card = BehaviorCards.all.firstWhere((card) => card.id == 'D01');
-    if (card.cardVersion != graph.cardVersion || scenarioId != graph.scenarioId || timing.isEmpty) {
+    if (card.cardVersion != graph.behaviors.firstWhere((ref) => ref.behaviorId == 'D01').cardVersion ||
+        scenarioId != graph.scenarioId || timing.isEmpty) {
       throw const FormatException('D01 kart/senaryo/zamanlama bilgisi uyuşmuyor.');
     }
     final required = card.pilotWindowSeconds.toDouble();
@@ -264,6 +265,9 @@ class ScenarioClipPlan {
       final matches = clips.where((clip) => clip.id == call.clipId);
       if (matches.isEmpty || calls.containsKey(call.clipId) || call.callEndS > matches.single.targetDurationS) {
         throw const FormatException('D01 çağrı klibi veya klip içi bitiş zamanı geçersiz.');
+      }
+      if (!graph.behaviorIdsFor(graph.scenes.firstWhere((scene) => scene.id == matches.single.sceneId)).contains('D01')) {
+        throw const FormatException('Çağrı klibi D01 ile ilişkili sahnede olmalıdır.');
       }
       calls[call.clipId] = call.callEndS;
     }
@@ -283,6 +287,13 @@ class ScenarioClipPlan {
         throw const FormatException('D01 gözlem hesabı için çok fazla yol var.');
       }
       final sequence = [for (final id in path) ...clipsForScene(id)];
+      final relevant = path.any((id) => graph.behaviorIdsFor(graph.scenes.firstWhere((scene) => scene.id == id)).contains('D01'));
+      if (!relevant) {
+        if (sequence.any((clip) => calls.containsKey(clip.id))) {
+          throw const FormatException('D01 içermeyen yolda çağrı zamanlaması var.');
+        }
+        return;
+      }
       var count = 0;
       var seconds = 0.0;
       for (final clip in sequence) {

@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:neuro_awareness_app/models/behavior_cards.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_request.dart';
 import 'package:neuro_awareness_app/models/scenario_input.dart';
 import 'package:neuro_awareness_app/models/scenario_workspace_draft.dart';
@@ -142,13 +141,14 @@ void main() {
     expect(find.byKey(const ValueKey('scenario-import-summary')), findsNothing);
     expect(tester.widget<OutlinedButton>(find.byKey(const ValueKey('scenario-import-view'))).onPressed, isNull);
     expect(find.byKey(const ValueKey('scenario-generation-status')), findsNothing);
-    await tap(tester, 'scenario-import-request-form');
-    expect(tester.widget<TextField>(find.byKey(const ValueKey('scenario-request-age'))).controller!.text, '24');
-    expect(tester.widget<TextField>(find.byKey(const ValueKey('scenario-request-context'))).controller!.text, '  Evde  ');
-    expect(tester.widget<TextField>(find.byKey(const ValueKey('scenario-request-instructions'))).controller!.text, ' Sade ortam ');
-    final dropdown = tester.widget<DropdownButton<BehaviorCard>>(find.descendant(
-      of: find.byKey(const ValueKey('scenario-request-behavior')), matching: find.byType(DropdownButton<BehaviorCard>)));
-    expect(dropdown.value!.id, 'D02');
+    expect(find.byKey(const ValueKey('scenario-import-request-form')), findsNothing);
+    // Eski form alanları görünmez olsa da kayıt içinde kayıpsız korunur.
+    await tap(tester, 'scenario-draft-save');
+    expect(store.value!.ageText, '24');
+    expect(store.value!.contextText, '  Evde  ');
+    expect(store.value!.instructionsText, ' Sade ortam ');
+    expect(store.value!.behaviorId, 'D02');
+    await tap(tester, 'scenario-generation-raw-details');
     expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-generation-raw'))).data, raw);
     await tap(tester, 'scenario-import-legacy-records');
     expect(tester.widget<SelectableText>(find.byKey(const ValueKey('scenario-restored-demo-raw'))).data,

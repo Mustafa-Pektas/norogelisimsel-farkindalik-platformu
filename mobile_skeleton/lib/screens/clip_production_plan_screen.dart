@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
@@ -24,6 +25,7 @@ class ClipProductionPlanScreen extends StatefulWidget {
     this.pickVideo,
     this.providedPlan,
     this.rawPlanJson,
+    this.sourceContext,
   });
 
   static const d01GraphAssetPath = 'assets/scenarios/d01_scenario_graph.json';
@@ -48,6 +50,8 @@ class ClipProductionPlanScreen extends StatefulWidget {
   /// Sunucudan gelen plan yalnız inceleme içindir; eski video deposuna erişmez.
   final LoadedClipPlan? providedPlan;
   final String? rawPlanJson;
+  /// Kaynak plan JSON şemasına eklenmez; özgün cevap/kimlik ayrı dışa aktarılır.
+  final Map<String, dynamic>? sourceContext;
   final String graphAssetPath;
   final String planAssetPath;
   final ClipVideoStore? videoStore;
@@ -301,6 +305,8 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           final data = snapshot.data!;
+          final durationTarget = _productionTarget(widget.sourceContext);
+          final clipLimit = _productionClipLimit(widget.sourceContext);
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -314,11 +320,26 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Debug görünürlüğü gerçek kullanıcı yetkilendirmesi değildir. '
-                  'Normal release sürümünde Stüdyo girişi bulunmaz.',
+                  'Hazır D01 için “Grafı dene” kontrolü yalnız debug derlemesinde görünür. '
+                  'Bu görünürlük kullanıcı yetkilendirmesi değildir; üretilen planın içeriği ayrıca incelenmelidir.',
                 ),
                 const SizedBox(height: 8),
-                Text('${data.plan.clips.length} klip · her biri en fazla 8 saniye'),
+                Text('${data.graph.scenes.length} sahne · ${data.plan.clips.length} klip kaydı · zorunlu klip üst sınırı $clipLimit sn',
+                  key: const ValueKey('clip-plan-count-summary')),
+                Text('Davranışlar: ${data.graph.behaviors.map((ref) => ref.behaviorId).join(', ')}',
+                  key: const ValueKey('clip-plan-behavior-summary')),
+                const Text('Sahne ve klip sayıları farklıdır; bir sahnede birden fazla klip olabilir. Dalların süreleri birbirine eklenmez.'),
+                if (durationTarget != null)
+                  Text('Toplam süre hedefi: $durationTarget sn (hedef; gerçek video ölçümü değildir).',
+                    key: const ValueKey('clip-plan-duration-target')),
+                _buildPathDurationSummary(data.graph, data.plan, durationTarget),
+                if (widget.sourceContext != null) ...[
+                  Text('Senaryo: ${data.graph.scenarioId} · kaynak: ${widget.sourceContext!['source']}',
+                    key: const ValueKey('clip-plan-source')),
+                  OutlinedButton(key: const ValueKey('export-plan-source'),
+                    onPressed: () => _export(jsonEncode(widget.sourceContext)),
+                    child: const Text('Özgün istek, ham cevap ve üretim kaynağını kopyala')),
+                ],
                 if (kDebugMode && widget.providedPlan == null)
                   Wrap(
                     spacing: 8, runSpacing: 8,
@@ -395,13 +416,15 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                         key: ValueKey('clip-scene:${scene.id}'),
                         title: Text(scene.title ?? scene.id),
                         subtitle: Text(
-                          '${scene.id} · ${data.plan.clipsForScene(scene.id).length} klip'
+                          '${data.graph.scenes.indexOf(scene) + 1}. sahne · ${scene.id} · ${data.plan.clipsForScene(scene.id).length} klip · '
+                          '${data.plan.clipsForScene(scene.id).fold<double>(0, (sum, clip) => sum + clip.targetDurationS)} sn planlandı · '
+                          '${data.graph.behaviorIdsFor(scene).join(', ')}'
                           '${scene.id == data.graph.startSceneId ? ' · Başlangıç' : ''}'
                           '${data.graph.endSceneIds.contains(scene.id) ? ' · Bitiş' : ''}',
                         ),
                         children: [
                           for (final clip in data.plan.clipsForScene(scene.id))
-                            _ClipDetails(clip: clip, videoControls: widget.providedPlan == null
+                            _ClipDetails(clip: clip, behaviorIds: data.graph.behaviorIdsFor(scene), videoControls: widget.providedPlan == null
                               ? _videoControls(data.plan.planId, clip.id) : const SizedBox.shrink()),
                         ],
                       ),
@@ -419,9 +442,10 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
 const _navy = Color(0xFF142540);
 
 class _ClipDetails extends StatelessWidget {
-  const _ClipDetails({required this.clip, required this.videoControls});
+  const _ClipDetails({required this.clip, required this.videoControls, required this.behaviorIds});
   final PlannedClip clip;
   final Widget videoControls;
+  final List<String> behaviorIds;
 
   Widget _field(String title, String value) => Padding(
     padding: const EdgeInsets.only(top: 12),
@@ -447,6 +471,7 @@ class _ClipDetails extends StatelessWidget {
         Text('${clip.orderInScene}. klip · Hedef süre: ${clip.targetDurationS} sn',
             style: const TextStyle(fontWeight: FontWeight.bold, color: _navy)),
         SelectableText(clip.id),
+        Text('Bu klibin sahnesindeki davranışlar: ${behaviorIds.join(', ')}'),
         _field('Planlanan eylem', clip.plannedAction),
         _field('Başlangıç durumu', clip.initialState),
         _field('Bitiş durumu', clip.finalState),
@@ -482,9 +507,112 @@ class _ClipDetails extends StatelessWidget {
 }
 
 typedef _Section = ({String title, List<ScenarioScene> scenes});
+typedef _PathDuration = ({String label, double seconds});
+
+int? _productionTarget(Map<String, dynamic>? sourceContext) {
+  final request = sourceContext?['request'];
+  if (request is! Map) return null;
+  final production = request['production'];
+  if (production is! Map) return null;
+  final target = production['targetDurationS'];
+  return target is int && target > 0 ? target : null;
+}
+
+int _productionClipLimit(Map<String, dynamic>? sourceContext) {
+  final request = sourceContext?['request'];
+  if (request is! Map) return 8;
+  final production = request['production'];
+  if (production is! Map) return 8;
+  final limit = production['maxClipDurationS'];
+  return limit is int && limit > 0 && limit <= 8 ? limit : 8;
+}
+
+List<_PathDuration> _pathDurations(ScenarioGraph graph, ScenarioClipPlan plan) {
+  final outgoing = <String, List<ScenarioTransition>>{
+    for (final scene in graph.scenes)
+      scene.id: graph.transitions.where((edge) => edge.fromSceneId == scene.id).toList(),
+  };
+  final paths = <_PathDuration>[];
+  var cycle = false;
+  var tooMany = false;
+
+  void visit(String sceneId, Set<String> ancestors, List<String> branchLabels, double seconds) {
+    if (cycle || tooMany) return;
+    if (ancestors.contains(sceneId)) {
+      cycle = true;
+      return;
+    }
+    final nextAncestors = {...ancestors, sceneId};
+    final sceneDuration = plan.clipsForScene(sceneId).fold<double>(
+      0,
+      (total, clip) => total + clip.targetDurationS,
+    );
+    final nextSeconds = seconds + sceneDuration;
+    if (graph.endSceneIds.contains(sceneId)) {
+      if (paths.length == 100) {
+        tooMany = true;
+        return;
+      }
+      paths.add((
+        label: branchLabels.isEmpty ? 'Tek doğrusal yol' : branchLabels.join(' → '),
+        seconds: nextSeconds,
+      ));
+      return;
+    }
+    final edges = outgoing[sceneId] ?? const <ScenarioTransition>[];
+    if (edges.isEmpty) {
+      cycle = true; // Yapısal olarak terminal olmayan ve bitişe ulaşmayan yol.
+      return;
+    }
+    for (final edge in edges) {
+      final label = edge.label?.trim().isNotEmpty == true ? edge.label!.trim() : edge.description;
+      visit(edge.toSceneId, nextAncestors,
+        edges.length > 1 ? [...branchLabels, label] : branchLabels, nextSeconds);
+    }
+  }
+
+  visit(graph.startSceneId, const <String>{}, const <String>[], 0);
+  if (cycle) throw const FormatException('Döngü veya tamamlanmayan yol nedeniyle tek bir sonlu süre hesaplanamıyor.');
+  if (tooMany) throw const FormatException('Yol sayısı özet sınırını aşıyor; süreler ayrı ayrı gösterilemiyor.');
+  if (paths.isEmpty) throw const FormatException('Başlangıçtan bir bitişe giden süre hesaplanamadı.');
+  return paths;
+}
+
+String _formatPlanSeconds(double value) =>
+    value == value.roundToDouble() ? value.toStringAsFixed(0) : value.toStringAsFixed(1);
+
+String _formatPlanDifference(double value) => value > 0
+    ? '+${_formatPlanSeconds(value)}'
+    : value < 0 ? '−${_formatPlanSeconds(value.abs())}' : '0';
+
+Widget _buildPathDurationSummary(ScenarioGraph graph, ScenarioClipPlan plan, int? target) {
+  late final List<_PathDuration> paths;
+  try {
+    paths = _pathDurations(graph, plan);
+  } on FormatException catch (error) {
+    return Text(error.message, key: const ValueKey('clip-plan-path-duration-error'));
+  }
+  return ExpansionTile(
+    key: const ValueKey('clip-plan-path-durations'),
+    initiallyExpanded: paths.length == 1,
+    title: Text(paths.length == 1 ? 'Tek yolun planlanan süresi' : 'Her alternatif yolun planlanan süresi'),
+    subtitle: Text(paths.length == 1 ? 'Tek yol' : '${paths.length} ayrı yol; süreler birleştirilmez'),
+    children: [
+      for (var index = 0; index < paths.length; index++)
+        ListTile(
+          key: ValueKey('clip-plan-path-duration:$index'),
+          title: Text(paths[index].label),
+          subtitle: Text(target == null
+              ? 'Planlanan yol toplamı: ${_formatPlanSeconds(paths[index].seconds)} sn; video ölçümü değildir.'
+              : 'Planlanan yol toplamı: ${_formatPlanSeconds(paths[index].seconds)} sn · hedef $target sn · '
+                  'fark ${_formatPlanDifference(paths[index].seconds - target)} sn; video ölçümü değildir.'),
+        ),
+    ],
+  );
+}
 
 /// İlk ayrımın ortak sahneleri bir kez, ayrı devamları kendi başlıklarında.
-/// Dal seçmez; yalnızca mevcut D01 grafının bağlantılarını görselleştirir.
+/// Dal seçmez; verilen grafın mevcut bağlantılarını görselleştirir.
 List<_Section> _sections(ScenarioGraph graph) {
   final outgoing = {
     for (final scene in graph.scenes)
@@ -526,7 +654,7 @@ String planPromptText(ScenarioGraph graph, ScenarioClipPlan plan) {
     if (plan.visualSuggestions != null) 'Üretilmiş görsel öneriler:\n${plan.visualSuggestions}',
     for (final scene in graph.scenes)
       for (final clip in plan.clipsForScene(scene.id))
-        'Sahne: ${scene.id} / Klip: ${clip.id} / Sıra: ${clip.orderInScene} / Hedef süre: ${clip.targetDurationS} s\n'
+        'Sahne: ${scene.id} / Davranışlar: ${graph.behaviorIdsFor(scene).join(', ')} / Klip: ${clip.id} / Sıra: ${clip.orderInScene} / Hedef süre: ${clip.targetDurationS} s\n'
         'Eylem:\n${clip.plannedAction}\nBaşlangıç:\n${clip.initialState}\nBitiş:\n${clip.finalState}\n'
         'Görsel üretim promptu:\n${clip.productionPrompt}\n'
         'Ayrı seslendirme yönergeleri:\n${clip.voiceoverInstructions ?? 'Belirtilmedi'}',

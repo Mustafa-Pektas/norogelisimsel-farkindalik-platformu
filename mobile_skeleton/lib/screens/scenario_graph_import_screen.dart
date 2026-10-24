@@ -13,6 +13,8 @@ import '../services/http_scenario_generation_service.dart';
 import 'clip_production_plan_screen.dart';
 import '../models/scenario_input.dart';
 import '../models/scenario_generation_request.dart';
+import '../models/scenario_generation_result.dart';
+import '../widgets/scenario_narrative_cards.dart';
 import '../models/scenario_workspace_draft.dart';
 import '../services/scenario_graph_converter.dart';
 import '../services/scenario_generation_service.dart';
@@ -21,7 +23,7 @@ import 'scenario_graph_screen.dart';
 
 enum _InputType { scenario, graph }
 
-/// Senaryo isteği, ham hizmet cevabı ve JSON doğrulama/görüntüleme çalışma alanı.
+/// Stüdyo sonucunu inceleme, JSON düzenleme, doğrulama, graf ve klip planı.
 class ScenarioGraphImportScreen extends StatefulWidget {
   const ScenarioGraphImportScreen({
     super.key,
@@ -29,15 +31,17 @@ class ScenarioGraphImportScreen extends StatefulWidget {
     this.generationService = const UnavailableScenarioGenerationService(),
     this.draftStore = const ScenarioDraftStore(),
     this.clipPlanService = const HttpScenarioGenerationService(),
+    this.incomingResult,
   });
 
   /// Doğrudan Stüdyo girişi içerikle başlar; eski hazır graf yolu korunur.
   final bool initialScenarioContent;
 
-  /// Ekran yalnız başlattığı üretim işini kapatır.
+  /// Eski çağrıların kaynak uyumluluğu için; ekran senaryo üretimi başlatmaz.
   final ScenarioGenerationService generationService;
   final ScenarioDraftStore draftStore;
   final ClipPlanGenerationService clipPlanService;
+  final ScenarioGenerationResult? incomingResult;
 
   static const d01InputAssetPath = 'assets/scenarios/d01_scenario_input.json';
   static const convertedSourceLabel = 'Senaryo içeriğinden dönüştürüldü';
@@ -54,11 +58,10 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
   final _requestAge = TextEditingController();
   final _requestContext = TextEditingController();
   final _requestInstructions = TextEditingController();
+  // Oturum dışına taşınmaz; _snapshot ve kayıt dinleyicilerine dahil edilmez.
+  final _teamAccessKey = TextEditingController();
   BehaviorCard? _requestCard;
   ScenarioGenerationRequest? _requestDraft;
-  String? _requestCardError;
-  String? _requestAgeError;
-  String? _requestContextError;
   final _drafts = {_InputType.graph: '', _InputType.scenario: ''};
   _InputType _type = _InputType.graph;
   ScenarioGraph? _validated;
@@ -83,14 +86,10 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
   bool _allowExit = false;
   static int _generationSequence = 0;
   int _generationEpoch = 0;
-  ScenarioGenerationJob? _generationJob;
   final _closedGenerationJobs = Expando<bool>();
-  bool _generationBusy = false;
-  bool _requestFormExpanded = false;
-  bool _generationCancelling = false;
-  String? _generationStatus;
   String? _generationError;
   String? _generationRaw;
+  ScenarioGenerationResult? _responseResult, _editorResult, _pendingResult;
   ScenarioGenerationRequest? _responseRequest;
   String? _responseScenarioId;
   ScenarioGenerationRequest? _editorRequest;
@@ -102,7 +101,6 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
   bool _restoringDraft = false;
   int _workspaceRevision = 0;
   int? _savedRevision;
-  int _formRestoreVersion = 0;
   String? _draftNotice;
   String? _draftError;
   String _restoredDemoRaw = '';
@@ -124,6 +122,7 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
     editorRequest: _editorRequest, editorScenarioId: _editorScenarioId,
     generationEdited: _generationEdited, demoDraft: _demoDraft, demoEdited: _demoEdited,
     demoRaw: _restoredDemoRaw,
+    responseResult: _responseResult, editorResult: _editorResult, pendingResult: _pendingResult,
   );
 
   Future<void> _loadDraft() async {
@@ -150,9 +149,10 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
           _requestInstructions.text = draft.instructionsText;
           _requestCard = draft.behaviorId == null ? null :
               BehaviorCards.all.firstWhere((card) => card.id == draft.behaviorId);
-          ++_formRestoreVersion;
-          _requestFormExpanded = false;
           _generationRaw = draft.generationRaw;
+          _responseResult = draft.responseResult;
+          _editorResult = draft.editorResult;
+          _pendingResult ??= draft.pendingResult;
           _responseRequest = draft.responseRequest;
           _responseScenarioId = draft.responseScenarioId;
           _editorRequest = draft.editorRequest;
@@ -161,12 +161,12 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
           _demoDraft = draft.demoDraft;
           _demoEdited = draft.demoEdited;
           _restoredDemoRaw = draft.demoRaw;
-          _requestDraft = null;
+          _requestDraft = draft.editorRequest ?? draft.responseRequest;
           _validated = null;
           _scenarioInput = null;
           _error = null;
           _formatNormalization = null;
-          _savedRevision = _workspaceRevision;
+          _savedRevision = widget.incomingResult == null ? _workspaceRevision : null;
           _draftNotice = 'Kayıtlı taslak yüklendi. Grafı yeniden doğrulayın; iş durumu geri yüklenmedi.';
         });
       } finally {
@@ -238,10 +238,10 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
   }
 
   bool get _isScenario => _type == _InputType.scenario;
-  bool get _busy => _loadingExample || _generationBusy || _planBusy;
+  bool get _busy => _loadingExample || _planBusy;
   bool get _hasDraft =>
       _planBusy || _planRaw != null || _restoredDemoRaw.isNotEmpty ||
-      _generationBusy || _generationRaw != null ||
+      _pendingResult != null || _generationRaw != null ||
       _json.text.trim().isNotEmpty ||
       _requestCard != null ||
       _requestAge.text.isNotEmpty ||
@@ -249,37 +249,6 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
       _requestInstructions.text.isNotEmpty ||
       _drafts.entries.any((entry) =>
           entry.key != _type && entry.value.trim().isNotEmpty);
-
-  void _requestEdited() {
-    _workspaceChanged();
-    setState(() {
-      _requestDraft = null;
-      _requestCardError = null;
-      _requestAgeError = null;
-      _requestContextError = null;
-    });
-  }
-
-  void _validateRequest() {
-    if (_busy) return;
-    final card = _requestCard;
-    final ageText = _requestAge.text.trim();
-    final age = RegExp(r'^[0-9]+$').hasMatch(ageText)
-        ? int.tryParse(ageText) : null;
-    final validAge = age != null && age >= 12 && age <= 36;
-    final validContext = _requestContext.text.trim().isNotEmpty;
-    setState(() {
-      _requestCardError = card == null ? 'Hedef davranış seçin.' : null;
-      _requestAgeError = validAge ? null : '12–36 arasında tam ay girin.';
-      _requestContextError = validContext ? null : 'Sahne/ortam bağlamını girin.';
-      _requestDraft = card != null && age != null && validAge && validContext
-          ? ScenarioGenerationRequest(behaviorId: card.id, cardVersion: card.cardVersion,
-              ageMonths: age, sceneContext: _requestContext.text,
-              additionalInstructions: _requestInstructions.text.trim().isEmpty
-                  ? null : _requestInstructions.text)
-          : null;
-    });
-  }
 
   Future<void> _closeGeneration(ScenarioGenerationJob job, {required bool cancel}) async {
     if (_closedGenerationJobs[job] == true) return;
@@ -297,91 +266,6 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
         await job.dispose();
       } catch (_) {
         debugPrint('Senaryo üretim kaynakları kapatılamadı.');
-      }
-    }
-  }
-
-  Future<void> _generate() async {
-    final request = _requestDraft;
-    if (_busy || request == null || !widget.generationService.isAvailable) return;
-    final epoch = ++_generationEpoch;
-    _workspaceChanged();
-    final scenarioId = 'generated-${DateTime.now().microsecondsSinceEpoch}-${++_generationSequence}';
-    ScenarioGenerationJob? job;
-    setState(() {
-      _generationBusy = true;
-      _generationStatus = 'Senaryo taslağı isteniyor';
-      _generationError = null;
-    });
-    try {
-      job = widget.generationService.start(request);
-      _generationJob = job;
-      final raw = await job.response;
-      if (!mounted || epoch != _generationEpoch) return;
-      _workspaceChanged();
-      setState(() {
-        _generationRaw = raw;
-        _responseRequest = request;
-        _responseScenarioId = scenarioId;
-        _generationStatus = 'Ham cevap alındı; henüz doğrulanmadı.';
-      });
-    } catch (error) {
-      if (!mounted || epoch != _generationEpoch) return;
-      if (error is ScenarioGenerationFailure && error.rawResponse != null) {
-        _workspaceChanged();
-      }
-      setState(() {
-        _generationStatus = 'Üretim hatası';
-        _generationError = error is ScenarioGenerationFailure
-            ? error.message : 'Taslak alınamadı. Mevcut editör ve ham cevap korundu.';
-        if (error is ScenarioGenerationFailure && error.rawResponse != null) {
-          _generationRaw = error.rawResponse;
-          _responseRequest = request;
-          _responseScenarioId = scenarioId;
-        }
-      });
-    } finally {
-      // İptal yolu aynı işin sahibi olarak kalır; bekleyen iptali dispose ile bitirme.
-      if (mounted && epoch == _generationEpoch) {
-        setState(() { _generationBusy = false; });
-        if (identical(_generationJob, job)) _generationJob = null;
-        if (job != null) unawaited(_closeGeneration(job, cancel: false));
-      }
-    }
-  }
-
-  Future<void> _cancelGeneration() async {
-    if (!_generationBusy || _generationCancelling) return;
-    final job = _generationJob;
-    final epoch = ++_generationEpoch;
-    setState(() {
-      _generationCancelling = true;
-      _generationStatus = 'İptal bekleniyor';
-    });
-    try {
-      if (job != null) await job.cancel();
-      if (!mounted || epoch != _generationEpoch) return;
-      setState(() { _generationStatus = 'Üretim iptal edildi.'; });
-    } on ScenarioGenerationCancellationUnconfirmed {
-      if (!mounted || epoch != _generationEpoch) return;
-      setState(() {
-        _generationStatus = 'Yerel bekleme durduruldu.';
-        _generationError = 'Sunucudaki model işinin iptali doğrulanmadı; üretim sürebilir.';
-      });
-    } catch (_) {
-      if (!mounted || epoch != _generationEpoch) return;
-      setState(() {
-        _generationStatus = 'İptal hatası';
-        _generationError = 'Sonuç takibi durduruldu; hizmetin iptali doğrulanamadı.';
-      });
-    } finally {
-      if (identical(_generationJob, job)) _generationJob = null;
-      if (job != null) unawaited(_closeGeneration(job, cancel: false));
-      if (mounted && epoch == _generationEpoch) {
-        setState(() {
-          _generationBusy = false;
-          _generationCancelling = false;
-        });
       }
     }
   }
@@ -415,6 +299,7 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
         _json.text = prepared.json;
         _editorRequest = request;
         _editorScenarioId = scenarioId;
+        _editorResult = _responseResult;
         _generationEdited = false;
         _demoDraft = false;
         _demoEdited = false;
@@ -432,166 +317,76 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
     }
   }
 
-  Widget _generationFeedback() {
-    if (_generationStatus == null) return const SizedBox.shrink();
-    return Column(
-      key: const ValueKey('scenario-generation-feedback'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(_generationStatus!, key: const ValueKey('scenario-generation-status')),
-        if (_generationError != null)
-          Text(_generationError!, key: const ValueKey('scenario-generation-error')),
-        if (_generationBusy)
-          OutlinedButton(
-            key: const ValueKey('scenario-generation-cancel'),
-            onPressed: _generationCancelling ? null : _cancelGeneration,
-            child: const Text('Üretimi iptal et'),
-          ),
-      ],
-    );
+  Future<void> _acceptResult() async {
+    final result = _pendingResult;
+    if (result == null || _draftLoading || _busy || _confirmingTransfer) return;
+    _confirmingTransfer = true;
+    try {
+      if (_json.text.isNotEmpty || _drafts.values.any((text) => text.isNotEmpty) || _generationRaw != null) {
+        final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+          title: const Text('Editördeki taslak değiştirilsin mi?'),
+          content: const Text('Seçilen sonucun ham cevabı ayrı tutulur. Mevcut editör, ham kayıt ve doğrulama '
+            'yalnız onayınızla değişir; cihazdaki kayıt otomatik olarak yazılmaz.'),
+          actions: [FilledButton(autofocus: true, onPressed: () => Navigator.pop(context, false), child: const Text('Taslağı koru')),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Aktar'))]));
+        if (confirmed != true) return;
+      }
+      if (!mounted || _busy) return;
+      final prepared = result.request.prepareInput(result.rawResponse, scenarioId: result.scenarioId, edited: false);
+      _workspaceChanged();
+      setState(() {
+        _drafts[_type] = _json.text;
+        _type = _InputType.scenario;
+        _json.text = prepared.json;
+        _generationRaw = result.rawResponse;
+        _responseResult = result; _editorResult = result; _pendingResult = null;
+        _responseRequest = result.request; _editorRequest = result.request; _requestDraft = result.request;
+        _responseScenarioId = result.scenarioId; _editorScenarioId = result.scenarioId;
+        _requestCard = result.request.card;
+        _requestAge.text = result.request.ageMonths.toString();
+        _requestContext.text = result.request.sceneContext;
+        _requestInstructions.text = result.request.additionalInstructions ?? '';
+        _generationEdited = false; _demoDraft = false; _demoEdited = false;
+        _validated = null; _scenarioInput = null; _error = null; _generationError = null;
+        _formatNormalization = prepared.normalization;
+      });
+    } on FormatException catch (error) {
+      if (mounted) setState(() { _generationError = error.message.toString(); });
+    } finally { _confirmingTransfer = false; }
   }
 
-  Widget _requestForm() {
-    final draft = _requestDraft;
-    return ExpansionTile(
-      key: const ValueKey('scenario-import-request-form'),
-      onExpansionChanged: (expanded) {
-        setState(() { _requestFormExpanded = expanded; });
-      },
-      title: const Text('Senaryo üretim isteği'),
-      initiallyExpanded: false,
-      maintainState: true,
-      expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget _resultReview() => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    if (_pendingResult != null) ...[
+      Text('Stüdyo’dan seçilen sonuç: ${_pendingResult!.summary}', key: const ValueKey('scenario-incoming-result')),
+      const Text('Mevcut taslak henüz değiştirilmedi. Aktarım yeni model çağrısı yapmaz.'),
+      ExpansionTile(title: const Text('Gelen tam ham cevabı incele'), children: [
+        SizedBox(height: 220, child: SingleChildScrollView(child: SelectableText(_pendingResult!.rawResponse,
+          key: const ValueKey('scenario-incoming-raw')))),
+      ]),
+      FilledButton(key: const ValueKey('scenario-accept-result'),
+        onPressed: _draftLoading || _busy ? null : _acceptResult,
+        child: const Text('Seçilen sonucu JSON editörüne aktar')),
+    ],
+    if (_generationError != null) Text(_generationError!, key: const ValueKey('scenario-generation-error')),
+    if (_generationRaw != null) ExpansionTile(
+      key: const ValueKey('scenario-generation-raw-details'), title: const Text('Ham cevap ve kaynak'), maintainState: true,
       children: [
-        Text(widget.generationService.availabilityMessage,
-          key: const ValueKey('scenario-generation-availability')),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<BehaviorCard>(
-          key: const ValueKey('scenario-request-behavior'),
-          initialValue: _requestCard,
-          isExpanded: true,
-          isDense: false,
-          itemHeight: null,
-          decoration: InputDecoration(
-            labelText: 'Hedef davranış',
-            border: const OutlineInputBorder(),
-            errorText: _requestCardError,
-            errorMaxLines: 6,
-          ),
-          items: [
-            for (final card in BehaviorCards.all)
-              DropdownMenuItem(value: card, child: Text(card.title)),
-          ],
-          onChanged: _busy ? null : (card) {
-            _requestCard = card;
-            _requestEdited();
-          },
-        ),
-        if (_requestCard != null)
-          Text('Kart sürümü: ${_requestCard!.cardVersion}',
-              key: const ValueKey('scenario-request-card-version')),
-        const SizedBox(height: 12),
-        const Text('Karakter yaşı (ay, zorunlu)'),
-        TextField(
-          key: const ValueKey('scenario-request-age'),
-          controller: _requestAge,
-          readOnly: _busy,
-          keyboardType: const TextInputType.numberWithOptions(),
-          decoration: InputDecoration(
-            hintText: '12–36',
-            border: const OutlineInputBorder(),
-            errorText: _requestAgeError,
-            errorMaxLines: 6,
-          ),
-          onChanged: (_) => _requestEdited(),
-        ),
-        const SizedBox(height: 12),
-        const Text('Sahne / ortam bağlamı (zorunlu)'),
-        TextField(
-          key: const ValueKey('scenario-request-context'),
-          controller: _requestContext,
-          readOnly: _busy,
-          minLines: 2,
-          maxLines: 4,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            errorText: _requestContextError,
-            errorMaxLines: 6,
-          ),
-          onChanged: (_) => _requestEdited(),
-        ),
-        const SizedBox(height: 12),
-        const Text('Ek yönerge (isteğe bağlı)'),
-        TextField(
-          key: const ValueKey('scenario-request-instructions'),
-          controller: _requestInstructions,
-          readOnly: _busy,
-          minLines: 2,
-          maxLines: 4,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-          onChanged: (_) => _requestEdited(),
-        ),
-        const SizedBox(height: 8),
-        const Text('Ek yönerge kart kurallarını değiştiremez. '
-            'Kart seçimi, doğrulanmış üretim veya analiz desteği anlamına gelmez.'),
-        const SizedBox(height: 12),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: FilledButton(
-            key: const ValueKey('scenario-request-validate'),
-            onPressed: _busy ? null : _validateRequest,
-            child: const Text('İstek taslağını doğrula'),
-          ),
-        ),
-        if (draft != null)
-          Column(
-            key: const ValueKey('scenario-request-summary'),
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 12),
-              const Text('Doğrulanmış istek özeti — içerik onayı değildir.'),
-              Text('Davranış: ${draft.card.title}'),
-              Text('Kart sürümü: ${draft.card.cardVersion}'),
-              Text('Karakter yaşı: ${draft.ageMonths} ay'),
-              Text('Bağlam: ${draft.sceneContext}'),
-              if (draft.additionalInstructions != null)
-                Text('Ek yönerge: ${draft.additionalInstructions}'),
-              if (draft.ageMonths < 30)
-                const Text('Bu yaş için görev uyarlaması gerekli.'),
-              const Text('Yalnız alanlar doğrulandı; kart/içerik uygunluğu onaylanmadı.'),
-            ],
-          ),
-        if (_requestFormExpanded) _generationFeedback(),
-        if (widget.generationService.isAvailable)
-          FilledButton(
-            key: const ValueKey('scenario-generation-start'),
-            onPressed: _busy || draft == null ? null : _generate,
-            child: Text(_generationBusy ? 'Yanıt bekleniyor…' : 'Senaryo taslağı iste'),
-          ),
-        if (_generationRaw != null) ...[
-          const Text('Hizmetin ham cevabı — içerik onaylanmadı'),
-          Text('Gönderilen istek: ${_responseRequest!.behaviorId}, kart ${_responseRequest!.cardVersion}, '
-            '${_responseRequest!.ageMonths} ay. Metadata uygulamada bu istekten eklenir.'),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 240),
-            child: SingleChildScrollView(child: SelectableText(_generationRaw!,
-              key: const ValueKey('scenario-generation-raw'))),
-          ),
-          OutlinedButton.icon(
-            key: const ValueKey('scenario-generation-copy-raw'),
-            onPressed: () => _copyRawText(_generationRaw!),
-            icon: const Icon(Icons.copy),
-            label: const Text('Ham cevabı kopyala'),
-          ),
-          OutlinedButton(
-            key: const ValueKey('scenario-generation-transfer'),
-            onPressed: _busy ? null : _transferGeneration,
-            child: const Text('Cevabı JSON editörüne aktar'),
-          ),
-        ],
-      ],
-    );
-  }
+        if (_responseResult != null) Text(_responseResult!.summary),
+        const Text('Ham cevap düzenlenmiş JSON değildir; içerik onayı anlamına gelmez.'),
+        SizedBox(height: 240, child: SingleChildScrollView(child: SelectableText(_generationRaw!,
+          key: const ValueKey('scenario-generation-raw')))),
+        OutlinedButton(key: const ValueKey('scenario-generation-copy-raw'),
+          onPressed: () => _copyRawText(_generationRaw!), child: const Text('Ham cevabı kopyala')),
+        OutlinedButton(key: const ValueKey('scenario-generation-transfer'),
+          onPressed: _busy || !_isScenario ? null : _transferGeneration, child: const Text('Cevabı JSON editörüne aktar')),
+      ]),
+    if (_editorResult != null) ExpansionTile(title: const Text('Senaryonun üretim kaynağı'), children: [
+      Text(_editorResult!.summary),
+      Text(_generationEdited ? 'Kullanıcı tarafından düzenlenmiş model taslağı (model_output_edited)' : 'Model çıktısı (model_output)'),
+      SizedBox(height: 180, child: SingleChildScrollView(child: SelectableText(jsonEncode(
+        _editorResult!.toJson()..remove('rawResponse'))))),
+    ]),
+  ]);
 
   Future<void> _requestExit() async {
     if (_confirmingExit || _allowExit) return;
@@ -606,7 +401,7 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Taslağı bırakıp çıkılsın mı?'),
         content: const Text(
-          'Kaydedilmemiş değişiklikler kaybolabilir. Süren üretim varsa iptal edilir.',
+          'Kaydedilmemiş değişiklikler kaybolabilir. Süren klip planı isteği varsa yerel izleme durdurulur.',
         ),
         actions: [
           TextButton(
@@ -638,6 +433,9 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
   @override
   void initState() {
     super.initState();
+    _pendingResult = widget.incomingResult;
+    final planService = widget.clipPlanService;
+    if (planService is HttpScenarioGenerationService) _teamAccessKey.text = planService.resolveAccessKey?.call() ?? '';
     _type = widget.initialScenarioContent ? _InputType.scenario : _InputType.graph;
     for (final controller in [_json, _requestAge, _requestContext, _requestInstructions]) {
       _controllerTexts[controller] = controller.text;
@@ -700,7 +498,6 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
     _json.text = _drafts[type]!;
     setState(() {
       _type = type;
-      _requestFormExpanded = false;
       _validated = null;
       _scenarioInput = null;
       _error = null;
@@ -709,7 +506,7 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
 
   void _edited(String _) {
     if (_isScenario && _demoDraft) _demoEdited = true;
-    if (_isScenario && _editorRequest != null) _generationEdited = true;
+    if (_editorRequest != null) _generationEdited = true;
     setState(() {
       _validated = null;
       _scenarioInput = null;
@@ -793,6 +590,8 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
         _json.text = text;
         _editorRequest = null;
         _editorScenarioId = null;
+        _editorResult = null;
+        _requestDraft = null;
         _demoDraft = false;
         _demoEdited = false;
         _formatNormalization = null;
@@ -823,7 +622,9 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
     final request = (_isScenario ? _editorRequest : null) ?? _requestDraft;
     final graph = _validated;
     if (request == null || graph == null || graph.behaviorId != request.behaviorId ||
-        graph.cardVersion != request.cardVersion || graph.ageMonths != request.ageMonths) {
+        graph.cardVersion != request.cardVersion || graph.ageMonths != request.ageMonths ||
+        jsonEncode(graph.behaviors.map((ref) => ref.toJson()).toList()) != jsonEncode(request.behaviors.map((ref) => ref.toJson()).toList()) ||
+        (_editorResult != null && graph.scenarioId != _editorResult!.scenarioId)) {
       return null;
     }
     return request;
@@ -839,7 +640,9 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
     setState(() { _planBusy = true; _planError = null; _planNotice = 'Sunucudan klip planı bekleniyor…'; });
     ScenarioGenerationJob? job;
     try {
-      job = widget.clipPlanService.startPlan(input);
+      final service = widget.clipPlanService;
+      job = (service is HttpScenarioGenerationService
+        ? service.withAccessKey(() => _teamAccessKey.text.trim()) : service).startPlan(input);
       _planJob = job;
       final raw = await job.response;
       if (!mounted || epoch != _planEpoch) return;
@@ -847,6 +650,9 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
       setState(() { _planRaw = raw; });
       final plan = ScenarioClipPlan.fromJsonString(raw);
       plan.validateAgainst(graph);
+      if (plan.clips.any((clip) => clip.targetDurationS > (request.production?.maxClipDurationS ?? 8))) {
+        throw const FormatException('Klip süresi seçilen üst sınırı aşıyor.');
+      }
       plan.d01ObservationDurations(graph, requireTiming: true);
       if (plan.planId != input.planId || plan.visualSuggestions == null ||
           plan.clips.any((clip) => clip.voiceoverInstructions == null)) {
@@ -889,7 +695,11 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
     _openingPlan = true;
     try {
       await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
-        ClipProductionPlanScreen(providedPlan: (graph: _planGraph!, plan: _clipPlan!), rawPlanJson: _clipPlanRaw)));
+        ClipProductionPlanScreen(providedPlan: (graph: _planGraph!, plan: _clipPlan!), rawPlanJson: _clipPlanRaw,
+          sourceContext: _editorResult == null ? null : {..._editorResult!.toJson(),
+            'originalSource': 'model_output', 'source': _generationEdited ? 'model_output_edited' : 'model_output',
+            'edited': _generationEdited, 'editorJson': _json.text, 'planId': _clipPlan!.planId,
+            'inputType': _isScenario ? 'scenario' : 'graph', 'graph': _planGraph!.toJson()})));
     } finally {
       _openingPlan = false;
     }
@@ -907,6 +717,7 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
             ? null
             : '${ScenarioGraphImportScreen.convertedSourceLabel}\n'
                 '${_sourceText(input)}\n'
+                '${_editorResult?.summary ?? ''}\n'
                 '${ScenarioGraphImportScreen.sourceDisclaimer}',
       ),
     ));
@@ -919,13 +730,12 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
     _planJob = null;
     if (planJob != null) unawaited(_closeGeneration(planJob, cancel: true));
     ++_generationEpoch;
-    final job = _generationJob;
-    _generationJob = null;
-    if (job != null) unawaited(_closeGeneration(job, cancel: !_generationCancelling));
+
     _json.dispose();
     _requestAge.dispose();
     _requestContext.dispose();
     _requestInstructions.dispose();
+    _teamAccessKey.dispose();
     super.dispose();
   }
 
@@ -965,6 +775,34 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (kDebugMode) ...[
+                TextField(
+                  key: const ValueKey('scenario-team-access-key'),
+                  controller: _teamAccessKey,
+                  obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
+                  autofillHints: const [],
+                  readOnly: _busy,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: 'Ekip erişim anahtarı',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      key: const ValueKey('scenario-team-access-clear'),
+                      tooltip: 'Erişim anahtarını temizle',
+                      onPressed: _busy || _teamAccessKey.text.isEmpty ? null
+                        : () => setState(() { _teamAccessKey.clear(); }),
+                      icon: const Icon(Icons.clear),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text('Yalnız bu ekran oturumunda tutulur; taslağa kaydedilmez. '
+                  'Yerel geliştirme için boş bırakılabilir.'),
+                const SizedBox(height: 12),
+              ],
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -996,7 +834,7 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
               ),
               const SizedBox(height: 8),
               Text(_isScenario
-                  ? 'Formdan taslak isteyin veya senaryo JSON’unu düzenleyip graf oluşturun.'
+                  ? 'Stüdyo sonucunu aktarın veya senaryo JSON’unu düzenleyip graf oluşturun.'
                   : 'Sahne ve bağlantıları içeren JSON’u doğrulayıp grafı açın.'),
               const SizedBox(height: 8),
               const Text(
@@ -1026,9 +864,10 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
                   child: const Text('Kayıtlı taslağı sil'),
                 ),
               ]),
-              const Text('Bu graf, hazır D01 klip planına ve videolarına bağlı değildir.'),
-              if (!_isScenario || !_requestFormExpanded)
-                _generationFeedback(),
+              const Text('Hazır D01 videoları bu senaryoya otomatik bağlanmaz.'),
+              _resultReview(),
+              if (_scenarioInput != null) ExpansionTile(title: const Text('Anlatı ve sahneleri incele'),
+                children: [ScenarioNarrativeCards(input: _scenarioInput!, request: _editorRequest)]),
               const SizedBox(height: 16),
               TextField(
                 key: const ValueKey('scenario-import-json'),
@@ -1050,6 +889,8 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              if (graph != null) const Padding(padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('3. Üretime hazırla', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -1066,11 +907,11 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
                     icon: const Icon(Icons.account_tree_outlined),
                     label: const Text('Grafı görüntüle'),
                   ),
-                  if (kDebugMode && graph != null) ...[
+                  if (graph != null && (kDebugMode || _editorRequest != null)) ...[
                     OutlinedButton.icon(
                       key: const ValueKey('scenario-request-clip-plan'),
                       onPressed: _busy || _planRequest == null ? null : _generatePlan,
-                      icon: const Icon(Icons.movie_outlined), label: const Text('Sunucudan klip planı iste'),
+                      icon: const Icon(Icons.movie_outlined), label: const Text('Klip ve prompt planı hazırla'),
                     ),
                     if (_clipPlan != null && _planGraph == graph && _planSourceRequest == _planRequest)
                       OutlinedButton(key: const ValueKey('scenario-view-clip-plan'),
@@ -1086,7 +927,7 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
                 ],
               ),
               if (kDebugMode && graph != null && _planRequest == null)
-                const Text('Klip planı için bu grafla eşleşen davranış, sürüm, yaş ve ortam isteğini doğrulayın.'),
+                const Text('Klip planı için Stüdyo’dan bu grafla eşleşen doğrulanmış istek ve sonuçla devam edin.'),
               if (_planNotice != null) Text(_planNotice!, key: const ValueKey('clip-plan-status')),
               if (_planError != null) Text(_planError!, key: const ValueKey('clip-plan-error')),
               if (_planBusy)
@@ -1127,16 +968,12 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
                       const Text(ScenarioGraphImportScreen.convertedSourceLabel),
                       Text('Alternatif: ${input.alternatives.length}'),
                     ],
-                    Text('Davranış: ${graph.behaviorId} · Kart sürümü: ${graph.cardVersion}'),
+                    Text('Davranışlar: ${graph.behaviors.map((ref) => '${ref.behaviorId} (${ref.cardVersion})').join(', ')}'),
                     Text('Sahne: ${graph.scenes.length} · Bağlantı: ${graph.transitions.length}'),
                   ],
                 ),
               ],
               const SizedBox(height: 16),
-              if (kDebugMode && _isScenario) ...[
-                KeyedSubtree(key: ValueKey('restored-form-$_formRestoreVersion'), child: _requestForm()),
-                const SizedBox(height: 12),
-              ],
               ExpansionTile(
                 key: const ValueKey('scenario-import-format-details'),
                 title: const Text('Biçim ve kaynak ayrıntıları'),

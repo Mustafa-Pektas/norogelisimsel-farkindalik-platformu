@@ -1,17 +1,28 @@
 import 'dart:io';
 import '../services/graph_playback_controller.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/clip_video_store.dart';
 import 'package:flutter/services.dart';
 import '../models/scenarios_data.dart';
 import '../models/behavior_cards.dart';
+import '../models/scenario_generation_request.dart';
+import '../models/scenario_behavior_ref.dart';
+import '../models/scenario_input.dart';
+import '../widgets/scenario_narrative_cards.dart';
+import '../models/scenario_generation_result.dart';
+import '../services/scenario_draft_store.dart';
+import '../services/clip_plan_generation_service.dart';
+import '../services/scenario_generation_service.dart';
 import 'graph_playback_screen.dart';
 import 'clip_production_plan_screen.dart';
 import 'scenario_graph_import_screen.dart';
+import 'scenario_comparison_dialog.dart';
 import '../services/synthetic_video_service.dart';
 import '../services/server_api_service.dart';
+import '../services/http_scenario_generation_service.dart';
 import 'scenario_graph_screen.dart';
 
 class SyntheticVideoStudioScreen extends StatefulWidget {
@@ -19,6 +30,10 @@ class SyntheticVideoStudioScreen extends StatefulWidget {
   final int? initialAgeMonths;
   final ClipVideoStore? playbackVideoStore;
   final GraphClipPlayer Function(File)? createPlaybackPlayer;
+  final HttpScenarioGenerationService? comparisonService;
+  final ScenarioGenerationService? generationService;
+  final ScenarioDraftStore? scenarioDraftStore;
+  final ClipPlanGenerationService? clipPlanService;
 
   const SyntheticVideoStudioScreen({
     super.key,
@@ -26,6 +41,10 @@ class SyntheticVideoStudioScreen extends StatefulWidget {
     this.initialAgeMonths,
     this.playbackVideoStore,
     this.createPlaybackPlayer,
+    this.comparisonService,
+    this.generationService,
+    this.scenarioDraftStore,
+    this.clipPlanService,
   });
 
   @override
@@ -33,41 +52,63 @@ class SyntheticVideoStudioScreen extends StatefulWidget {
 }
 
 class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen> {
+  bool _openingD01Playback = false;
+
   Future<void> _openD01Playback() async {
+    if (_openingD01Playback) return;
+    setState(() { _openingD01Playback = true; });
     final bundle = DefaultAssetBundle.of(context);
     final store = widget.playbackVideoStore ??
         ClipVideoStore(documentsDirectory: getApplicationDocumentsDirectory);
-    if (!mounted) return;
-    Navigator.of(context).push(
+    Future<LoadedClipPlan>? loading;
+    var left = false;
+    try {
+      await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => FutureBuilder<LoadedClipPlan>(
-          future: ClipProductionPlanScreen.loadPlanAssets(bundle),
+        builder: (_) => PopScope<void>(
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) left = true;
+          },
+          child: FutureBuilder<LoadedClipPlan>(
+          future: loading ??= ClipProductionPlanScreen.loadPlanAssets(bundle),
           builder: (context, snapshot) {
+            if (left || !mounted) return const SizedBox.shrink();
             if (snapshot.hasData) {
               return GraphPlaybackScreen(
                 graph: snapshot.data!.graph,
                 plan: snapshot.data!.plan,
                 videoStore: store,
                 createPlayer: widget.createPlaybackPlayer,
-                title: 'D01 İnteraktif Karar Ağacı',
+                title: 'D01 videolu örnek',
+                notice: 'Örnek videoların içeriği ve sürekliliği doğrulanmadı.',
               );
             }
             return Scaffold(
               appBar: AppBar(
-                title: const Text('D01 İnteraktif Karar Ağacı'),
+                title: const Text('D01 videolu örnek'),
                 backgroundColor: const Color(0xFF0F172A),
                 foregroundColor: Colors.white,
               ),
               body: Center(
-                child: snapshot.hasError
-                    ? Text('Yükleme hatası: ${snapshot.error}')
-                    : const CircularProgressIndicator(),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: snapshot.hasError
+                      ? const Text(
+                          'D01 videolu örnek açılamadı. Daha sonra tekrar deneyebilirsiniz.',
+                          key: ValueKey('d01-playback-load-error'),
+                        )
+                      : const CircularProgressIndicator(),
+                ),
               ),
             );
           },
         ),
+        ),
       ),
     );
+    } finally {
+      if (mounted) setState(() { _openingD01Playback = false; });
+    }
   }
 
   // SENARYO TÜRÜ: 'doctor' (Tür 1: Doktor Klinik Senaryosu - Saniyesiz) veya 'video' (Tür 2: Sentetik Video & Prompt Stüdyosu - Saniyeli)
@@ -75,9 +116,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
 
   // MOTOR SEÇİMİ: 'local' (0 MB Yerel Klinik), 'server' (Sunucu Gemini AI)
   String _selectedEngine = 'local';
-  Map<String, dynamic>? _lastBenchmark;
-  Map<String, dynamic>? _lastValidation;
-  String? _lastArm;
+  Map<String, dynamic>? get _lastBenchmark => _normalResult?.measurement;
+  Map<String, dynamic>? get _lastComparison => _normalResult == null ? null :
+      {'model': _normalResult!.model, 'sourceMode': 'Ortak anlatı sözleşmesi'};
+  String? get _lastArm => _normalResult?.arm;
 
   // DOKTOR KLİNİK PARAMETRELERİ (SANİYESİZ)
   int _selectedAge = 18;
@@ -95,6 +137,218 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   DoctorClinicalScenario? _doctorScenario;
   SyntheticVideoSession? _session;
   bool _isGenerating = false;
+  int _generationRequest = 0;
+  final TextEditingController _teamAccessKeyController = TextEditingController();
+  ScenarioGenerationJob? _activeNarrativeJob;
+  final _closedNarrativeJobs = Expando<bool>();
+  final _productionAge = TextEditingController();
+  final _productionContext = TextEditingController();
+  final _productionInstructions = TextEditingController();
+  ScenarioGenerationRequest? _productionRequest;
+  String? _productionSignature, _productionError, _normalError, _normalErrorRaw;
+  ScenarioGenerationResult? _normalResult;
+  bool _openingWorkspace = false;
+  String _productionStructure = 'branched';
+  bool _productionGoals = false, _productionAttempted = false;
+  bool _openingComparison = false;
+  bool _confirmingStudioExit = false, _allowStudioExit = false;
+  bool get _hasProductionDraft {
+    final initial = widget.initialOntologyCode == null ? {'D01', 'D02', 'D03'} : {widget.initialOntologyCode!};
+    return (_isGenerating && _selectedEngine == 'server') || _normalResult != null || _normalErrorRaw != null ||
+      _productionContext.text.isNotEmpty || _productionInstructions.text.isNotEmpty ||
+      (_productionAge.text.isNotEmpty && _productionAge.text != (widget.initialAgeMonths ?? 18).toString()) ||
+      _productionGoals || _productionStructure != 'branched' ||
+      _selectedOntologies.length != initial.length || !initial.every(_selectedOntologies.contains);
+  }
+  String get _currentProductionSignature => jsonEncode([
+    _selectedOntologies.toList(), _productionAge.text, _productionContext.text, _productionInstructions.text,
+    _productionStructure, _productionGoals, if (_productionGoals || _productionStructure == 'linear26') ...[_selectedTotalSec, _selectedDuration]]);
+  String? get _productionAgeError {
+    final value = _productionAge.text.trim();
+    if (value.isEmpty && !_productionAttempted) return null;
+    final age = RegExp(r'^[0-9]+$').hasMatch(value) ? int.tryParse(value) : null;
+    return age == null || age < 12 || age > 36 ? '12–36 arasında tam ay girin.' : null;
+  }
+  String? get _productionContextError => _productionAttempted && _productionContext.text.trim().isEmpty
+    ? 'Ortamı ve sahneyi kısaca yazın.' : null;
+
+  HttpScenarioGenerationService get _httpService =>
+      (widget.comparisonService ?? const HttpScenarioGenerationService())
+        .withAccessKey(() => _teamAccessKeyController.text.trim());
+
+  ScenarioGenerationRequest? _validatedProductionRequest() {
+    setState(() { _productionAttempted = true; });
+    try {
+      if (_selectedOntologies.isEmpty) {
+        throw const FormatException('En az bir davranış seçin.');
+      }
+      final cards = BehaviorCards.all.where((card) => _selectedOntologies.contains(card.id)).toList();
+      if (cards.length != _selectedOntologies.length) throw const FormatException('Güncel D01–D10 kartlarını seçin.');
+      final ageText = _productionAge.text.trim();
+      final age = RegExp(r'^[0-9]+$').hasMatch(ageText) ? int.tryParse(ageText) : null;
+      if (age == null || age < 12 || age > 36) throw const FormatException('12–36 arasında tam ay girin.');
+      if (_productionContext.text.trim().isEmpty) throw const FormatException('Ortamı ve sahneyi kısaca yazın.');
+      final request = ScenarioGenerationRequest(behaviorId: cards.first.id,
+        cardVersion: cards.first.cardVersion, behaviors: [for (final card in cards)
+          ScenarioBehaviorRef(behaviorId: card.id, cardVersion: card.cardVersion)],
+        ageMonths: age, sceneContext: _productionContext.text,
+        additionalInstructions: _productionInstructions.text.trim().isEmpty ? null : _productionInstructions.text,
+        production: _productionGoals || _productionStructure == 'linear26' ? ScenarioProductionSettings(
+          structure: _productionStructure, targetDurationS: _selectedTotalSec, maxClipDurationS: _selectedDuration) : null);
+      final signature = _currentProductionSignature;
+      if (_productionSignature != signature) {
+        _productionRequest = request;
+        _productionSignature = signature;
+      }
+      setState(() { _productionError = null; });
+      return _productionRequest;
+    } on FormatException catch (error) {
+      setState(() { _productionError = error.message.toString(); _productionRequest = null; _productionSignature = null; });
+      return null;
+    }
+  }
+
+  Future<void> _closeNarrativeJob(ScenarioGenerationJob job, {bool cancel = false}) async {
+    if (_closedNarrativeJobs[job] == true) return;
+    _closedNarrativeJobs[job] = true;
+    if (cancel) unawaited(Future<void>.sync(job.cancel).catchError((Object _) {}));
+    try { await job.dispose(); } catch (_) { /* Önceki sonuç korunur. */ }
+  }
+
+  Future<void> _openWorkspace([ScenarioGenerationResult? result, HttpScenarioGenerationService? service]) async {
+    if (_openingWorkspace) return;
+    _openingWorkspace = true;
+    try {
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ScenarioGraphImportScreen(
+        initialScenarioContent: true, incomingResult: result,
+        draftStore: widget.scenarioDraftStore ?? const ScenarioDraftStore(),
+        clipPlanService: widget.clipPlanService ?? service ?? _httpService)));
+    } finally { _openingWorkspace = false; }
+  }
+
+  Future<void> _requestStudioExit() async {
+    if (_confirmingStudioExit || _allowStudioExit) return;
+    _confirmingStudioExit = true;
+    try {
+      final leave = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+        title: const Text('Stüdyo taslağı bırakılıp çıkılsın mı?'),
+        content: const Text('Kaydedilmemiş bilgiler kaybolabilir. Süren isteğin yerel izlemesi durdurulur; '
+          'sunucu işinin iptali doğrulanmış sayılmaz.'),
+        actions: [FilledButton(key: const ValueKey('studio-exit-stay'), autofocus: true,
+          onPressed: () => Navigator.pop(ctx, false), child: const Text('Ekranda kal')),
+          TextButton(key: const ValueKey('studio-exit-confirm'), onPressed: () => Navigator.pop(ctx, true), child: const Text('Çık'))]));
+      if (!mounted || leave != true) return;
+      setState(() { _allowStudioExit = true; });
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted && ModalRoute.of(context)?.isCurrent == true) Navigator.of(context).pop();
+    } finally { _confirmingStudioExit = false; }
+  }
+
+  Widget _serverRequestFields() => Column(
+    key: const ValueKey('studio-request-form'),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Text('Seçtiğiniz davranışlar ve bu bilgiler üretimde birlikte kullanılır.'),
+      const SizedBox(height: 12),
+      TextField(key: const ValueKey('scenario-request-context'), controller: _productionContext,
+        readOnly: _isGenerating, minLines: 2, maxLines: 4,
+        decoration: const InputDecoration(labelText: 'Ortam ve sahne', helperText: 'Bu alan gereklidir.',
+          helperMaxLines: 2, border: OutlineInputBorder())),
+      if (_productionContextError != null) Text(_productionContextError!,
+        key: ValueKey(_productionAgeError == null ? 'scenario-request-error' : 'scenario-request-context-error'),
+        style: TextStyle(color: Theme.of(context).colorScheme.error)),
+      const SizedBox(height: 10),
+      TextField(key: const ValueKey('scenario-request-instructions'), controller: _productionInstructions,
+        readOnly: _isGenerating, minLines: 1, maxLines: 4,
+        decoration: const InputDecoration(labelText: 'Ek yönerge', helperText: 'İsteğe bağlı.', helperMaxLines: 2,
+          border: OutlineInputBorder())),
+      const SizedBox(height: 12),
+      const Text('Senaryonun düzeni', style: TextStyle(fontWeight: FontWeight.bold)),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        for (final entry in (const {'branched': 'Alternatifli anlatı', 'linear26': '26 sahnelik doğrusal anlatı'}).entries)
+          ChoiceChip(key: ValueKey('scenario-structure-${entry.key}'), label: Text(entry.value),
+            selectedColor: const Color(0xFFDDEBFF), labelStyle: const TextStyle(color: Color(0xFF142540)),
+            selected: _productionStructure == entry.key, onSelected: _isGenerating ? null : (_) => setState(() {
+              _productionStructure = entry.key; _productionRequest = null; _productionSignature = null; _productionError = null;
+            })),
+      ]),
+      Text(_productionStructure == 'linear26' ? '26 sahne sırayla ilerler; kendiliğinden alternatif eklenmez.'
+        : 'Ortak başlangıcın ardından birbirinden ayrı devamlar hazırlanır.'),
+      if (_productionStructure == 'linear26' && _selectedTotalSec > 26 * _selectedDuration)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            '26 sahneye birer klip ve klip başına en fazla $_selectedDuration sn varsayımıyla '
+            'hedef süreye ulaşılamaz. En az ${(_selectedTotalSec + _selectedDuration - 1) ~/ _selectedDuration} klip gerekir; '
+            'klip sayısı sabit değildir ve bir sahne birden fazla klip içerebilir.',
+            key: const ValueKey('scenario-production-duration-capacity-note'),
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ),
+      ExpansionTile(title: const Text('Süre ve klip hedefleri'), maintainState: true, children: [
+        if (_productionStructure != 'linear26') SwitchListTile(key: const ValueKey('scenario-production-goals'),
+          title: const Text('Süre hedefi belirt'), value: _productionGoals,
+          onChanged: _isGenerating ? null : (value) => setState(() { _productionGoals = value; _productionRequest = null; _productionError = null; })),
+        if (_productionGoals || _productionStructure == 'linear26') ...[
+          _buildTimePickerField(title: 'Toplam süre hedefi', currentValue: _selectedTotalSec, options: const [30,60,120,210],
+            minCustomSec: 1, maxCustomSec: 3600, onSelected: (value) {
+              if (!_isGenerating) setState(() { _selectedTotalSec = value; _productionRequest = null; _productionError = null; });
+            }),
+          _buildTimePickerField(title: 'Klip başına zorunlu üst sınır', currentValue: _selectedDuration, options: const [4,6,8],
+            minCustomSec: 1, maxCustomSec: 8, onSelected: (value) {
+              if (!_isGenerating) setState(() { _selectedDuration = value; _productionRequest = null; _productionError = null; });
+            }),
+          const Text('Toplam süre bir hedeftir; klip başına üst sınır zorunludur. Sahne veya klip sayısı hedef süreyi garanti etmez. Planlanan yol süreleri sonuçta ayrı gösterilir; video süresi değildir.'),
+        ],
+      ]),
+      ExpansionTile(key: const ValueKey('scenario-request-rules'), title: const Text('Kaynak ve kullanım sınırları'), children: [
+        for (final card in BehaviorCards.all.where((card) => _selectedOntologies.contains(card.id)))
+          Text('${card.title} · Kart sürümü: ${card.cardVersion}'),
+        const Text('Ek yönerge kart kurallarını değiştirmez. Seçilebilir kartlar doğrulanmış analiz desteği değildir. '
+          'Eski gözlem profili ve Doktor/Video türü çevrimdışı şablona aittir. Anahtarsız gizli admin girişi yetkilendirme değildir.'),
+      ]),
+      OutlinedButton(key: const ValueKey('scenario-request-validate'),
+        onPressed: _isGenerating ? null : _validatedProductionRequest,
+        child: const Text('Üretim isteğini doğrula')),
+      if (_productionError != null && _productionAgeError == null && _productionContextError == null)
+        Text(_productionError!, key: const ValueKey('scenario-request-error')),
+      if (_productionRequest != null && _productionSignature == _currentProductionSignature)
+        Text('${_productionRequest!.cards.map((card) => card.title).join(' / ')} · '
+          '${_productionRequest!.ageMonths} ay\n${_productionRequest!.sceneContext}',
+          key: const ValueKey('scenario-request-summary')),
+    ],
+  );
+
+  Widget _normalResultView() => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    if (_isGenerating && _selectedEngine == 'server')
+      const Text('Senaryo yanıtı bekleniyor…', key: ValueKey('scenario-generation-status')),
+    if (_normalError != null) Text(_normalError!, key: const ValueKey('scenario-generation-error')),
+    if (_normalErrorRaw != null) ExpansionTile(key: const ValueKey('studio-error-raw-details'),
+      title: const Text('Başarısız isteğin ham cevabı'), children: [
+      SizedBox(height: 200, child: SingleChildScrollView(child: SelectableText(_normalErrorRaw!,
+        key: const ValueKey('scenario-generation-error-raw')))),
+      TextButton(onPressed: () => _copyToClipboard(_normalErrorRaw!, 'Ham hata cevabı kopyalandı.'),
+        child: const Text('Ham hata cevabını kopyala')),
+    ]),
+    if (_normalResult != null) ...[
+      const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text('2. İncele',
+        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF142540)))),
+      Text(_normalResult!.summary, key: const ValueKey('studio-result-summary')),
+      const Text('Yapı geçerli; içerik henüz onaylanmadı. Önceki sonuç form değişse de kendi isteğine aittir.'),
+      FilledButton(key: const ValueKey('studio-continue-result'),
+        onPressed: _isGenerating || _openingWorkspace ? null : () => _openWorkspace(_normalResult),
+        child: const Text('Bu senaryoyla devam et')),
+      ScenarioNarrativeCards(input: ScenarioInput.fromJsonString(_normalResult!.request.prepareInput(
+        _normalResult!.rawResponse, scenarioId: _normalResult!.scenarioId, edited: false).json), request: _normalResult!.request),
+      ExpansionTile(key: const ValueKey('studio-result-details'), title: const Text('Tam ham cevap ve üretim kaynağı'), children: [
+        SizedBox(height: 220, child: SingleChildScrollView(child: SelectableText(_normalResult!.rawResponse,
+          key: const ValueKey('scenario-generation-raw')))),
+        SelectableText(jsonEncode(_normalResult!.toJson()..remove('rawResponse'))),
+        TextButton(key: const ValueKey('studio-copy-result-raw'), onPressed: () => _copyToClipboard(_normalResult!.rawResponse, 'Ham cevap kopyalandı.'),
+          child: const Text('Tam ham cevabı kopyala')),
+      ]),
+    ],
+  ]);
 
   // ADMİN MODU (EASTER EGG - BAŞLIĞA 5 TIKLA AÇILIR)
   int _easterEggTapCount = 0;
@@ -189,22 +443,6 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
 
   // MODEL DOĞRULAMA (GROUND-TRUTH VS AI) METRİKLERİ
   bool _isValidationExpanded = true;
-  bool _isValidating = false;
-  double _validationScore = 96.4;
-  double _validationDiffSec = 0.14;
-
-  void _runValidationSimulation() {
-    setState(() => _isValidating = true);
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (mounted) {
-        setState(() {
-          _isValidating = false;
-          _validationScore = 95.2 + (DateTime.now().millisecond % 45) / 10.0;
-          _validationDiffSec = 0.10 + (DateTime.now().millisecond % 15) / 100.0;
-        });
-      }
-    });
-  }
 
 
 
@@ -216,6 +454,12 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     }
     if (widget.initialAgeMonths != null) {
       _selectedAge = widget.initialAgeMonths!;
+    }
+    _productionAge.text = _selectedAge.toString();
+    for (final controller in [_productionAge, _productionContext, _productionInstructions]) {
+      controller.addListener(() {
+        if (mounted) setState(() { _productionRequest = null; _productionSignature = null; _productionError = null; });
+      });
     }
     ServerApiService.getBaseUrl().then((_) {
       if (mounted) setState(() {});
@@ -231,30 +475,35 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   void didUpdateWidget(covariant SyntheticVideoStudioScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     bool shouldRegenerate = false;
-    if (widget.initialOntologyCode != null && !_selectedOntologies.contains(widget.initialOntologyCode)) {
+    if (widget.initialOntologyCode != null && widget.initialOntologyCode != oldWidget.initialOntologyCode) {
       _selectedOntologies = {widget.initialOntologyCode!, ..._selectedOntologies};
       shouldRegenerate = true;
     }
-    if (widget.initialAgeMonths != null && widget.initialAgeMonths != _selectedAge) {
+    if (widget.initialAgeMonths != null && widget.initialAgeMonths != oldWidget.initialAgeMonths) {
       _selectedAge = widget.initialAgeMonths!;
+      _productionAge.text = _selectedAge.toString();
       shouldRegenerate = true;
     }
-    if (shouldRegenerate) {
+    // Yalnız yerel şablon otomatik yenilenebilir; sunucu/model çağrısı
+    // kullanıcı eylemi olmadan başlatılmaz.
+    if (shouldRegenerate && _selectedEngine != 'server') {
       _generateScenario();
     }
   }
 
   @override
   void dispose() {
-
+    ++_generationRequest;
+    final activeJob = _activeNarrativeJob;
+    _activeNarrativeJob = null;
+    if (activeJob != null) {
+      unawaited(_closeNarrativeJob(activeJob, cancel: true));
+    }
+    _teamAccessKeyController.dispose();
+    _productionAge.dispose();
+    _productionContext.dispose();
+    _productionInstructions.dispose();
     super.dispose();
-  }
-
-  String _getAgeGroupLabel(int months) {
-    if (months < 18) return '12–18 Ay';
-    if (months < 24) return '18–24 Ay';
-    if (months < 30) return '24–30 Ay';
-    return '30–36 Ay';
   }
 
   String _getRiskLabel(String risk) {
@@ -273,170 +522,55 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   int _generationSeed = 0;
 
   void _generateScenario({bool incrementSeed = false}) {
+    if (_isGenerating) return;
+    final server = _selectedEngine == 'server';
+    final productionRequest = server ? _validatedProductionRequest() : null;
+    if (server && productionRequest == null) return;
     if (incrementSeed) {
       _generationSeed++;
+    }
+    final request = ++_generationRequest;
+    if (_selectedOntologies.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Önce bir davranış seçin.')),
+      );
+      return;
     }
     final currentSeed = _generationSeed;
     setState(() => _isGenerating = true);
     Future.delayed(const Duration(milliseconds: 250), () async {
-      if (_selectedEngine == 'server') {
+      if (!mounted || request != _generationRequest) return;
+      if (server) {
+        ScenarioGenerationJob? job;
+        String? receivedRaw;
         try {
-          final serverScenario = await ServerApiService.generateScenario(
-            ageMonths: _selectedAge,
-            ontologyCode: _selectedOntologies.first,
-            riskProfile: _selectedRisk,
-          );
-
-          final summary = (serverScenario['summary'] ?? '').toString();
-          final rawScenes = (serverScenario['scenes'] as List? ?? []);
-          final assessment = (serverScenario['assessment'] as Map? ?? {});
-
-          final cleanSummary = summary.isNotEmpty
-              ? summary
-              : '3.5 dakikalık, 26 sahneden oluşan klinik gözlem ve uyaran akışı.';
-
-          final branchList = <DoctorScenarioBranch>[];
-          final latencies = (assessment['latencies'] as List? ?? []).join(', ');
-          final atypical = (assessment['atypicalCriteria'] as List? ?? []).join('\n• ');
-          final score = (assessment['score'] ?? '').toString();
-          final referral = (assessment['referralNote'] ?? '').toString();
-
-          branchList.add(DoctorScenarioBranch(
-            title: 'Klinik Değerlendirme & Teşhis Skoru',
-            level: _selectedRisk.toUpperCase() == 'ATİPİK' ? 'KIRMIZI' : (_selectedRisk.toUpperCase() == 'SINIRDA' ? 'SARI' : 'YEŞİL'),
-            color: _selectedRisk.toUpperCase() == 'ATİPİK' ? Colors.red : (_selectedRisk.toUpperCase() == 'SINIRDA' ? Colors.amber : Colors.green),
-            latency: latencies.isNotEmpty ? latencies : 'Δt Ölçümleri Yapıldı',
-            details: atypical.isNotEmpty ? 'Atipik Kriterler:\n• $atypical\n\nSkor: $score' : 'Skor: $score',
-            clinicalOutcome: referral.isNotEmpty ? referral : 'Klinik takip ve uzman değerlendirmesi önerilir.',
-          ));
-
-          // Saniyelik Video/Veo adımlarını da hazırla
-          final steps = <SyntheticVideoStep>[];
-          for (int i = 0; i < rawScenes.length; i++) {
-            final sc = rawScenes[i];
-            if (sc is Map) {
-              final id = (sc['id'] is num) ? (sc['id'] as num).toInt() : (i + 1);
-              final duration = (sc['durationSec'] is num) ? (sc['durationSec'] as num).toInt() : 8;
-              final startSec = (id - 1) * duration;
-              final endSec = id * duration;
-              final phase = (sc['phase'] ?? 'UYARAN').toString();
-              final vPrompt = (sc['veoPrompt'] ?? sc['videoPrompt'] ?? '').toString();
-              final clin = (sc['clinical'] is Map) ? (sc['clinical'] as Map) : {};
-
-              steps.add(SyntheticVideoStep(
-                stepNumber: id,
-                blockId: 'CLIP_${id.toString().padLeft(2, '0')}',
-                blockType: phase,
-                startSec: startSec,
-                endSec: endSec,
-                durationSec: duration,
-                ontologyCode: _selectedOntologies.first,
-                phaseName: phase,
-                title: 'Sahne $id ($phase)',
-                cameraMovement: 'Static medium shot at eye level',
-                actionDescription: (sc['videoPrompt'] ?? '').toString(),
-                clinicalChecklist: (clin['note'] ?? '').toString(),
-                universalPrompt: vPrompt,
-                continuityNote: 'Başlangıç: ${sc['startState'] ?? ''} -> Bitiş: ${sc['endState'] ?? ''}',
-                metadata: Map<String, dynamic>.from(sc),
-              ));
-            }
-          }
-
-          final newSession = steps.isNotEmpty
-              ? SyntheticVideoSession(
-                  title: (serverScenario['title'] ?? 'Gemini Veo Klinik Oturumu').toString(),
-                  targetAgeMonths: _selectedAge,
-                  totalDurationSec: steps.length * 8,
-                  blockDurationSec: 8,
-                  totalStepsCount: steps.length,
-                  riskProfile: _selectedRisk,
-                  characterDescription: '24-month-old toddler with short brown hair and a light-blue t-shirt...',
-                  environmentDescription: 'Calm, bright observation room with natural wooden floor and geometric rug',
-                  steps: steps,
-                )
+          final snapshot = productionRequest!;
+          final service = widget.generationService ?? _httpService;
+          if (!service.isAvailable) throw ScenarioGenerationFailure(service.availabilityMessage);
+          job = (service is HttpScenarioGenerationService
+              ? service.withAccessKey(() => _teamAccessKeyController.text.trim()) : service).start(snapshot);
+          _activeNarrativeJob = job;
+          final raw = await job.response;
+          receivedRaw = raw;
+          if (!mounted || request != _generationRequest) return;
+          final metadata = job is ScenarioGenerationMetadataJob
+              ? (job as ScenarioGenerationMetadataJob).metadata
               : null;
-
-          final newDoc = DoctorClinicalScenario(
-            code: _selectedOntologies.first,
-            title: (serverScenario['title'] ?? '${_selectedOntologies.first} — Gemini Veo 26 Sahne').toString(),
-            category: 'Klinik İletişim',
-            targetAgeMonths: _selectedAge,
-            ageGroupLabel: '$_selectedAge Ay',
-            riskProfile: _selectedRisk,
-            engineUsed: 'Gemini Veo Motoru (26 Sahne x 8 Sn)',
-            expectedNorm: 'ADOS-2 Toddler / M-CHAT-R/F Standardı',
-            riskThreshold: 'Otizm Spektrum Değerlendirmesi',
-            clinicEnvironment: 'Doğal ahşap zemin ve geometrik halılı sakin klinik gözlem odası',
-            materialsUsed: 'Kırmızı Ahşap Araba ve Kayın Bloklar',
-            stimulusProtocol: cleanSummary,
-            branches: branchList,
-            visionMetrics: const [
-              'Yüz ifadesi ve göz teması takibi',
-              'Baş yönelimi ve bakış açısı takibi',
-              'Tepki gecikmesi (Δt süresi)',
-              'Klinik davranış tutarlılığı',
-            ],
-            measurementCriteria: 'ADOS-2 Toddler Gözlem Kriterleri',
-            technicalNote: 'Bu senaryo Veo uyumlu 26 adet 8 saniyelik klip promptu ile birlikte canlı üretilmiştir.',
-          );
-
-          if (mounted) {
-            setState(() {
-              _doctorScenario = newDoc;
-              if (newSession != null) _session = newSession;
-              _lastBenchmark = serverScenario['_benchmark'] as Map<String, dynamic>?;
-              _lastValidation = serverScenario['_validation'] as Map<String, dynamic>?;
-              _lastArm = (serverScenario['_arm'] ?? ServerApiService.selectedArm).toString();
-              _isGenerating = false;
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Row(
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.greenAccent),
-                    SizedBox(width: 8),
-                    Expanded(child: Text('Gemini AI ile 26 sahnelik Veo video promptları başarıyla üretildi!')),
-                  ],
-                ),
-                backgroundColor: Color(0xFF0F172A),
-                duration: Duration(seconds: 3),
-              ),
-            );
-          }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Sunucuya bağlanılamadı: $e\nLütfen backend sunucusunu çalıştırın. Kural tabanlı yerel şablona geçildi.'),
-                backgroundColor: const Color(0xFFE11D48),
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          }
-          final fallbackDoc = SyntheticVideoPromptService.generateDoctorScenario(
-            ageMonths: _selectedAge,
-            ontologyCodes: _selectedOntologies.toList(),
-            riskProfile: _selectedRisk,
-            variationSeed: currentSeed,
-          );
-          final fallbackSession = SyntheticVideoPromptService.generateSession(
-            ageMonths: _selectedAge,
-            totalTargetSec: _selectedTotalSec,
-            blockDurationSec: _selectedDuration,
-            riskProfile: _selectedRisk,
-            ontologyCodes: _selectedOntologies.toList(),
-            variationSeed: currentSeed,
-          );
-          if (mounted) {
-            setState(() {
-              _doctorScenario = fallbackDoc;
-              _session = fallbackSession;
-              _isGenerating = false;
-            });
-          }
-        }
-      } else {
+          final result = ScenarioGenerationResult.fromServer(snapshot,
+            {'rawResponse': raw, ...?metadata});
+          setState(() { _normalResult = result; _normalError = null; _normalErrorRaw = null; });
+        } catch (error) {
+          if (!mounted || request != _generationRequest) return;
+          setState(() {
+            _normalError = error is ScenarioGenerationFailure ? error.message :
+              error is FormatException ? error.message.toString() : 'Senaryo alınamadı; önceki sonuç korundu.';
+            _normalErrorRaw = error is ScenarioGenerationFailure ? error.rawResponse ?? receivedRaw : receivedRaw;
+          });
+        } finally {
+          if (job != null) unawaited(_closeNarrativeJob(job));
+          if (identical(_activeNarrativeJob, job)) _activeNarrativeJob = null;
+          if (mounted && request == _generationRequest) setState(() { _isGenerating = false; });
+        }      } else {
         // YEREL MOTOR (LOCAL RULE-BASED)
         if (_scenarioType == 'doctor') {
           final doc = SyntheticVideoPromptService.generateDoctorScenario(
@@ -480,6 +614,33 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     });
   }
 
+  Future<void> _cancelServerGeneration() async {
+    if (!_isGenerating || _selectedEngine != 'server') return;
+    final epoch = ++_generationRequest;
+    final job = _activeNarrativeJob;
+    _activeNarrativeJob = null;
+    setState(() {
+      _isGenerating = false;
+      _normalError = 'Yerel bekleme durduruldu; sunucudaki model işinin iptali doğrulanmadı.';
+    });
+    if (job != null) {
+      final cancellation = Future<void>.sync(job.cancel);
+      unawaited(_closeNarrativeJob(job));
+      try {
+        await cancellation;
+        if (mounted && epoch == _generationRequest) setState(() { _normalError = 'Üretim hizmeti iptal bildirdi; önceki sonuç korundu.'; });
+      } on ScenarioGenerationCancellationUnconfirmed {
+        // HTTP bağlantısını bırakmak sağlayıcı iptali değildir.
+      } catch (_) {
+        if (mounted && epoch == _generationRequest) {
+          setState(() {
+            _normalError = 'İptal isteği başarısız; yerel sonuç takibi durduruldu. Sunucu işinin durduğu doğrulanmadı.';
+          });
+        }
+      }
+    }
+  }
+
   void _copyToClipboard(String text, String successMsg) {
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -500,26 +661,26 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final screen = Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
+        toolbarHeight: MediaQuery.textScalerOf(context).scale(14.5) > 20 ? 160 : kToolbarHeight,
         title: GestureDetector(
+          key: const ValueKey('studio-admin-title'),
           behavior: HitTestBehavior.opaque,
           onTap: _handleEasterEggTap,
-          child: Row(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Flexible(
-                child: Text(
-                  _scenarioType == 'doctor'
+                Text(
+                  _selectedEngine == 'server' ? 'Senaryo hazırlama' : _scenarioType == 'doctor'
                       ? 'Doktor Klinik Protokolü'
                       : 'Sentetik Video Stüdyosu',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5),
-                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
               if (_isAdminMode) ...[
-                const SizedBox(width: 6),
+                const SizedBox(height: 4),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                   decoration: BoxDecoration(
@@ -539,7 +700,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          if (_scenarioType == 'doctor' && _doctorScenario != null)
+          if (_selectedEngine == 'server')
+            IconButton(icon: const Icon(Icons.copy_all_outlined, size: 20), tooltip: 'Sunucu ham cevabını kopyala',
+              onPressed: _normalResult == null ? null : () => _copyToClipboard(_normalResult!.rawResponse, 'Tam ham cevap kopyalandı.'))
+          else if (_scenarioType == 'doctor' && _doctorScenario != null)
             IconButton(
               icon: const Icon(Icons.copy_all_outlined, size: 20),
               tooltip: 'Klinik Protokolü Kopyala (Markdown)',
@@ -568,7 +732,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 }
               },
             ),
-          if (_scenarioType == 'video' && _isAdminMode && _session != null) ...[
+          if (_selectedEngine != 'server' && _scenarioType == 'video' && _isAdminMode && _session != null) ...[
             IconButton(
               icon: const Icon(Icons.data_object_outlined, size: 20),
               tooltip: 'JSON Dışa Aktar (Admin)',
@@ -625,18 +789,37 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               const SizedBox(height: 12),
               // SENARYO TÜRÜ SEÇİCİ (SADECE ADMİNDE GÖRÜNÜR)
               _buildScenarioTypeSwitcher(),
+              if (_selectedEngine == 'server') const Text(
+                'Doktor/Video tür araçları çevrimdışı şablon içindir. Kullanmak için Yerel motoru seçin.'),
               const SizedBox(height: 14),
             ],
 
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
+            const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text('1. Hazırla',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF142540)))),
+            // Aynı form; sunucu anlatısı veya açıkça etiketlenmiş çevrimdışı şablon.
+            _buildEngineSelectorCard(),
+            const SizedBox(height: 14),
+
+
+
+            // 2. DOKTOR PARAMETRE AYARLARI KARTI (SANİYESİZ, KLİNİK ODAKLI)
+            _buildDoctorConfigCard(),
+            const SizedBox(height: 14),
+            _normalResultView(),
+            const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text('Hazır örnekler ve diğer araçlar',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF142540)))),
+            Material(
+              key: const ValueKey('studio-tools-surface'),
+              color: Colors.white,
+              shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+                side: const BorderSide(color: Color(0xFFE2E8F0)),
               ),
               child: Column(
                 children: [
                   ListTile(
+                    key: const ValueKey('open-d01-playback'),
+                    enabled: !_openingD01Playback,
                     dense: true,
                     leading: Container(
                       padding: const EdgeInsets.all(7),
@@ -646,12 +829,13 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       ),
                       child: const Icon(Icons.play_circle_outline_rounded, color: Color(0xFF2563EB), size: 20),
                     ),
-                    title: const Text('İnteraktif Karar Ağacı Oynatıcısı', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    title: const Text('Hazır D01 örneği: videolu dallı oynatma', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     trailing: const Icon(Icons.chevron_right, size: 18),
-                    onTap: _openD01Playback,
+                    onTap: _openingD01Playback ? null : _openD01Playback,
                   ),
                   const Divider(height: 1, indent: 16, endIndent: 16, color: Color(0xFFF1F5F9)),
                   ListTile(
+                    key: const ValueKey('open-clip-production-plan'),
                     dense: true,
                     leading: Container(
                       padding: const EdgeInsets.all(7),
@@ -661,7 +845,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       ),
                       child: const Icon(Icons.video_library_outlined, color: Color(0xFF0F172A), size: 20),
                     ),
-                    title: const Text('Klip Üretim Planı ve Video Eşleme', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    title: const Text('Hazır D01 klip planı ve video eşleme', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     trailing: const Icon(Icons.chevron_right, size: 18),
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(builder: (_) => const ClipProductionPlanScreen()),
@@ -669,6 +853,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   ),
                   const Divider(height: 1, indent: 16, endIndent: 16, color: Color(0xFFF1F5F9)),
                   ListTile(
+                    key: const ValueKey('open-scenario-content'),
                     dense: true,
                     leading: Container(
                       padding: const EdgeInsets.all(7),
@@ -678,14 +863,14 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       ),
                       child: const Icon(Icons.input_rounded, color: Color(0xFF10B981), size: 20),
                     ),
-                    title: const Text('Senaryo Taslağı İçe Aktar / Dönüştür', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    title: const Text('Dallı senaryo → graf → klip planı', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    subtitle: const Text('Yeni taslaklar sabit D01 videolarına bağlı değildir.'),
                     trailing: const Icon(Icons.chevron_right, size: 18),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(builder: (_) => const ScenarioGraphImportScreen()),
-                    ),
+                    onTap: () => _openWorkspace(),
                   ),
                   const Divider(height: 1, indent: 16, endIndent: 16, color: Color(0xFFF1F5F9)),
                   ListTile(
+                    key: const ValueKey('open-scenario-graph'),
                     dense: true,
                     leading: Container(
                       padding: const EdgeInsets.all(7),
@@ -695,7 +880,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       ),
                       child: const Icon(Icons.account_tree_outlined, color: Color(0xFF64748B), size: 20),
                     ),
-                    title: const Text('Senaryo Grafı (Node & Edge Görünümü)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    title: const Text('Hazır D01 grafını görüntüle', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     trailing: const Icon(Icons.chevron_right, size: 18),
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(builder: (_) => const ScenarioGraphScreen()),
@@ -706,15 +891,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
             ),
             const SizedBox(height: 14),
 
-            // 1. HİBRİT MOTOR SEÇİCİ (0 MB YEREL KLİNİK vs SUNUCU GEMINI AI)
-            _buildEngineSelectorCard(),
-            const SizedBox(height: 14),
 
-
-
-            // 2. DOKTOR PARAMETRE AYARLARI KARTI (SANİYESİZ, KLİNİK ODAKLI)
-            _buildDoctorConfigCard(),
-            const SizedBox(height: 14),
 
             // 3. MODEL DOĞRULAMA (GROUND-TRUTH VE BAŞARIM TESTİ - SADECE GİZLİ ADMİN MODUNDA)
             if (_isAdminMode) ...[
@@ -739,9 +916,24 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   ),
                 ),
               )
-            else if (_scenarioType == 'doctor' && _doctorScenario != null) ...[
+            else if (_selectedEngine != 'server' && _scenarioType == 'doctor' && _doctorScenario != null) ...[
               _buildDoctorScenarioView(_doctorScenario!),
-            ] else if (_scenarioType == 'video' && _session != null) ...[
+            ] else if (_selectedEngine != 'server' && _scenarioType == 'video' && _session != null) ...[
+              if (_session!.isUnreviewedGenerationDraft)
+                Container(
+                  key: const ValueKey('studio-unreviewed-26-scene-draft'),
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text('26 sahnelik üretim taslağıdır; içerik ve video incelenmemiştir. Planlanan olaylar gözlenmiş bulgu değildir.'),
+                ),
+              if (!_session!.isUnreviewedGenerationDraft)
+                const Text('Hazır şablon; model çıkarımı yapılmadı',
+                    key: ValueKey('studio-template-source')),
               // GÖRÜNÜM SEÇENEĞİ (Adım Adım / Tek Metin Birleşik)
               _buildViewModeToggle(),
               const SizedBox(height: 10),
@@ -763,6 +955,27 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
         ),
       ),
     );
+    if (ModalRoute.of(context)?.canPop != true) return screen;
+    return PopScope<void>(canPop: _allowStudioExit || !_hasProductionDraft,
+      onPopInvokedWithResult: (didPop, result) { if (!didPop) unawaited(_requestStudioExit()); }, child: screen);
+  }
+
+  /// Gölge dışarıda; renk/kenarlık ve dokunma mürekkebi aynı Material'da çizilir.
+  Widget _buildCardSurface({required EdgeInsetsGeometry padding,
+    required BoxDecoration decoration, required Widget child}) {
+    return DecoratedBox(
+      decoration: BoxDecoration(borderRadius: decoration.borderRadius, boxShadow: decoration.boxShadow),
+      child: Material(
+        type: MaterialType.transparency,
+        borderRadius: decoration.borderRadius,
+        clipBehavior: Clip.antiAlias,
+        child: Ink(
+          decoration: decoration.copyWith(boxShadow: const <BoxShadow>[]),
+          padding: padding,
+          child: child,
+        ),
+      ),
+    );
   }
 
   /// HİBRİT MOTOR SEÇİCİ (2 MOTOR: 0 MB YEREL KLİNİK vs SUNUCU GEMINI AI)
@@ -770,7 +983,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     final isLocal = _selectedEngine == 'local';
     final isServer = _selectedEngine == 'server';
 
-    return Container(
+    return _buildCardSurface(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -787,21 +1000,21 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Row(
                 children: [
                   Icon(Icons.tune_rounded, size: 18, color: Color(0xFF0F172A)),
                   SizedBox(width: 8),
-                  Text(
+                  Expanded(child: Text(
                     'Üretim Motoru',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Color(0xFF0F172A)),
-                  ),
+                  )),
                 ],
               ),
-              Row(
-                children: [
+              Wrap(
+                spacing: 4, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
@@ -837,7 +1050,8 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               // MOTOR 1: YEREL MOTOR (ÇEVRİMDIŞI)
               Expanded(
                 child: InkWell(
-                  onTap: () {
+                  key: const ValueKey('studio-engine-local'),
+                  onTap: _isGenerating ? null : () {
                     setState(() => _selectedEngine = 'local');
                   },
                   borderRadius: BorderRadius.circular(12),
@@ -887,7 +1101,8 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               // MOTOR 2: YEREL SUNUCU (GEMINI AI)
               Expanded(
                 child: InkWell(
-                  onTap: () {
+                  key: const ValueKey('studio-engine-server'),
+                  onTap: _isGenerating ? null : () {
                     setState(() => _selectedEngine = 'server');
                   },
                   borderRadius: BorderRadius.circular(12),
@@ -946,16 +1161,17 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
+                  Wrap(
+                    spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
                       const Icon(Icons.psychology_outlined, size: 16, color: Color(0xFF4F46E5)),
                       const SizedBox(width: 6),
                       const Text(
-                        'Deney Kolu / Model Modu:',
+                        'Senaryo karşılaştırması:',
                         style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
                       ),
-                      const Spacer(),
+
                       InkWell(
+                        key: const ValueKey('studio-open-comparison'),
                         onTap: _runLiveComparisonDialog,
                         borderRadius: BorderRadius.circular(6),
                         child: Container(
@@ -970,10 +1186,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                             children: [
                               Icon(Icons.compare_arrows_rounded, size: 13, color: Color(0xFF4F46E5)),
                               SizedBox(width: 4),
-                              Text(
-                                '3 Kolu Kıyasla',
+                              Flexible(child: Text(
+                                'A/B/C karşılaştır',
                                 style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
-                              ),
+                              )),
                             ],
                           ),
                         ),
@@ -981,12 +1197,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      _buildArmChip('A', 'Kol A (Saf)', 'Kural Yok', const Color(0xFF64748B)),
-                      const SizedBox(width: 6),
+                  Wrap(
+                    spacing: 6, runSpacing: 6, children: [
+                      _buildArmChip('A', 'Kol A (Saf)', 'Ek kart yok', const Color(0xFF64748B)),
                       _buildArmChip('B', 'Kol B (RAG)', 'Hedef Kural', const Color(0xFF2563EB)),
-                      const SizedBox(width: 6),
                       _buildArmChip('C', 'Kol C (Full)', 'Tüm Kitaplık', const Color(0xFF7C3AED)),
                     ],
                   ),
@@ -1000,27 +1214,19 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(color: const Color(0xFFCBD5E1)),
                       ),
-                      child: Row(
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           const Icon(Icons.speed_outlined, size: 14, color: Color(0xFF64748B)),
-                          const SizedBox(width: 4),
                           Text(
-                            'Son Çıktı (${_lastArm ?? ServerApiService.selectedArm}): ${_lastBenchmark!['latencyApiMs']} ms',
+                            'Son çıktı (${_lastArm ?? 'normal'}) · sağlayıcı: ${_lastBenchmark!['providerDurationMs'] is num ? '${_lastBenchmark!['providerDurationMs']} ms' : 'Bilinmiyor'} · toplam: ${_lastBenchmark!['endpointDurationMs'] is num ? '${_lastBenchmark!['endpointDurationMs']} ms' : 'Bilinmiyor'}',
                             style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
                           ),
-                          const SizedBox(width: 8),
                           Text(
-                            'FSM: %${((_lastBenchmark!['fsmMatchRate'] as num? ?? 1.0) * 100).round()}',
-                            style: const TextStyle(fontSize: 10.5, color: Color(0xFF166534), fontWeight: FontWeight.bold),
-                          ),
-                          const Spacer(),
-                          Text(
-                            _lastBenchmark!['deltaTCompliant'] == true ? 'Δt: Uyumlu' : 'Δt: Sapma',
-                            style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.bold,
-                              color: _lastBenchmark!['deltaTCompliant'] == true ? const Color(0xFF166534) : const Color(0xFFDC2626),
-                            ),
+                            'Model/kaynak: ${_lastComparison?['model'] ?? 'Bilinmiyor'} · ${_lastComparison?['sourceMode'] ?? 'Bilinmiyor'}',
+                            style: const TextStyle(fontSize: 10.5, color: Color(0xFF334155)),
                           ),
                         ],
                       ),
@@ -1029,6 +1235,30 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 ],
               ),
             ),
+            const SizedBox(height: 10),
+            TextField(
+              key: const ValueKey('studio-team-access-key'),
+              controller: _teamAccessKeyController,
+              obscureText: true,
+              autocorrect: false,
+              enableSuggestions: false,
+              readOnly: _isGenerating,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'Ekip anahtarı',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  key: const ValueKey('studio-team-access-clear'),
+                  tooltip: 'Erişim anahtarını temizle',
+                  onPressed: _isGenerating || _teamAccessKeyController.text.isEmpty
+                      ? null
+                      : () => setState(() { _teamAccessKeyController.clear(); }),
+                  icon: const Icon(Icons.clear),
+                ),
+              ),
+            ),
+            const Text('Anahtar yalnız bu Stüdyo oturumu boyunca bellekte tutulur.'),
+            const Text('Üretim tüm seçili kartları kullanır. Kaynakları kıyaslamak için A/B/C’yi açın.'),
           ],
         ],
       ),
@@ -1037,9 +1267,11 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
 
   Widget _buildArmChip(String code, String title, String subtitle, Color activeColor) {
     final isSelected = ServerApiService.selectedArm == code;
-    return Expanded(
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 100, maxWidth: 220),
       child: InkWell(
-        onTap: () {
+        key: ValueKey('studio-arm-$code'),
+        onTap: _isGenerating ? null : () {
           ServerApiService.setSelectedArm(code);
           setState(() {});
         },
@@ -1063,8 +1295,6 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   fontWeight: FontWeight.bold,
                   color: isSelected ? activeColor : const Color(0xFF334155),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 1),
               Text(
@@ -1073,8 +1303,6 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   fontSize: 9,
                   color: isSelected ? activeColor : const Color(0xFF64748B),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -1083,341 +1311,18 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     );
   }
 
-  void _runLiveComparisonDialog() {
-    bool isComparing = true;
-    bool hasStarted = false;
-    Map<String, dynamic>? resultA;
-    Map<String, dynamic>? resultB;
-    Map<String, dynamic>? resultC;
-    String? errorMsg;
-    String progressMsg = 'Kol A (Saf Model) çalıştırılıyor (%33)...';
-    int selectedDetailArm = 1; // 0: Kol A, 1: Kol B (RAG), 2: Kol C (Full)
-
-    showDialog<void>(
-      context: context,
-      builder: (dialogCtx) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            if (!hasStarted) {
-              hasStarted = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) async {
-                try {
-                  final ontology = _selectedOntologies.isNotEmpty ? _selectedOntologies.first : 'D01';
-                  
-                  if (dialogCtx.mounted) {
-                    setDialogState(() => progressMsg = 'Kol A (Saf Model) çalıştırılıyor (%33)...');
-                  }
-                  final resA = await ServerApiService.generateScenario(
-                    ageMonths: _selectedAge,
-                    ontologyCode: ontology,
-                    riskProfile: _selectedRisk,
-                    arm: 'A',
-                  );
-
-                  await Future.delayed(const Duration(milliseconds: 1000));
-
-                  if (dialogCtx.mounted) {
-                    setDialogState(() => progressMsg = 'Kol B (RAG - Hedef Kural) çalıştırılıyor (%66)...');
-                  }
-                  final resB = await ServerApiService.generateScenario(
-                    ageMonths: _selectedAge,
-                    ontologyCode: ontology,
-                    riskProfile: _selectedRisk,
-                    arm: 'B',
-                  );
-
-                  await Future.delayed(const Duration(milliseconds: 1000));
-
-                  if (dialogCtx.mounted) {
-                    setDialogState(() => progressMsg = 'Kol C (Full-Context) çalıştırılıyor (%100)...');
-                  }
-                  final resC = await ServerApiService.generateScenario(
-                    ageMonths: _selectedAge,
-                    ontologyCode: ontology,
-                    riskProfile: _selectedRisk,
-                    arm: 'C',
-                  );
-
-                  if (dialogCtx.mounted) {
-                    setDialogState(() {
-                      resultA = resA;
-                      resultB = resB;
-                      resultC = resC;
-                      isComparing = false;
-                    });
-                  }
-                } catch (e) {
-                  if (dialogCtx.mounted) {
-                    setDialogState(() {
-                      errorMsg = e.toString().replaceFirst('Exception: ', '');
-                      isComparing = false;
-                    });
-                  }
-                }
-              });
-            }
-
-            final currentResult = selectedDetailArm == 0 ? resultA : (selectedDetailArm == 1 ? resultB : resultC);
-            final currentArmName = selectedDetailArm == 0 ? 'Kol A (Saf)' : (selectedDetailArm == 1 ? 'Kol B (RAG)' : 'Kol C (Full)');
-
-            Map<String, dynamic>? stimulusScene;
-            if (currentResult != null && currentResult['scenes'] is List) {
-              final scenes = currentResult['scenes'] as List;
-              for (final sc in scenes) {
-                if (sc is Map && sc['phase'] == 'UYARAN') {
-                  stimulusScene = Map<String, dynamic>.from(sc);
-                  break;
-                }
-              }
-            }
-
-            return AlertDialog(
-              backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
-              title: const Row(
-                children: [
-                  Icon(Icons.compare_arrows_rounded, color: Color(0xFF4F46E5), size: 22),
-                  SizedBox(width: 8),
-                  Text('Deneysel Karşılaştırma (Kol A / B / C)', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              content: isComparing
-                  ? Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(height: 10),
-                        const CircularProgressIndicator(strokeWidth: 2.5),
-                        const SizedBox(height: 16),
-                        Text(progressMsg, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                        const SizedBox(height: 6),
-                        const Text('API gecikmeleri, tokenlar ve klinik kurallar test ediliyor...', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                        const SizedBox(height: 10),
-                      ],
-                    )
-                  : errorMsg != null
-                      ? Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFEF2F2),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFFECDD3)),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Row(
-                                children: [
-                                  Icon(Icons.info_outline, size: 16, color: Color(0xFFB91C1C)),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    'Kota veya Bağlantı Durumu',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF991B1B)),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                errorMsg!.replaceFirst('Exception: ', ''),
-                                style: const TextStyle(fontSize: 11, color: Color(0xFF7F1D1D), height: 1.35),
-                              ),
-                            ],
-                          ),
-                        )
-                      : SizedBox(
-                          width: double.maxFinite,
-                          child: SingleChildScrollView(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Table(
-                                  border: TableBorder.all(color: const Color(0xFFE2E8F0)),
-                                  columnWidths: const {
-                                    0: FlexColumnWidth(1.25),
-                                    1: FlexColumnWidth(0.95),
-                                    2: FlexColumnWidth(1.15),
-                                    3: FlexColumnWidth(0.95),
-                                  },
-                                  children: [
-                                    const TableRow(
-                                      decoration: BoxDecoration(color: Color(0xFFF1F5F9)),
-                                      children: [
-                                        Padding(padding: EdgeInsets.all(5), child: Text('Metrik', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10))),
-                                        Padding(padding: EdgeInsets.all(5), child: Text('Kol A (Saf)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10))),
-                                        Padding(padding: EdgeInsets.all(5), child: Text('Kol B (RAG)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Color(0xFF2563EB)))),
-                                        Padding(padding: EdgeInsets.all(5), child: Text('Kol C (Full)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Color(0xFF7C3AED)))),
-                                      ],
-                                    ),
-                                    TableRow(
-                                      children: [
-                                        const Padding(padding: EdgeInsets.all(5), child: Text('Gecikme (ms)', style: TextStyle(fontSize: 10))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultA?['_benchmark']?['latencyApiMs'] ?? '-'} ms', style: const TextStyle(fontSize: 10))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultB?['_benchmark']?['latencyApiMs'] ?? '-'} ms', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultC?['_benchmark']?['latencyApiMs'] ?? '-'} ms', style: const TextStyle(fontSize: 10, color: Color(0xFF7C3AED)))),
-                                      ],
-                                    ),
-                                    TableRow(
-                                      children: [
-                                        const Padding(padding: EdgeInsets.all(5), child: Text('Girdi / Çıktı Token', style: TextStyle(fontSize: 9.5))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultA?['_benchmark']?['promptTokens'] ?? '-'} / ${resultA?['_benchmark']?['outputTokens'] ?? '-'}', style: const TextStyle(fontSize: 9.5))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultB?['_benchmark']?['promptTokens'] ?? '-'} / ${resultB?['_benchmark']?['outputTokens'] ?? '-'}', style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultC?['_benchmark']?['promptTokens'] ?? '-'} / ${resultC?['_benchmark']?['outputTokens'] ?? '-'}', style: const TextStyle(fontSize: 9.5, color: Color(0xFF7C3AED)))),
-                                      ],
-                                    ),
-                                    TableRow(
-                                      children: [
-                                        const Padding(padding: EdgeInsets.all(5), child: Text('FSM Durum Uyum', style: TextStyle(fontSize: 10))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('%${((resultA?['_benchmark']?['fsmMatchRate'] as num? ?? 0) * 100).round()}', style: const TextStyle(fontSize: 10))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('%${((resultB?['_benchmark']?['fsmMatchRate'] as num? ?? 0) * 100).round()}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF166534)))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('%${((resultC?['_benchmark']?['fsmMatchRate'] as num? ?? 0) * 100).round()}', style: const TextStyle(fontSize: 10, color: Color(0xFF166534)))),
-                                      ],
-                                    ),
-                                    TableRow(
-                                      children: [
-                                        const Padding(padding: EdgeInsets.all(5), child: Text('Δt Eşik Uyumu', style: TextStyle(fontSize: 10))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text(resultA?['_benchmark']?['deltaTCompliant'] == true ? 'Uyumlu' : 'Sapma', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: resultA?['_benchmark']?['deltaTCompliant'] == true ? const Color(0xFF166534) : const Color(0xFFB91C1C)))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text(resultB?['_benchmark']?['deltaTCompliant'] == true ? 'Uyumlu' : 'Sapma', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: resultB?['_benchmark']?['deltaTCompliant'] == true ? const Color(0xFF166534) : const Color(0xFFB91C1C)))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text(resultC?['_benchmark']?['deltaTCompliant'] == true ? 'Uyumlu' : 'Sapma', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: resultC?['_benchmark']?['deltaTCompliant'] == true ? const Color(0xFF166534) : const Color(0xFFB91C1C)))),
-                                      ],
-                                    ),
-                                    TableRow(
-                                      children: [
-                                        const Padding(padding: EdgeInsets.all(5), child: Text('Kural Arama (O(1))', style: TextStyle(fontSize: 9.5))),
-                                        const Padding(padding: EdgeInsets.all(5), child: Text('Yok', style: TextStyle(fontSize: 9.5, color: Color(0xFF64748B)))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultB?['_benchmark']?['retrievalMs'] ?? 0} ms', style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)))),
-                                        const Padding(padding: EdgeInsets.all(5), child: Text('Tüm KB', style: TextStyle(fontSize: 9.5, color: Color(0xFF7C3AED)))),
-                                      ],
-                                    ),
-                                    TableRow(
-                                      children: [
-                                        const Padding(padding: EdgeInsets.all(5), child: Text('Yeniden Deneme', style: TextStyle(fontSize: 10))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultA?['_benchmark']?['retryCount'] ?? 0}', style: const TextStyle(fontSize: 10))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultB?['_benchmark']?['retryCount'] ?? 0}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)))),
-                                        Padding(padding: const EdgeInsets.all(5), child: Text('${resultC?['_benchmark']?['retryCount'] ?? 0}', style: const TextStyle(fontSize: 10))),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 14),
-                                const Row(
-                                  children: [
-                                    Icon(Icons.description_outlined, size: 15, color: Color(0xFF1E293B)),
-                                    SizedBox(width: 5),
-                                    Text(
-                                      'Model Çıktılarını İncele:',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Color(0xFF1E293B)),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    _buildComparisonArmTab(0, 'Kol A (Saf)', selectedDetailArm, (idx) => setDialogState(() => selectedDetailArm = idx)),
-                                    const SizedBox(width: 6),
-                                    _buildComparisonArmTab(1, 'Kol B (RAG)', selectedDetailArm, (idx) => setDialogState(() => selectedDetailArm = idx)),
-                                    const SizedBox(width: 6),
-                                    _buildComparisonArmTab(2, 'Kol C (Full)', selectedDetailArm, (idx) => setDialogState(() => selectedDetailArm = idx)),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF8FAFC),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '$currentArmName Klinik Özeti:',
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF0F172A)),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        (currentResult?['summary'] ?? 'Özet bulunamadı.').toString(),
-                                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF334155), height: 1.35),
-                                      ),
-                                      if (stimulusScene != null) ...[
-                                        const Divider(height: 16, color: Color(0xFFE2E8F0)),
-                                        Text(
-                                          'Kritik Uyaran & Reaksiyon Sahnesi (Sahne ${stimulusScene['sceneNumber'] ?? '1'}):',
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF0F172A)),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Prompt: ${(stimulusScene['videoPrompt'] ?? '').toString()}',
-                                          style: const TextStyle(fontSize: 10, color: Color(0xFF475569), fontStyle: FontStyle.italic),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Gözlenen Gecikme: ${stimulusScene['clinical']?['latencySeconds'] != null ? '${stimulusScene['clinical']!['latencySeconds']} sn' : 'Tepkisiz'}',
-                                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              'FSM: ${stimulusScene['startState'] ?? '-'} → ${stimulusScene['endState'] ?? '-'}',
-                                              style: const TextStyle(fontSize: 9.5, color: Color(0xFF64748B)),
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogCtx),
-                  child: const Text('Kapat'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+  Future<void> _runLiveComparisonDialog() async {
+    if (_isGenerating || _openingComparison) return;
+    final request = _validatedProductionRequest();
+    if (request == null) return;
+    _openingComparison = true;
+    try {
+      await showDialog<void>(context: context, barrierDismissible: false,
+        builder: (_) => ScenarioComparisonDialog(request: request, service: _httpService,
+          initialSelection: ServerApiService.selectedArm,
+          onContinue: (result, service) => _openWorkspace(result, service)));
+    } finally { _openingComparison = false; }
   }
-
-  Widget _buildComparisonArmTab(int idx, String label, int selected, Function(int) onSelect) {
-    final isSel = selected == idx;
-    return Expanded(
-      child: InkWell(
-        onTap: () => onSelect(idx),
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            color: isSel ? const Color(0xFF0F172A) : Colors.white,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: isSel ? const Color(0xFF0F172A) : const Color(0xFFCBD5E1)),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.bold,
-              color: isSel ? Colors.white : const Color(0xFF475569),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   void _showServerConfigDialog() {
     final controller = TextEditingController(text: ServerApiService.baseUrl);
     String? testResult;
@@ -1463,7 +1368,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                     spacing: 6,
                     children: [
                       ActionChip(
-                        label: const Text('Bu PC IP (Hotspot)', style: TextStyle(fontSize: 11)),
+                        label: const Text('Örnek yerel adres', style: TextStyle(fontSize: 11)),
                         onPressed: () {
                           controller.text = 'http://192.168.110.42:8000';
                           setDialogState(() {});
@@ -1480,7 +1385,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   ),
                   const SizedBox(height: 14),
                   const Text(
-                    'Deney Kolu (Metodoloji v2):',
+                    'Karşılaştırmada seçilecek kol:',
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
                   ),
                   const SizedBox(height: 6),
@@ -1559,7 +1464,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                           setDialogState(() {
                             isTesting = false;
                             if (status.isOnline) {
-                              testResult = 'Bağlantı Başarılı\n${status.message}';
+                              testResult = 'Bağlantı Başarılı\nSunucu yanıt verdi; model erişimi bu kontrolle doğrulanmadı.';
                             } else {
                               testResult = 'Bağlantı Başarısız\n${status.message}\n(Bilgisayar ve telefon aynı Wi-Fi ağında mı?)';
                             }
@@ -1600,6 +1505,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   }
 
   void _showOntologyPicker() {
+    if (_isGenerating) return;
     final tempSelected = Set<String>.from(_selectedOntologies);
 
     showModalBottomSheet(
@@ -1837,7 +1743,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   Widget _buildDoctorConfigCard() {
     final allScenarios = ScenariosRepository.allScenarios;
 
-    return Container(
+    return _buildCardSurface(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1855,17 +1761,19 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 1. YAŞ SEÇİCİ
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Row(
                 children: [
                   Icon(Icons.child_care_rounded, size: 18, color: Color(0xFF0F172A)),
                   SizedBox(width: 6),
-                  Text(
+                  Expanded(child: Text(
                     'Çocuğun Yaşı',
                     style: TextStyle(fontSize: 13.5, color: Color(0xFF1E293B), fontWeight: FontWeight.bold),
-                  ),
+                  )),
                 ],
               ),
               Container(
@@ -1875,13 +1783,23 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  '$_selectedAge Ay',
+                  _selectedEngine == 'server' ? '12–36 ay' : '$_selectedAge Ay',
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11.5),
                 ),
               ),
             ],
           ),
-          Slider(
+          if (_selectedEngine == 'server') ...[
+            const SizedBox(height: 16),
+            TextField(key: const ValueKey('scenario-request-age'), controller: _productionAge,
+              readOnly: _isGenerating, keyboardType: const TextInputType.numberWithOptions(),
+              decoration: const InputDecoration(labelText: 'Yaş (ay)', floatingLabelBehavior: FloatingLabelBehavior.always,
+                hintText: '12–36', border: OutlineInputBorder())),
+            if (_productionAgeError != null) Padding(padding: const EdgeInsets.only(top: 6),
+              child: Text(_productionAgeError!, key: const ValueKey('scenario-request-error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error))),
+          ]
+          else Slider(
             value: _selectedAge.toDouble(),
             min: 12,
             max: 36,
@@ -1889,8 +1807,8 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
             activeColor: const Color(0xFF0F172A),
             inactiveColor: const Color(0xFFE2E8F0),
             label: '$_selectedAge Ay',
-            onChanged: (val) {
-              setState(() => _selectedAge = val.round());
+            onChanged: _isGenerating ? null : (val) {
+              setState(() { _selectedAge = val.round(); _productionAge.text = _selectedAge.toString(); });
             },
           ),
           const SizedBox(height: 10),
@@ -1934,17 +1852,17 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                         ),
                       ),
                       const SizedBox(width: 6),
-                      ConstrainedBox(
+                      Flexible(child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 150),
                         child: Text(
                           titleText,
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
-                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
+                      )),
                       const SizedBox(width: 4),
                       GestureDetector(
                         onTap: () {
+                          if (_isGenerating) return;
                           if (_selectedOntologies.length > 1) {
                             setState(() {
                               _selectedOntologies.remove(code);
@@ -1983,10 +1901,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                     children: [
                       Icon(Icons.add_rounded, size: 15, color: Color(0xFF0F172A)),
                       SizedBox(width: 4),
-                      Text(
+                      Flexible(child: Text(
                         'Davranış Ekle',
                         style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                      ),
+                      )),
                     ],
                   ),
                 ),
@@ -1995,7 +1913,9 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
           ),
           const SizedBox(height: 14),
 
-          // 3. GÖZLEM DURUMU
+          if (_selectedEngine == 'server') _serverRequestFields(),
+          // Yalnız eski çevrimdışı şablona ait parametreler.
+          if (_selectedEngine != 'server') ...[
           const Text(
             'Gözlem Durumu',
             style: TextStyle(fontSize: 13, color: Color(0xFF1E293B), fontWeight: FontWeight.bold),
@@ -2010,9 +1930,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               _buildRiskChip('tipik', 'Normal (Tipik)', Colors.green.shade700),
             ],
           ),
+          ],
 
           // 4. EĞER ADMİN VİDEO MODUNDAYSA: KLİP VE VİDEO PARAMETRELERİ (AKORDİYON)
-          if (_isAdminMode && _scenarioType == 'video') ...[
+          if (_selectedEngine != 'server' && _isAdminMode && _scenarioType == 'video') ...[
             const SizedBox(height: 14),
             _buildAdminVideoSlicingCard(),
           ],
@@ -2022,6 +1943,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
+              key: const ValueKey('studio-generate-scenario'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF0F172A),
                 foregroundColor: Colors.white,
@@ -2039,19 +1961,26 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               label: Text(
                 _isGenerating
                     ? (_selectedEngine == 'server'
-                        ? 'Gemini AI Promptları Üretiyor...'
+                        ? 'Senaryo taslağı hazırlanıyor...'
                         : 'Promptlar Yenileniyor...')
                     : (_scenarioType == 'doctor'
                         ? (_selectedEngine == 'server'
-                            ? 'Gemini AI ile Protokol Üret'
+                            ? 'Senaryo üret'
                             : 'Klinik Protokolü Yenile')
                         : (_selectedEngine == 'server'
-                            ? 'Gemini AI ile Video Promptları Üret'
+                            ? 'Senaryo üret'
                             : 'Sentetik Video Promptlarını Yenile')),
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
             ),
           ),
+          if (_isGenerating && _selectedEngine == 'server')
+            TextButton.icon(
+              key: const ValueKey('studio-cancel-generation'),
+              onPressed: _cancelServerGeneration,
+              icon: const Icon(Icons.stop_circle_outlined),
+              label: const Text('İsteği durdur'),
+            ),
         ],
       ),
     );
@@ -2139,6 +2068,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
         ),
         const SizedBox(height: 6),
         PopupMenuButton<int>(
+          enabled: !_isGenerating,
           position: PopupMenuPosition.under,
           offset: const Offset(0, 4),
           color: Colors.white,
@@ -2178,14 +2108,14 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                         color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
                       ),
                       const SizedBox(width: 10),
-                      Text(
+                      Expanded(child: Text(
                         '$sec saniye',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                           color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF334155),
                         ),
-                      ),
+                      )),
                     ],
                   ),
                 );
@@ -2197,14 +2127,14 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   children: [
                     Icon(Icons.edit_note_rounded, size: 18, color: Color(0xFF0284C7)),
                     SizedBox(width: 10),
-                    Text(
+                    Expanded(child: Text(
                       'Özel Süre Gir...',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF0284C7),
                       ),
-                    ),
+                    )),
                   ],
                 ),
               ),
@@ -2221,10 +2151,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
+                Expanded(child: Text(
                   '$currentValue saniye',
                   style: const TextStyle(fontSize: 13, color: Color(0xFF0F172A), fontWeight: FontWeight.w600),
-                ),
+                )),
                 const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF475569)),
               ],
             ),
@@ -2236,7 +2166,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
 
   /// SADECE ADMİNE ÖZEL: KLİP VE VİDEO PARAMETRELERİ (AKORDİYON VE AÇILIR LİSTE)
   Widget _buildAdminVideoSlicingCard() {
-    final estimatedClips = (_selectedTotalSec / _selectedDuration).round();
+    final minimumClips = (_selectedTotalSec + _selectedDuration - 1) ~/ _selectedDuration;
 
     return Container(
       decoration: BoxDecoration(
@@ -2357,7 +2287,8 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Dilimleme Planı: $_selectedTotalSec saniye seans ~$estimatedClips sahneye ayrılacaktır ($_selectedDuration saniye/klip).',
+                            'Süre hedefi $_selectedTotalSec sn; klip başına hedef üst sınır $_selectedDuration sn. '
+                            'Teorik asgari klip sayısı $minimumClips; sahne sayısı ayrıdır ve bir sahne birden fazla klip içerebilir.',
                             style: const TextStyle(fontSize: 11.5, color: Color(0xFF334155), fontWeight: FontWeight.w500),
                           ),
                         ),
@@ -2395,226 +2326,46 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   }
 
   Widget _buildModelValidationCard() {
-    final diffMillis = (_validationDiffSec * 100).toInt();
-    final detMillis = (14 - diffMillis + 14).clamp(0, 99);
-    final detectedTimestamp = '00:08.${detMillis.toString().padLeft(2, '0')}';
-
     return Container(
+      key: const ValueKey('unmeasured-validation'),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0284C7).withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
+            key: const ValueKey('studio-validation-toggle'),
             onTap: () => setState(() => _isValidationExpanded = !_isValidationExpanded),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0284C7).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.fact_check_rounded, color: Color(0xFF0284C7), size: 18),
-                ),
+                const Icon(Icons.fact_check_rounded, color: Color(0xFF0284C7), size: 18),
                 const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Model Doğrulama & Başarım Testi',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: Color(0xFF0F172A)),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFECFDF5),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFFA7F3D0)),
-                  ),
-                  child: const Text(
-                    'GROUND-TRUTH',
-                    style: TextStyle(color: Color(0xFF065F46), fontSize: 9.5, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Icon(
-                  _isValidationExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                  color: const Color(0xFF64748B),
-                ),
+                const Expanded(child: Text('Model Doğrulama & Başarım Testi',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5))),
+                Icon(_isValidationExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down),
               ],
             ),
           ),
           if (_isValidationExpanded) ...[
             const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.school_outlined, size: 16, color: Color(0xFF64748B)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Ground-Truth Doğrulama Referansı: Sentetik videodaki bilinen zaman ve davranış etiketleri, analiz modelinin başarımını ölçen referanstır.',
-                      style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade800, height: 1.35),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // KARŞILAŞTIRMA KUTULARI
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFBFDBFE)),
-                    ),
-                    child: const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Ground-Truth (Gerçek)',
-                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Zaman: 00:08.00',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                        ),
-                        Text(
-                          'Etiket: İsme Tepki Gözlemi',
-                          style: TextStyle(fontSize: 10.5, color: Color(0xFF475569)),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0FDF4),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFBBF7D0)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'AI Model Çıktısı',
-                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF166534)),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Zaman: $detectedTimestamp',
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                        ),
-                        Text(
-                          'Güven: %${_validationScore.toStringAsFixed(1)}',
-                          style: const TextStyle(fontSize: 10.5, color: Color(0xFF15803D), fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            const Text('Ölçülmedi / doğrulama hizmeti bağlı değil.'),
+            const SizedBox(height: 8),
+            const Text('Gerçek ölçüm olmadığı için güven, zamanlama sapması veya doğrulandı sonucu gösterilmez. '
+              'Üretim taslağındaki planlanan olay ve süreler video gözlemi değildir.'),
             const SizedBox(height: 12),
-
-            // BAŞARIM METRİK ÇİZELGESİ
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Zamanlama Sapması: ${_validationDiffSec.toStringAsFixed(2)} sn',
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                      ),
-                    ],
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Text(
-                      'DOĞRULANDI',
-                      style: TextStyle(color: Color(0xFF047857), fontSize: 9.5, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isValidating ? null : _runValidationSimulation,
-                icon: _isValidating
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.refresh_rounded, size: 18),
-                label: Text(
-                  _isValidating ? 'Doğrulama Yapılıyor...' : 'Ground-Truth Testini Yeniden Çalıştır',
-                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F172A),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
+            const ElevatedButton(
+              onPressed: null,
+              child: Text('Doğrulama hizmeti bağlı değil'),
             ),
           ],
         ],
       ),
     );
   }
-
-  // ==========================================================
-  // ADMİN GÖRÜNÜMÜ: SANİYELİK SENTETİK KLİP BAŞLIĞI
-  // ==========================================================
-
   Widget _buildAdminClipsHeader() {
     final minutes = (_session!.totalDurationSec / 60).toStringAsFixed(1);
 
@@ -2948,9 +2699,15 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     if (_session == null) return const SizedBox.shrink();
 
     final session = _session!;
-    Color riskColor = const Color(0xFF10B981);
-    if (_selectedRisk == 'atipik') riskColor = const Color(0xFFEF4444);
-    if (_selectedRisk == 'gecikmeli') riskColor = const Color(0xFFF59E0B);
+    Color riskColor = session.isUnreviewedGenerationDraft
+        ? const Color(0xFF475569)
+        : const Color(0xFF10B981);
+    if (!session.isUnreviewedGenerationDraft && _selectedRisk == 'atipik') {
+      riskColor = const Color(0xFFEF4444);
+    }
+    if (!session.isUnreviewedGenerationDraft && _selectedRisk == 'gecikmeli') {
+      riskColor = const Color(0xFFF59E0B);
+    }
 
     final minutes = (session.totalDurationSec / 60).toStringAsFixed(1);
     final unifiedText = _generateUnifiedScenarioText(session);
@@ -3053,7 +2810,9 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   border: Border.all(color: riskColor.withValues(alpha: 0.3)),
                 ),
                 child: Text(
-                  _getRiskLabel(_selectedRisk),
+                  session.isUnreviewedGenerationDraft
+                      ? 'Planlanan taslak'
+                      : _getRiskLabel(_selectedRisk),
                   style: TextStyle(color: riskColor, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -3065,7 +2824,9 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
                 child: Text(
-                  '~$minutes Dk Toplam',
+                  session.isUnreviewedGenerationDraft
+                      ? 'Planlanan süre: $minutes dk'
+                      : '~$minutes Dk Toplam',
                   style: const TextStyle(color: Color(0xFF475569), fontSize: 11, fontWeight: FontWeight.w600),
                 ),
               ),
@@ -3095,212 +2856,6 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     );
   }
 
-  Widget _buildStepCard(SyntheticVideoStep step) {
-    Color typeColor = const Color(0xFF64748B);
-    if (step.blockType == 'REACTION') {
-      if (_selectedRisk == 'atipik') typeColor = const Color(0xFFEF4444);
-      if (_selectedRisk == 'gecikmeli') typeColor = const Color(0xFFF59E0B);
-      if (_selectedRisk == 'tipik') typeColor = const Color(0xFF10B981);
-    } else if (step.blockType == 'STIMULUS') {
-      typeColor = const Color(0xFF0284C7);
-    } else if (step.blockType == 'COOLDOWN') {
-      typeColor = const Color(0xFF8B5CF6);
-    }
-
-    final isFirstClip = step.stepNumber == 1;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ÜST BİLGİ ŞERİDİ
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0F172A),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      _isAdminMode
-                          ? 'KLİP ${step.stepNumber.toString().padLeft(2, '0')}'
-                          : 'ADIM ${step.stepNumber}',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
-                    ),
-                  ),
-                  if (_isAdminMode) ...[
-                    const SizedBox(width: 8),
-                    Text(
-                      step.timeFormatted,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF1E293B)),
-                    ),
-                  ],
-                ],
-              ),
-              if (step.ontologyCode != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: typeColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: typeColor.withValues(alpha: 0.3)),
-                  ),
-                  child: Text(
-                    step.ontologyCode!,
-                    style: TextStyle(color: typeColor, fontWeight: FontWeight.bold, fontSize: 10),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          // FAZ VE BAŞLIK
-          Text(
-            step.phaseName,
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: typeColor),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            step.title,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Color(0xFF0F172A)),
-          ),
-          const SizedBox(height: 6),
-
-          // EYLEM AÇIKLAMASI (Sade, doğal, gündelik Türkçe)
-          Text(
-            step.actionDescription,
-            style: const TextStyle(fontSize: 12.5, color: Color(0xFF334155), height: 1.35),
-          ),
-
-          // SADECE ADMİNE ÖZEL: CHECKLIST, DEVAMLILIK DİREKTİFİ VE VİDEO PROMPT KUTUSU
-          if (_isAdminMode) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.checklist_rtl_rounded, size: 15, color: Color(0xFF64748B)),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      step.clinicalChecklist,
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF475569), height: 1.3),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // DEVAMLILIK DİREKTİFİ (ADMİN)
-            Row(
-              children: [
-                Icon(
-                  isFirstClip ? Icons.play_circle_fill_rounded : Icons.fast_forward_rounded,
-                  size: 14,
-                  color: const Color(0xFF0284C7),
-                ),
-                const SizedBox(width: 5),
-                Expanded(
-                  child: Text(
-                    step.continuityNote,
-                    style: const TextStyle(fontSize: 10.5, color: Color(0xFF0284C7), fontWeight: FontWeight.w500),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            // EVRENSEL AI VİDEO PROMPTU (KOD KUTUSU - ADMİN)
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.movie_creation_outlined, size: 14, color: Color(0xFF38BDF8)),
-                      SizedBox(width: 6),
-                      Text(
-                        'AI Video Promptu (Runway / Sora / Veo - Admin)',
-                        style: TextStyle(color: Color(0xFF38BDF8), fontSize: 10.5, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    step.universalPrompt,
-                    style: const TextStyle(
-                      fontSize: 10.5,
-                      fontFamily: 'monospace',
-                      color: Color(0xFFE2E8F0),
-                      height: 1.35,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // KOPYALA BUTONU (ADMİN)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F172A),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  elevation: 0,
-                ),
-                onPressed: () {
-                  _copyToClipboard(
-                    step.universalPrompt,
-                    'Klip ${step.stepNumber} video promptu panoya kopyalandı!',
-                  );
-                },
-                icon: const Icon(Icons.copy, size: 14),
-                label: const Text(
-                  'Promptu Kopyala (Admin)',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// SENARYO TÜRÜ SEÇİCİ (TÜR 1: DOKTOR KLİNİK PROTOKOLÜ vs TÜR 2: SENTETİK VİDEO STÜDYOSU)
   Widget _buildScenarioTypeSwitcher() {
     final isDoctor = _scenarioType == 'doctor';
     final isVideo = _scenarioType == 'video';
@@ -3323,7 +2878,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
           // TÜR 1: DOKTOR KLİNİK SENARYOSU (SANİYESİZ)
           Expanded(
             child: InkWell(
-              onTap: () {
+              onTap: _selectedEngine == 'server' || _isGenerating ? null : () {
                 if (_scenarioType != 'doctor') {
                   setState(() => _scenarioType = 'doctor');
                 }
@@ -3347,14 +2902,14 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                           size: 16,
                         ),
                         const SizedBox(width: 6),
-                        Text(
+                        Expanded(child: Text(
                           'Tür 1: Doktor Protokolü',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                             color: isDoctor ? Colors.white : const Color(0xFFCBD5E1),
                           ),
-                        ),
+                        )),
                       ],
                     ),
                     const SizedBox(height: 2),
@@ -3376,7 +2931,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
           // TÜR 2: SENTETİK VİDEO & PROMPT STÜDYOSU (SANİYELİ)
           Expanded(
             child: InkWell(
-              onTap: () {
+              onTap: _selectedEngine == 'server' || _isGenerating ? null : () {
                 if (_scenarioType != 'video') {
                   setState(() => _scenarioType = 'video');
                 }
@@ -3400,14 +2955,14 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                           size: 16,
                         ),
                         const SizedBox(width: 6),
-                        Text(
+                        Expanded(child: Text(
                           'Tür 2: Video Stüdyosu',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                             color: isVideo ? Colors.white : const Color(0xFFCBD5E1),
                           ),
-                        ),
+                        )),
                       ],
                     ),
                     const SizedBox(height: 2),
@@ -3531,6 +3086,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                     ),
                     child: Text(
                       'Motor: ${doc.engineUsed}',
+                      key: const ValueKey('studio-template-source'),
                       style: const TextStyle(color: Color(0xFF334155), fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -3554,10 +3110,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       children: [
                         Icon(Icons.check_circle_outline_rounded, size: 15, color: Color(0xFF16A34A)),
                         SizedBox(width: 6),
-                        Text(
-                          'Beklenen Gelişimsel Norm',
+                        Expanded(child: Text(
+                          'Eski şablon açıklaması — klinik norm olarak doğrulanmadı',
                           style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF166534)),
-                        ),
+                        )),
                       ],
                     ),
                     const SizedBox(height: 6),
@@ -3589,10 +3145,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 children: [
                   Icon(Icons.room_preferences_rounded, size: 16, color: Color(0xFF0F172A)),
                   SizedBox(width: 6),
-                  Text(
+                  Expanded(child: Text(
                     'Klinik Ortam ve Test Materyalleri',
                     style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                  ),
+                  )),
                 ],
               ),
               const SizedBox(height: 8),
@@ -3652,10 +3208,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 children: [
                   Icon(Icons.format_list_bulleted_rounded, size: 18, color: Color(0xFF2563EB)),
                   SizedBox(width: 8),
-                  Text(
+                  Expanded(child: Text(
                     '1. Klinik Test & Uyaran Protokolü',
                     style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                  ),
+                  )),
                 ],
               ),
               const SizedBox(height: 4),
@@ -3704,10 +3260,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 children: [
                   Icon(Icons.alt_route_rounded, size: 18, color: Color(0xFF0F172A)),
                   SizedBox(width: 8),
-                  Text(
+                  Expanded(child: Text(
                     '2. Olası Davranışsal Tepkiler (Gözlem Dalları)',
                     style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                  ),
+                  )),
                 ],
               ),
               const SizedBox(height: 4),
@@ -3785,8 +3341,9 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
@@ -3807,7 +3364,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   border: Border.all(color: border),
                 ),
                 child: Text(
-                  'Tepki: ${branch.latency}',
+                  'Eski şablondaki süre: ${branch.latency}',
                   style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
                 ),
               ),
@@ -3868,8 +3425,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Row(
                 children: [
@@ -3882,14 +3441,14 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                     child: const Icon(Icons.person_pin_circle_rounded, size: 18, color: Color(0xFF2563EB)),
                   ),
                   const SizedBox(width: 8),
-                  const Text(
+                  const Expanded(child: Text(
                     'Ortak Karakter & Ortam Şablonu',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF0F172A),
                     ),
-                  ),
+                  )),
                 ],
               ),
               OutlinedButton.icon(
@@ -3965,8 +3524,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Row(
                 children: [
@@ -3979,7 +3540,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                     child: const Icon(Icons.movie_filter_rounded, size: 18, color: Color(0xFF0F172A)),
                   ),
                   const SizedBox(width: 8),
-                  Column(
+                  Expanded(child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
@@ -3996,7 +3557,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                         style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                       ),
                     ],
-                  ),
+                  )),
                 ],
               ),
               TextButton.icon(
@@ -4073,7 +3634,13 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Expanded(child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
                   // FAZ ROZETİ
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
@@ -4090,17 +3657,14 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
                   // SAHNE VE ZAMAN
-                  Expanded(
-                    child: Text(
+                  Text(
                       '🎬 Sahne ${step.stepNumber} ($timeRange)',
                       style: const TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF0F172A),
                       ),
-                    ),
                   ),
                   // KOPYALA BUTONU (Şeritte Hızlıca)
                   OutlinedButton.icon(
@@ -4122,6 +3686,8 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
                     ),
                   ),
+                    ],
+                  )),
                   const SizedBox(width: 6),
                   // OK İKONU
                   Icon(

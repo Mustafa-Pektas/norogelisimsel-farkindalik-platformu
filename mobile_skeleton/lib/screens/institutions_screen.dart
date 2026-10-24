@@ -39,7 +39,7 @@ class InstitutionsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Yetkili Sağlık Kuruluşları', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        title: const Text('Kurum bilgileri', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
         elevation: 0,
@@ -62,7 +62,8 @@ class InstitutionsScreen extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Bu liste, gelişimsel değerlendirme yapan yetkili kamu ve üniversite hastanelerini içerir.',
+                    'Kurum bilgileri güncellik açısından doğrulanmadı. Başvurmadan önce kurumdan bilgi alın. '
+                    'Bu ekran arama, harita veya randevu açmaz.',
                     style: TextStyle(fontSize: 13, color: Colors.blue.shade900, height: 1.3),
                   ),
                 ),

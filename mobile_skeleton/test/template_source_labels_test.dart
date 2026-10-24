@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neuro_awareness_app/screens/simulation_mode_screen.dart';
 import 'package:neuro_awareness_app/screens/synthetic_video_studio_screen.dart';
 import 'package:neuro_awareness_app/services/synthetic_video_service.dart';
@@ -17,6 +19,7 @@ class _NoDocuments extends PathProviderPlatform {
 void main() {
   late PathProviderPlatform originalPaths;
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     originalPaths = PathProviderPlatform.instance;
     PathProviderPlatform.instance = _NoDocuments();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -36,8 +39,12 @@ void main() {
     expect(result.title, contains('Şablon Senaryo Taslağı'));
     expect(result.title, isNot(contains('Llama')));
     expect(result.exportDoctorCleanScenario(), contains('Şablon Senaryo Taslağı'));
-    expect(result.exportGroundTruthJson(), isNotEmpty);
-    expect(result.exportEnglishPromptsOnly(), isNotEmpty);
+    final metadata = (jsonDecode(result.exportGroundTruthJson()) as Map)['session_meta'] as Map;
+    expect(metadata['source'], 'Hazır şablon; model çıkarımı yapılmadı');
+    expect(metadata['content_status'], 'planned_unreviewed');
+    expect(result.exportEnglishPromptsOnly(), contains('Hazır şablon; model çıkarımı yapılmadı'));
+    expect(result.exportEnglishPromptsOnly(), contains(result.steps.first.universalPrompt));
+    expect(result.exportFullMarkdown(), contains('Hazır şablon; model çıkarımı yapılmadı'));
   });
 
   test('Eski doktor şablonu da Llama çıkarımı kaynağı iddia etmez', () async {
@@ -47,33 +54,58 @@ void main() {
       riskProfile: 'tipik',
     );
     expect(result.engineUsed, 'Hazır şablon; model çıkarımı yapılmadı');
+    expect(result.exportDoctorMarkdown(), contains('Hazır şablon; model çıkarımı yapılmadı'));
     expect(result.exportDoctorMarkdown(), isNot(contains('On-Device (GGUF)')));
   });
 
-  testWidgets('Aktif Stüdyo eski şablon üretim ve export arayüzünü içermez', (tester) async {
+  testWidgets('Stüdyo çevrimdışı şablon üretimi ve export kaynağı doğrudur; admin ölçüm uydurmaz', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
+      return null;
+    });
     await tester.pumpWidget(const MaterialApp(home: SyntheticVideoStudioScreen()));
     await tester.pumpAndSettle();
-    expect(find.text('Eski şablon araçları', skipOffstage: false), findsNothing);
-    for (final key in ['studio-template-examples', 'generate-template-scenario',
-      'template-scenario-loading', 'template-scenario-title',
-      'template-scenario-source', 'show-template-clip-details', 'unmeasured-validation']) {
-      expect(find.byKey(ValueKey(key), skipOffstage: false), findsNothing);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('studio-template-source'))).data,
+      contains('Hazır şablon; model çıkarımı yapılmadı'));
+    final generate = find.byKey(const ValueKey('studio-generate-scenario'));
+    await tester.ensureVisible(generate);
+    expect(tester.widget<ElevatedButton>(generate).onPressed, isNotNull);
+    await tester.tap(generate);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Klinik Protokolü Kopyala (Markdown)'));
+    await tester.pumpAndSettle();
+    expect(copied, contains('Hazır şablon; model çıkarımı yapılmadı'));
+    expect(copied, isNot(contains('On-Device (GGUF)')));
+    final title = find.byKey(const ValueKey('studio-admin-title'));
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(title);
+      await tester.pump();
     }
-    expect(find.byTooltip('Senaryoyu Kopyala', skipOffstage: false), findsNothing);
-    expect(find.byTooltip('Şablon JSON’unu kopyala', skipOffstage: false), findsNothing);
-    expect(find.textContaining('Şablon Senaryo Taslağı', skipOffstage: false), findsNothing);
+    await tester.pumpAndSettle();
+    expect(find.text('ADMİN'), findsOneWidget);
+    expect(find.byKey(const ValueKey('unmeasured-validation')), findsOneWidget);
+    expect(find.text('Ölçülmedi / doğrulama hizmeti bağlı değil.'), findsOneWidget);
     expect(find.textContaining('Güven: %'), findsNothing);
+    expect(find.textContaining('Zamanlama Sapması:'), findsNothing);
     expect(find.text('DOĞRULANDI'), findsNothing);
-    expect(find.byKey(const ValueKey('open-scenario-graph')), findsOneWidget);
-    expect(find.byKey(const ValueKey('open-scenario-content')), findsOneWidget);
-    expect(find.byKey(const ValueKey('open-clip-production-plan')), findsOneWidget);
+    await tester.tap(find.byTooltip('Tüm Video Promptlarını Kopyala (Admin)'));
+    await tester.pumpAndSettle();
+    expect(copied, contains('Hazır şablon; model çıkarımı yapılmadı'));
+    await tester.tap(find.byTooltip('JSON Dışa Aktar (Admin)'));
+    await tester.pumpAndSettle();
+    final metadata = (jsonDecode(copied!) as Map)['session_meta'] as Map;
+    expect(metadata['source'], 'Hazır şablon; model çıkarımı yapılmadı');
+    expect(metadata['content_status'], 'planned_unreviewed');
+    for (final key in ['open-scenario-graph', 'open-scenario-content', 'open-clip-production-plan']) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });
-
   for (final screen in [
     (title: 'Senaryo & Simülasyon', widget: const SimulationModeScreen()),
   ]) {

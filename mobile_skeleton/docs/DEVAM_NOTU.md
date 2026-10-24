@@ -1,3 +1,46 @@
+# Güncel ürün akışı — 24 Ekim 2026
+
+Bu bölüm tarihsel takipten önceliklidir. Yalnız `mobil_rag_223bc7d` kaynakları değiştirildi; diğer çalışma alanları, platform dosyaları, cihaz verileri, ortam sırları ve stage/stash/dallar korunmuştur. Test/API/uygulama/Flutter/servis çalıştırılmadı. Tur öncesi 103 kaynak/test/doküman dosyası boyut+SHA256 ile doğrulanarak `yedekler/tek_akis_coklu_davranis_20261024T110050611` altında korundu; HEAD referansı ve kaynak/test binary patch’i de vardır. .env, bağımlılık klasörleri, build/cache, model/video/cihaz kayıtları yedeklenmedi.
+
+## Özellik ve bağlantı takibi
+
+| Özellik / gereksinim | Güncel giriş ve bağlantı | Uygulanan durum / açık sınır |
+|---|---|---|
+| İki ana amaç | Ana Panel → Video Analizi / Simülasyon ve Eğitim | Korundu. İçerik hazırlama ekip işidir; admin başlığına beş dokunuş gerçek kimlik doğrulaması değildir. |
+| Tek form, çoklu davranış | Stüdyo Sunucu motoru → davranışlar/12–36 ay/ortam/ek yönerge | Bütün seçimler değişmez isteğe ve kanonik kart yükleyicisine gider. İlk davranışla yetinilmez. Yaş hatası alanın yanındadır; rozet ile alan arasında açık boşluk vardır. |
+| Sürüm / uyumluluk | `ScenarioGenerationRequest` v1 tek davranış veya `requestVersion:2.0` + `behaviors` + isteğe bağlı `production` | Eski tek davranışlı istekler/assetler/taslaklar aynı biçimde okunur. Yeni çoklu/üretim düzeninin anlatı/graf şeması 1.1’dir; v1.0 sabit D01 korunur. Eski behaviorId/cardVersion alanları yalnız birinci referansla geriye uyumluluk içindir; bütün anlam/ilişki `behaviors` ve sahne `behaviorIds` alanlarındadır. |
+| Üretim / A-B-C | Normal `/api/generate-scenario-input`; deney `/api/compare-scenario` | Aynı form, aynı seçili düzen, model ve 0.2/0.95/16384 ayarları; yalnız ek kaynak miktarı değişir. Protokol `scenario-input-narrative-v3`; hash şema/girdi/kaynak/ayarları bağlar. Eski protokol aktif deneye katılmaz. Eski v2 tek davranışlı sonuç kaydı okunur; yeni çoklu/doğrusal çıktı diye yeniden etiketlenmez. |
+| Kart kaynağı / trace | `backend/resources/Davranis_Kartlari_v02.md`, aynı `loadCard` | Tüm seçilen kimlik/sürümler bir kez yüklenir. B bütün seçili kartları, C tüm Markdown’ı, A ek kart metni olmayan ortak temel görevi kullanır. Kaynak/ölçüm metadata’sı bütün referansları içerir. İkinci katalog/embedding eklenmedi. |
+| Alternatifli anlatı | Aynı formda Alternatifli anlatı | Ortak başlangıç ve değişken sayıda alternatif. Çoklu seçimde commonBehaviorIds/alternatif behaviorIds ilişkileri ve bütün kartların kapsanması doğrulanır. |
+| 26 sahnelik düzen | Aynı formda 26 sahnelik doğrusal anlatı | Model gerçek 26 sıralı title/description/behaviorIds üretir; alternatives boş olur. Eski 6 başlangıç/11 işlem-gözlem/9 kapanış düzeni istekte açıklanır; tekrarlı çağrı veya yapay dal istenmez. Dönüştürücü 26 sahne/25 bağlantılı tek yol kurar; anlatının genel özeti graf notunda korunur. Eski 26 sahne JSON’u dönüştürülmez. |
+| Anlatı / sahne kartları | Stüdyo 2. İncele; karşılaştırmada başarılı kol ayrıntısı; çalışma alanında anlatı ayrıntısı | Aktif sunucu sonucunun okunabilir sahne sırası, açıklaması ve davranış ilişkileri erişilebilirdir. Ham JSON ana sonuç yerine geçmez; ayrı ayrıntılarda kalır. Anlatı kendi başına video promptu değildir. |
+| Süre/sayı hedefleri | Aynı formda Süre ve klip hedefleri | İstek hedefleri taşınır; 26 sahne hedefi doğrusal düzende yapısal olarak denetlenir. Toplam süre hedefi kesin gerçekleşmiş sonuç değildir. Kliplerin 0<süre≤seçili üst sınır≤8 olması doğrulanır. Üretilen sahne/klip sayısı ve sahne başına plan süresi ayrıca gösterilir; tüm alternatif süreleri tek yolmuş gibi toplanmaz. |
+| Sonuç → editör → graf | Bu senaryoyla devam et → mevcut çalışma alanı → açık aktarım → doğrulama/converter | Seçim yeni çağrı yapmaz; kimlik sabittir. Ham/düzenlenmiş içerik, özgün istek ve gerçek metadata ayrı kalır. Dolu editör onaysız ezilmez. İkinci üretim formu yoktur. |
+| Kalıcı taslak / F04 | Mevcut ScenarioWorkspaceDraft/ScenarioDraftStore ve çıkış onayı | Çoklu istek ve üretim hedefleri kayıt/yeniden açma boyunca korunur. v1 kayıtlar okunur. İş/başarı/graf geri yüklenmez; graf yeniden doğrulanır. Erişim anahtarı kayda/export’a girmez. Stüdyo’da henüz çalışma alanına alınmamış form otomatik kaydedilmez. |
+| Graf → klip/prompt | Çalışma alanında 3. Üretime hazırla → `/api/generate-clip-plan` → mevcut plan ekranı | Ayrı açık çağrıdır. Aynı grafın bütün sahneleri kliplerle kapsanır; kimlik/kart ilişkisi kaybolmaz. Üretilmiş sonuçla devam edildiğinde plan eylemi release’te de erişilebilir; sabit ekip araçlarının diğer görünürlükleri değiştirilmedi. |
+| Ayrıntılı üretim / export | Mevcut plan ekranındaki sahne/klip kartları | Süre, eylem, başlangıç/bitiş, görsel prompt, süreklilik, ayrı seslendirme, tek/toplu prompt, plan JSON’u ve kaynak paketi korunur. Sahneye bağlı davranışlar görünür; klip ilişkisi sceneId üzerinden kurulur. Bu araçlar aktif sunucu sonucundan erişilebilir, eski kodun diskte kalmasına dayanmıyor. Üretilen plan oturumdadır; JSON ve kaynak paketi dışa aktarılmalıdır. |
+| Admin / çevrimdışı şablon | Mevcut beş dokunuş ve yerel motor | Eski çoklu davranış/tür/süre/klip/prompt/export araçları silinmedi. Hazır şablon model çıkarımı değildir. Eski development 26 sahne kodu korunur; yeni şema gibi kabul edilmez. |
+| Hazır D01 / video | Stüdyo hazır D01 grafı, plan/eşleme ve videolu örnek girişleri | Eşleme, önizleme, dal seçimi, tamamlanan yolu tekrar, tek klip önden hazırlama korundu. Yeni graf/plan bu videoları kullanmaz. Genel yeni plan-video eşlemesi hâlâ eksik. |
+| Video Analizi | Mevcut ekran/servis yolu | Geçen F05/S04/tam ekran/yaş ve oynatıcı yaşam döngüsüne dokunulmadı. Doğrulanmış gerçek davranış analizi, doğru hedefe yönelme ve karar katmanı henüz tamamlanmış değildir. |
+| Backend korumaları | Mevcut deployment erişim/1MiB/ortak kapasite/timeout/güvenli ölçümler | Korundu. Anahtar/log/ham içerik ayrımı sürer; HTTP’yi bırakmak doğrulanmış sağlayıcı iptali değildir. Yeni sunucu dağıtımı yapılmadı. |
+
+**Kanıt ayrımı:** Kullanıcı tur öncesi **309 mobil test, 79 backend testi ve temiz analiz** bildirdi; cihazda çoklu seçim/aktif ayrıntı kartları/yaş çakışması/metin sorunlarını ayrıca bildirdi. Önceki yeşil koşular ürünün tamamlandığı sayılmadı. Bu turun yeni testleri ve analizi **çalıştırılmadı**. Hedefli test kaynakları: çoklu istek ve tüm kartların yüklenmesi; aynı A/B/C görevi/ayarları; eksik ilişki reddi; 26 gerçek sahneden doğrusal graf; kimlik/ham kaynak/taslak uyumluluğu; aktif planda prompt erişimi; 320px/2x yazı ve yaş alanı. Mevcut iptal/çift başlatma/oynatıcı testleri silinmedi veya gevşetilmedi.
+
+**Kalan gerçek bağlantılar:** Yeni plan → genel video eşleme/oynatma, dış gerçek video üretimi ve seslendirme/çoklu dil, doğrulanmış gerçek video analizi/karar katmanı, kurum doğrulaması, uzak dağıtım/HTTPS ve gerçek telefon/iOS kabulü tamamlanmadı. Çoklu kartların olay/sıra/geçerli gözlem koşullarının anlamsal uyumu insan incelemesindedir. Özellikle başka kartın uyaranları D01 gözlemine karışmamalıdır. D01 zaman hesabı ilgili yollar için plan aritmetiğidir; kesintisiz gerçek video kanıtı veya klinik eşik değildir.
+
+**Bu turun dosyaları:**
+- `lib/models/`: `scenario_behavior_ref.dart` (yeni), `scenario_generation_request.dart`, `scenario_generation_result.dart`, `scenario_workspace_draft.dart`, `scenario_input.dart`, `scenario_graph.dart`, `scenario_clip_plan.dart`.
+- `lib/screens/`: `synthetic_video_studio_screen.dart`, `scenario_comparison_dialog.dart`, `scenario_graph_import_screen.dart`, `clip_production_plan_screen.dart`.
+- `lib/services/`: `scenario_graph_converter.dart`, `http_scenario_generation_service.dart`, `clip_plan_generation_service.dart`.
+- `lib/widgets/scenario_narrative_cards.dart` (yeni); ortak okunabilir anlatı/sahne kartları.
+- `test/`: `scenario_model_demo_test.dart`, `scenario_comparison_test.dart`, `http_scenario_generation_service_test.dart`, `scenario_multi_flow_test.dart` (yeni).
+- Backend: `scenario_input_generation.js`, `scenario_comparison.js`, `scenario_clip_generation.js`, `generation_measurement.js`, `test/scenario_comparison.test.js`, `test/scenario_multi_generation.test.js` (yeni), `README.md`.
+- `docs/KULLANIM_REHBERI.md` (yeni) ve bu güncel devam bölümü.
+
+**Arayüz notu:** Ana form/sonuç, hazır örnek araçlarından önce gelir; dört mevcut kısayol aynı anahtar/callback’lerle aşağıdaki açık araç grubunda kalır. Sunucu modunda AppBar kopyalama gerçek sunucu ham cevabını alır; eski şablonu yanlışlıkla kopyalamaz. Yerel kopyalama/export yerel motorda korunur. Büyük yazıda Stüdyo başlığı kırpılmaz; başlık alanı büyür. Klip planı yalnız oturumdadır; JSON ve kaynak paketi ayrıca dışa aktarılmalıdır.
+
+**Kullanım:** `docs/KULLANIM_REHBERI.md` ekran/araçların girdisi, adımları, çıktısı ve sınırlarını açıklar. Sonraki iş kullanıcı terminalinde tek toplu analiz/test turudur; gerçek API çağrısı bu turda otomatik başlatılmaz.
+
 # Devam notu — 19 Ekim 2026
 
 ## Güncel gereksinim takibi — 20 Ekim 2026

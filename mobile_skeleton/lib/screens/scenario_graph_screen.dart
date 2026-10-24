@@ -376,7 +376,8 @@ class _GraphViewState extends State<_GraphView> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '${graph.behaviorId} · Planlanan senaryo; gözlem değildir.',
+                      'Davranışlar: ${graph.behaviors.map((ref) => ref.behaviorId).join(', ')} · Planlanan senaryo; gözlem değildir.',
+                      key: const ValueKey('scenario-graph-behavior-summary'),
                       style: _edgeStyle,
                     ),
                   ],

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'behavior_cards.dart';
 import 'scenario_generation_request.dart';
+import 'scenario_generation_result.dart';
 
 /// Yalnız düzenlenebilir çalışma verisi. Graf, iş veya başarı durumu içermez.
 class ScenarioWorkspaceDraft {
@@ -10,6 +11,7 @@ class ScenarioWorkspaceDraft {
     required this.instructionsText, this.behaviorId, this.cardVersion,
     this.generationRaw, this.responseRequest, this.responseScenarioId,
     this.editorRequest, this.editorScenarioId, this.demoRaw = '',
+    this.responseResult, this.editorResult, this.pendingResult,
     this.demoDraft = false, this.demoEdited = false, this.generationEdited = false}) {
     if (inputType != 'scenario' && inputType != 'graph') {
       throw const FormatException('Taslak girdi türü desteklenmiyor.');
@@ -28,6 +30,13 @@ class ScenarioWorkspaceDraft {
         (demoDraft && editorRequest != null) ||
         responseScenarioId?.trim().isEmpty == true || editorScenarioId?.trim().isEmpty == true) {
       throw const FormatException('Taslağın ham cevap/kaynak ilişkisi geçersiz.');
+    }
+    if ((responseResult != null && (responseResult!.scenarioId != responseScenarioId ||
+        responseResult!.rawResponse != generationRaw ||
+        jsonEncode(responseResult!.request.toJson()) != jsonEncode(responseRequest?.toJson()))) ||
+        (editorResult != null && (editorResult!.scenarioId != editorScenarioId ||
+        jsonEncode(editorResult!.request.toJson()) != jsonEncode(editorRequest?.toJson())))) {
+      throw const FormatException('Taslağın üretim kimliği/kaynağı uyuşmuyor.');
     }
   }
 
@@ -48,6 +57,7 @@ class ScenarioWorkspaceDraft {
   final bool demoDraft;
   final bool demoEdited;
   final bool generationEdited;
+  final ScenarioGenerationResult? responseResult, editorResult, pendingResult;
 
   String toJsonString() => jsonEncode({
     'version': 1, 'inputType': inputType, 'scenarioJson': scenarioJson, 'graphJson': graphJson,
@@ -56,6 +66,8 @@ class ScenarioWorkspaceDraft {
     'generationRaw': generationRaw, 'responseRequest': _requestJson(responseRequest),
     'responseScenarioId': responseScenarioId, 'editorRequest': _requestJson(editorRequest),
     'editorScenarioId': editorScenarioId, 'generationEdited': generationEdited,
+    'responseResult': responseResult?.toJson(), 'editorResult': editorResult?.toJson(),
+    'pendingResult': pendingResult?.toJson(),
     'demoRaw': demoRaw, 'demoSource': 'local_d01_demo',
     'demoDraft': demoDraft, 'demoEdited': demoEdited,
   });
@@ -87,17 +99,22 @@ class ScenarioWorkspaceDraft {
       responseRequest: _readRequest(value['responseRequest']), responseScenarioId: optional('responseScenarioId'),
       editorRequest: _readRequest(value['editorRequest']), editorScenarioId: optional('editorScenarioId'),
       generationEdited: flag('generationEdited'), demoRaw: string('demoRaw'),
+      responseResult: _result(value['responseResult']), editorResult: _result(value['editorResult']),
+      pendingResult: _result(value['pendingResult']),
       demoDraft: flag('demoDraft'), demoEdited: flag('demoEdited'));
   }
 }
 
-Map<String, Object?>? _requestJson(ScenarioGenerationRequest? request) => request == null ? null : {
-  'behaviorId': request.behaviorId, 'cardVersion': request.cardVersion, 'ageMonths': request.ageMonths,
-  'sceneContext': request.sceneContext, 'additionalInstructions': request.additionalInstructions,
-};
+ScenarioGenerationResult? _result(Object? value) => value == null ? null :
+    ScenarioGenerationResult.fromJson(Map<String, dynamic>.from(value as Map));
+
+Map<String, Object?>? _requestJson(ScenarioGenerationRequest? request) => request?.toJson();
 
 ScenarioGenerationRequest? _readRequest(dynamic value) {
   if (value == null) return null;
+  if (value is Map<String,dynamic> && value['requestVersion'] == '2.0') {
+    return ScenarioGenerationRequest.fromJson(value);
+  }
   if (value is! Map<String, dynamic> || value['behaviorId'] is! String ||
       value['cardVersion'] is! String || value['ageMonths'] is! int ||
       value['sceneContext'] is! String ||

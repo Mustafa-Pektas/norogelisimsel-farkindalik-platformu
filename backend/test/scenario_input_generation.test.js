@@ -1,8 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const { validateRequest, loadCard, buildNarrativePrompts, validateNarrative,
-  createScenarioInputHandler, safeProviderDiagnostic } = require('../scenario_input_generation');
+  createScenarioInputHandler, safeProviderDiagnostic, defaultCardsPath } = require('../scenario_input_generation');
 const { generateText } = require('../gemini_text');
 const request = { behaviorId: 'D01', cardVersion: '0.2', ageMonths: 30,
   sceneContext: ' Evde oyuncakla oyun ', additionalInstructions: null };
@@ -48,6 +51,31 @@ test('Tek güncel Markdown kaynağı: tüm kartların işlem ve gözlem kurallar
   }
   await assert.rejects(loadCard({ ...request, cardVersion: '0.1' }), /uyuşmuyor/);
   await assert.rejects(loadCard(request, '/missing/current/cards.md'), /okunamadı/);
+});
+test('Paket kart kaynağı farklı çalışma dizininde okunur; hatalı açık yol varsayılana dönmez', async () => {
+  const originalDirectory = process.cwd();
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'scenario-card-path-'));
+  try {
+    process.chdir(directory);
+    assert.equal(defaultCardsPath, path.resolve(__dirname, '../resources/Davranis_Kartlari_v02.md'));
+    const card = await loadCard(request);
+    assert.equal(card.version, request.cardVersion);
+    assert.match(card.section, /D01/);
+    await assert.rejects(loadCard(request, path.join(directory, 'missing.md')),
+      error => error.status === 503 && /okunamadı/.test(error.message));
+    // Mevcut paket kartı açık yolun hatasını gizleyerek başarı üretmemeli.
+    let providerCalls = 0;
+    const handler = createScenarioInputHandler({ cardsPath: path.join(directory, 'missing.md'),
+      modelName: 'controlled-model', generate: async () => { providerCalls++; return raw; } });
+    const { res, done } = call(handler);
+    await done;
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.bodies[0].success, false);
+    assert.equal(providerCalls, 0);
+  } finally {
+    process.chdir(originalDirectory);
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });
 test('Dar normalizasyon anlatıları korur; bozuk/eksik/metadata uyuşmayan çıktı reddedilir', () => {
   for (const text of [raw, '```json\n' + JSON.stringify(content) + '\n```',

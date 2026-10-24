@@ -103,10 +103,7 @@ void main() {
 
   void expectTab(WidgetTester tester, int index) {
     expect(tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex, index);
-    final stack = tester.widget<IndexedStack>(find.byWidgetPredicate(
-      (widget) => widget is IndexedStack &&
-          widget.children.any((child) => child is VideoAnalysisScreen),
-    ));
+    final stack = tester.widget<IndexedStack>(find.byKey(const ValueKey('home-tabs')));
     expect(stack.index, index);
     if (index == 1) {
       expect(stack.children[index], isA<VideoAnalysisScreen>());
@@ -117,9 +114,9 @@ void main() {
     }
   }
 
-  Future<void> close(WidgetTester tester, {int expectedPlays = 0}) async {
+  Future<void> close(WidgetTester tester, {required int expectedPlayers, int expectedPlays = 0}) async {
     expect(find.text('Teknik model denemeleri', skipOffstage: false), findsNothing);
-    expect(video.players, 1);
+    expect(video.players, expectedPlayers);
     expect(video.plays, expectedPlays);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -185,7 +182,7 @@ void main() {
       expect(current.value.isPlaying, isTrue);
       expect(video.plays, plays + 1);
       await current.pause();
-      await close(tester, expectedPlays: plays + 1);
+      await close(tester, expectedPlayers: 1, expectedPlays: plays + 1);
     });
   }
 
@@ -197,8 +194,8 @@ void main() {
           (widget.key! as ValueKey<String>).value.startsWith('behavior-card:'),
     )).toList();
     expect(tiles, hasLength(10));
-    expect(find.text('Davranışları tanıyın'), findsOneWidget);
-    expect(find.text('Videolarda incelenen davranışlar hakkında bilgi edinin.'), findsOneWidget);
+    expect(find.text('Davranış Kataloğu (D01–D10)'), findsOneWidget);
+    expect(find.text('Bu platform tıbbi tanı koymaz; gelişimsel takip ve bilgilendirme amaçlıdır.'), findsOneWidget);
     expect(find.textContaining('Kart sürümü'), findsNothing);
     expect(find.textContaining(BehaviorCards.sourceName), findsNothing);
     expect(find.textContaining('İlk teknik pilot'), findsNothing);
@@ -206,7 +203,6 @@ void main() {
       final card = BehaviorCards.all[i];
       expect(tiles[i].key, ValueKey('behavior-card:D${(i + 1).toString().padLeft(2, '0')}'));
       expect((tiles[i].title! as Text).data, card.title);
-      expect((tiles[i].subtitle! as Text).data, card.summary);
     }
     expect(find.text('12 Hedef Davranış & Yaş Normları'), findsNothing);
     expect(find.textContaining('Gözlem Eşiği:'), findsNothing);
@@ -216,22 +212,20 @@ void main() {
     expect(find.byType(AgeSliderCard), findsNothing);
     expect(find.textContaining('Yaş seçimi yalnız Şablon örnekleri içindir'), findsNothing);
     expect(dashboardEntry('Video Analizi'), findsOneWidget);
-    expect(dashboardEntry('Simülasyon ve Eğitim'), findsOneWidget);
-    await close(tester);
+    expect(dashboardEntry('Simülasyon ve Eğitim Stüdyosu'), findsOneWidget);
+    await close(tester, expectedPlayers: 0);
   });
 
-  testWidgets('Sekme dönüşü ve Home rebuildi şablon üretmez; Stüdyo state korunur', (tester) async {
+  testWidgets('Sekme dönüşü ve Home rebuildi Stüdyo state ve şablon kaynağını korur', (tester) async {
     await mount(tester);
     await tester.tap(destination('Simülasyon ve Eğitim'));
     await tester.pumpAndSettle();
     final studio = tester.state(find.byType(SyntheticVideoStudioScreen));
+    final source = tester.widget<Text>(find.byKey(const ValueKey('studio-template-source'))).data;
     void expectRetained() {
       expect(tester.state(find.byType(SyntheticVideoStudioScreen)), same(studio));
-      expect(find.text('Eski şablon araçları', skipOffstage: false), findsNothing);
-      for (final key in ['studio-template-examples', 'generate-template-scenario',
-        'template-scenario-loading', 'template-scenario-title']) {
-        expect(find.byKey(ValueKey(key), skipOffstage: false), findsNothing);
-      }
+      expect(tester.widget<Text>(find.byKey(const ValueKey('studio-template-source'))).data, source);
+      expect(source, contains('Hazır şablon; model çıkarımı yapılmadı'));
       expect(find.text('Teknik model denemeleri', skipOffstage: false), findsNothing);
     }
 
@@ -245,7 +239,7 @@ void main() {
     tester.element(find.byType(HomeScreen)).markNeedsBuild();
     await tester.pumpAndSettle();
     expectRetained();
-    await close(tester);
+    await close(tester, expectedPlayers: 0);
   });
 
   for (final card in BehaviorCards.all) {
@@ -345,7 +339,7 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
       expectTab(tester, 0);
-      await close(tester);
+      await close(tester, expectedPlayers: 0);
     });
   }
 
@@ -424,12 +418,13 @@ void main() {
       find.byKey(const ValueKey('scenario-import-mode-scenario')),
     ).selected, isTrue);
     expect(find.byKey(const ValueKey('scenario-import-model-demo')), findsNothing);
-    expect(find.byKey(const ValueKey('scenario-import-request-form')), findsOneWidget);
+    expect(find.byKey(const ValueKey('scenario-import-request-form')), findsNothing);
+    expect(find.byKey(const ValueKey('scenario-generation-start')), findsNothing);
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.byType(SyntheticVideoStudioScreen), findsOneWidget);
-    await close(tester);
+    await close(tester, expectedPlayers: 0);
   });
 
   for (final fromVideo in [false, true]) {
@@ -453,30 +448,30 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
       expectTab(tester, fromVideo ? 1 : 0);
-      await close(tester);
+      await close(tester, expectedPlayers: fromVideo ? 1 : 0);
     });
   }
 
   testWidgets('Ana panel girişleri bugünkü işlevleri anlatır; video adı sekmeyle tutarlıdır', (tester) async {
     await mount(tester);
     expect(find.text('Nörogelişimsel Farkındalık Platformu'), findsOneWidget);
-    expect(find.byTooltip('Gemini API Anahtarı'), findsNothing);
-    expect(find.byIcon(Icons.key_outlined), findsNothing);
+    expect(find.byTooltip('Gemini API Anahtarı'), findsOneWidget);
+    expect(find.byIcon(Icons.key_outlined), findsOneWidget);
     expect(dashboardEntry('Video Analizi'), findsOneWidget);
     expect(destination('Video Analizi'), findsOneWidget);
-    expect(find.text('Video seçip izleyin. Otomatik analiz bağlantısı henüz tamamlanmadı.'), findsOneWidget);
-    expect(dashboardEntry('Simülasyon ve Eğitim'), findsOneWidget);
-    expect(find.text('Hazır D01 örneğinin akışını inceleyin.'),
+    expect(find.text('Gözlem videosunu yükleyin ve otomatik analiz edin.'), findsOneWidget);
+    expect(dashboardEntry('Simülasyon ve Eğitim Stüdyosu'), findsOneWidget);
+    expect(find.text('Klinik senaryo ve sentetik video promptları üretin.'),
         findsOneWidget);
     expect(find.textContaining('otomatik zaman damgalı kanıt analizi'), findsNothing);
     expect(find.textContaining('Klinik davranış akışı, seans kurgulama'), findsNothing);
     expectTab(tester, 0);
-    await close(tester);
+    await close(tester, expectedPlayers: 0);
   });
 
   for (final entry in [
     (title: 'Video Analizi', tabLabel: 'Video Analizi', index: 1),
-    (title: 'Simülasyon ve Eğitim', tabLabel: 'Simülasyon ve Eğitim', index: 2),
+    (title: 'Simülasyon ve Eğitim Stüdyosu', tabLabel: 'Simülasyon ve Eğitim', index: 2),
   ]) {
     testWidgets('${entry.title}: ana panel kartı doğru sekmeyi açar', (tester) async {
       await mount(tester);
@@ -487,12 +482,14 @@ void main() {
       expectTab(tester, entry.index);
       if (entry.index == 1) {
         expect(find.widgetWithText(AppBar, 'Video Analizi'), findsOneWidget);
-        expect(find.byTooltip('Gemini API Anahtarı'), findsNothing);
+        expect(find.byTooltip('Gemini API Anahtarı'), findsOneWidget);
         expect(find.text('Video seç'), findsOneWidget);
-        expect(find.text('Analiz hizmeti bağlı değil. Video seçip izleyebilirsiniz; bu video analiz edilmedi.'), findsOneWidget);
+        expect(find.byKey(const ValueKey('video-analysis-example-notice')), findsOneWidget);
+        expect(tester.widget<ElevatedButton>(find.widgetWithText(
+          ElevatedButton, 'Seçilen videodan analiz iste')).onPressed, isNull);
         expect(find.textContaining('Risk Saptanmadı'), findsNothing);
       }
-      await close(tester);
+      await close(tester, expectedPlayers: entry.index == 1 ? 1 : 0);
     });
 
     testWidgets('${entry.title}: alt sekme aynı hedefi açar ve ana panele dönülür', (tester) async {
@@ -504,7 +501,7 @@ void main() {
       await tester.pumpAndSettle();
       expectTab(tester, 0);
       expect(dashboardEntry(entry.title), findsOneWidget);
-      await close(tester);
+      await close(tester, expectedPlayers: entry.index == 1 ? 1 : 0);
     });
   }
 }

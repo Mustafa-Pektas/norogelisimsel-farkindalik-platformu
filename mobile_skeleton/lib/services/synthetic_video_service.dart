@@ -65,7 +65,7 @@ class DoctorClinicalScenario {
     sb.writeln('# [$code] $title — Test ve Gözlem Detayları');
     sb.writeln('**Yaş Grubu:** $targetAgeMonths Ay ($ageGroupLabel)');
     sb.writeln('**Gözlem Durumu:** ${riskProfile.toUpperCase()}');
-    sb.writeln('**Üretim Motoru:** $engineUsed');
+    sb.writeln('**Kaynak:** $engineUsed');
     sb.writeln('**Beklenen Normal Davranış:** $expectedNorm\n');
     sb.writeln('## 1. Test Nasıl Yapılacak?');
     sb.writeln(stimulusProtocol);
@@ -143,6 +143,10 @@ class SyntheticVideoSession {
   final String characterDescription;
   final String environmentDescription;
   final List<SyntheticVideoStep> steps;
+  bool get isUnreviewedGenerationDraft => riskProfile == 'planlanan_taslak';
+  String get sourceLabel => isUnreviewedGenerationDraft
+      ? 'Sunucu üretim taslağı; içerik ve video doğrulanmadı'
+      : 'Hazır şablon; model çıkarımı yapılmadı';
 
   SyntheticVideoSession({
     required this.title,
@@ -166,8 +170,13 @@ class SyntheticVideoSession {
   String exportDoctorCleanScenario() {
     final sb = StringBuffer();
     sb.writeln('# $title\n');
+    sb.writeln('**Kaynak:** $sourceLabel');
     sb.writeln('**Hedef Yaş Grubu:** $targetAgeMonths Ay');
-    sb.writeln('**Gözlem Durumu:** ${riskProfile.toUpperCase()}\n');
+    if (isUnreviewedGenerationDraft) {
+      sb.writeln('**Durum:** 26 sahnelik üretim taslağı; video veya gözlenmiş davranış değildir.\n');
+    } else {
+      sb.writeln('**Gözlem Durumu:** ${riskProfile.toUpperCase()}\n');
+    }
     for (final s in steps) {
       sb.writeln('### Adım ${s.stepNumber}: ${s.title}');
       sb.writeln('${s.actionDescription}\n');
@@ -178,19 +187,28 @@ class SyntheticVideoSession {
   /// Tüm seansı evrensel promptlar ve klinik kontrol listesiyle Markdown formatında dışa aktarır
   String exportFullMarkdown() {
     final sb = StringBuffer();
-    sb.writeln('# Sentetik Klinik Gözlem Seansı ve Video Üretim Promptları');
+    sb.writeln(isUnreviewedGenerationDraft
+        ? '# 26 Sahnelik Üretim Taslağı ve Video Promptları'
+        : '# Şablon Senaryo Taslağı ve Video Üretim Promptları');
+    sb.writeln('**Kaynak:** $sourceLabel');
     sb.writeln('**Uyumlu Modeller:** Google Veo, Runway Gen-3, Luma Dream Machine, Kling AI, OpenAI Sora, Pika');
     sb.writeln('**Hedef Yaş Grubu:** $targetAgeMonths Ay');
     sb.writeln('**Toplam Seans Süresi:** ${_formatTime(totalDurationSec)} ($totalDurationSec sn • $totalStepsCount Sıralı Klip)');
     sb.writeln('**Klip Başına Süre:** ${blockDurationSec}s');
-    sb.writeln('**Gözlem Profili:** ${riskProfile.toUpperCase()}');
+    if (isUnreviewedGenerationDraft) {
+      sb.writeln('**Durum:** Planlanan içerik; video veya gözlenmiş davranış doğrulanmadı.');
+    } else {
+      sb.writeln('**Gözlem Profili:** ${riskProfile.toUpperCase()}');
+    }
     sb.writeln('\n---\n');
 
     for (final s in steps) {
       sb.writeln('### KLİP ${s.stepNumber.toString().padLeft(2, '0')} [${s.timeFormatted}] — ${s.title}');
       sb.writeln('- **Faz:** ${s.phaseName}');
-      sb.writeln('- **Sahnede Gerçekleşen Eylem:** ${s.actionDescription}');
-      sb.writeln('- **Klinik Gözlem Kontrol Listesi:** ${s.clinicalChecklist}');
+      sb.writeln('- **Planlanan eylem:** ${s.actionDescription}');
+      if (!isUnreviewedGenerationDraft) {
+        sb.writeln('- **Klinik Gözlem Kontrol Listesi:** ${s.clinicalChecklist}');
+      }
       sb.writeln('- **Kamera Açısı & Lens:** ${s.cameraMovement}');
       sb.writeln('- **Devamlılık Direktifi:** ${s.continuityNote}\n');
       sb.writeln('```text');
@@ -204,6 +222,7 @@ class SyntheticVideoSession {
   /// Sadece İngilizce video promptlarını sırasıyla listeler
   String exportEnglishPromptsOnly() {
     final sb = StringBuffer();
+    sb.writeln('// Kaynak: $sourceLabel');
     for (final s in steps) {
       sb.writeln('// CLIP ${s.stepNumber.toString().padLeft(2, '0')} (${s.timeFormatted}) - ${s.title}');
       sb.writeln(s.universalPrompt);
@@ -216,11 +235,14 @@ class SyntheticVideoSession {
   String exportGroundTruthJson() {
     final data = {
       'session_meta': {
+        'source': sourceLabel,
+        'content_status': 'planned_unreviewed',
         'target_age_months': targetAgeMonths,
         'total_duration_sec': totalDurationSec,
         'clip_duration_sec': blockDurationSec,
         'total_steps': totalStepsCount,
-        'risk_profile': riskProfile,
+        'risk_profile': isUnreviewedGenerationDraft ? null : riskProfile,
+        if (isUnreviewedGenerationDraft) 'artifact_type': 'planned_unreviewed_26_scene_draft',
         'supported_ai_engines': ['Google Veo', 'Runway Gen-3', 'Luma Dream Machine', 'Kling AI', 'Sora'],
       },
       'character': characterDescription,
@@ -234,7 +256,7 @@ class SyntheticVideoSession {
         'phase': s.phaseName,
         'title': s.title,
         if (s.ontologyCode != null) 'ontology': s.ontologyCode,
-        'clinical_checklist': s.clinicalChecklist,
+        if (!isUnreviewedGenerationDraft) 'clinical_checklist': s.clinicalChecklist,
         'camera': s.cameraMovement,
         'continuity_directive': s.continuityNote,
         'prompt': s.universalPrompt,
@@ -559,7 +581,7 @@ class SyntheticVideoPromptService {
     String? ontologyCode,
     List<String>? ontologyCodes,
     String riskProfile = 'atipik',
-    String engineUsed = '0 MB Yerel Klinik Motoru',
+    String engineUsed = 'Hazır şablon; model çıkarımı yapılmadı',
     String? customEnvironment,
     String? customMaterials,
     int variationSeed = 0,
@@ -863,7 +885,7 @@ class SyntheticVideoPromptService {
 
     final ontLabel = targetOntologies.join(', ');
     return SyntheticVideoSession(
-      title: '$ageMonths Ay Klinik Gözlem Senaryosu ($ontLabel)',
+      title: '$ageMonths Ay Şablon Senaryo Taslağı ($ontLabel)',
       targetAgeMonths: ageMonths,
       totalDurationSec: currentSec,
       blockDurationSec: dur,

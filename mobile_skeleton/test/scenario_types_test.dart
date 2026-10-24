@@ -28,34 +28,47 @@ void main() {
         .setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
-  testWidgets('Normal örnek, açık ekip araçları ve yerel model araçları yoktur; beş dokunuş admin açmaz',
+  testWidgets('Beş dokunuş admini açıp kapatır; iki mevcut tür ve hazırlama girişleri korunur',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(1100, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(MaterialApp(home: const SyntheticVideoStudioScreen()));
+    await tester.pumpWidget(const MaterialApp(home: SyntheticVideoStudioScreen()));
     await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('open-d01-playback')), findsOneWidget);
-    expect(find.byKey(const ValueKey('open-scenario-graph')), findsOneWidget);
-    expect(find.byKey(const ValueKey('studio-content-preparation')), findsOneWidget);
-    expect(find.byKey(const ValueKey('open-scenario-content')), findsOneWidget);
-    expect(find.byKey(const ValueKey('open-clip-production-plan')), findsOneWidget);
-    expect(find.byKey(const ValueKey('studio-technical-tests'), skipOffstage: false), findsNothing);
-    expect(find.text('Eski şablon araçları'), findsNothing);
-    expect(find.text('Normal (Tipik)'), findsNothing);
-
-    final title = find.descendant(of: find.byType(AppBar),
-        matching: find.text('Simülasyon ve Eğitim'));
+    final state = tester.state(find.byType(SyntheticVideoStudioScreen));
+    for (final key in ['open-d01-playback', 'open-scenario-graph',
+      'open-scenario-content', 'open-clip-production-plan']) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
+    expect(find.text('Doktor Klinik Protokolü'), findsOneWidget);
+    expect(find.text('ADMİN'), findsNothing);
+    final title = find.byKey(const ValueKey('studio-admin-title'));
     for (var i = 0; i < 5; i++) {
       await tester.tap(title);
       await tester.pump();
     }
+    await tester.pumpAndSettle();
+    expect(find.text('ADMİN'), findsOneWidget);
+    expect(find.text('Tür 1: Doktor Protokolü'), findsOneWidget);
+    expect(find.text('Tür 2: Video Stüdyosu'), findsOneWidget);
+    expect(find.byKey(const ValueKey('unmeasured-validation')), findsOneWidget);
+    await tester.ensureVisible(find.text('Tür 1: Doktor Protokolü'));
+    await tester.tap(find.text('Tür 1: Doktor Protokolü'));
+    await tester.pumpAndSettle();
+    expect(find.text('Doktor Klinik Protokolü'), findsOneWidget);
+    await tester.tap(find.text('Tür 2: Video Stüdyosu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Sentetik Video Stüdyosu'), findsOneWidget);
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(title);
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
     expect(find.text('ADMİN'), findsNothing);
     expect(find.text('Tür 1: Doktor Protokolü'), findsNothing);
-    expect(find.text('Tür 2: Video Stüdyosu'), findsNothing);
-    expect(find.text('Saniyelik Klip Dilimleme & Prompt Ayarları (Admin)'), findsNothing);
-    expect(find.byKey(const ValueKey('studio-technical-tests'), skipOffstage: false), findsNothing);
-
+    expect(find.text('Doktor Klinik Protokolü'), findsOneWidget);
+    expect(tester.state(find.byType(SyntheticVideoStudioScreen)), same(state));
+    expect(tester.widget<Text>(find.byKey(const ValueKey('studio-template-source'))).data,
+      contains('Hazır şablon; model çıkarımı yapılmadı'));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();

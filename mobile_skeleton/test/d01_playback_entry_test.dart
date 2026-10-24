@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neuro_awareness_app/models/scenario_clip_plan.dart';
 import 'package:neuro_awareness_app/models/scenario_graph.dart';
 import 'package:neuro_awareness_app/screens/clip_production_plan_screen.dart';
@@ -53,6 +54,7 @@ void main() {
   late PathProviderPlatform previousPaths;
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     harness = GraphPlaybackHarness(graph, plan);
     previousPaths = PathProviderPlatform.instance;
     PathProviderPlatform.instance = _NoDeviceDocuments();
@@ -95,9 +97,10 @@ void main() {
   testWidgets('Hazır D01 doğrudan açılır; Başlat öncesi video açılmaz ve ekip yolu gerekmez', (tester) async {
     final bundle = _D01Bundle(sources);
     await mount(tester, bundle);
-    final preparation = find.byKey(const ValueKey('studio-content-preparation'));
-    expect(find.descendant(of: preparation,
-      matching: find.byKey(const ValueKey('open-d01-playback'))), findsNothing);
+    final tools = find.byKey(const ValueKey('studio-tools-surface'));
+    expect(tester.widget<Material>(tools).color, Colors.white);
+    expect(find.descendant(of: tools,
+      matching: find.byKey(const ValueKey('open-d01-playback'))), findsOneWidget);
     expect(find.byKey(const ValueKey('open-scenario-graph')), findsOneWidget);
     await tap(tester, 'open-d01-playback');
     final screen = tester.widget<GraphPlaybackScreen>(find.byType(GraphPlaybackScreen));
@@ -132,9 +135,9 @@ void main() {
     await tester.tapAt(point); // İkinci gerçek dokunma; callback doğrudan çağrılmaz.
     await tester.pump();
     expect(bundle.reads, hasLength(2));
-    expect(tester.widget<FilledButton>(find.byKey(
+    expect(tester.widget<ListTile>(find.byKey(
       const ValueKey('open-d01-playback'), skipOffstage: false,
-    )).onPressed, isNull);
+    )).onTap, isNull);
     gate.complete();
     await tester.pumpAndSettle();
     expect(find.byType(GraphPlaybackScreen), findsOneWidget);

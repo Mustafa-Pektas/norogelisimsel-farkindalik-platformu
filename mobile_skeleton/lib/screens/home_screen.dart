@@ -98,11 +98,12 @@ class _HomeScreenState extends State<HomeScreen> {
               )
             : null,
         body: IndexedStack(
+          key: const ValueKey('home-tabs'),
           index: _currentTabIndex,
           children: [
             _buildDashboardTab(),
             _visitedTabs.contains(1)
-                ? const VideoAnalysisScreen()
+                ? VideoAnalysisScreen(tabVisibility: _videoTabVisibility)
                 : const SizedBox.shrink(),
             _visitedTabs.contains(2)
                 ? const SyntheticVideoStudioScreen()
@@ -274,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             icon: const Icon(Icons.local_hospital_outlined, color: Color(0xFF0F172A)),
             label: const Text(
-              'Yetkili Sağlık Merkezleri ve Kurumlar',
+              'Kurum bilgileri',
               style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold),
             ),
           ),
