@@ -1,0 +1,422 @@
+# Başka sunucuya taşıma ve yeniden kurulum rehberi
+
+Nörogelişimsel Farkındalık İçin Simülasyon Platformu  
+Tarih: 25 Ekim 2026 · Hedef temel: Ubuntu 24.04 LTS + Docker Compose
+
+Amaç: “Başka bir sunucuya geçmemiz gerektiğinde kurulumu tekrar yapabilmek için uyguladığımız adımları belgeleyerek ilerleyeceğiz” maddesini karşılayacak kurulum ve taşıma kaydını tutmak.
+
+Bu belge yeni sunucuda uygulanacak bir yönergedir. Mevcut sunucunun kurulumu kullanıcı terminal çıktılarıyla doğrulandı; başka sunucuda geri yükleme ve geçiş henüz denenmedi. Günlük SSH bağlantısı/güncelleme için ayrı `SUNUCU_ERISIM_VE_GUNCELLEME_REHBERI.md` dosyasını kullanın.
+
+## 1. Uyguladığımız mimari ve sınırları
+
+| Bileşen | Mevcut konum / durum |
+| --- | --- |
+| Mobil uygulama | Kullanıcının Android cihazı; APK dağıtımı hazırlanıyor |
+| Hazır D01/D02 videoları | Mobil uygulamanın paket içi asset'leri |
+| Node backend | Lunhost Ubuntu VDS üzerinde Docker container |
+| Model | Backend üzerinden Gemini API; VDS'te büyük LLM çalıştırılmıyor |
+| RAG kaynakları | Repodaki `backend/resources/Davranis_Kartlari_v02.md` |
+| Senaryo → graf dönüşümü | Mobil uygulamada yerel; sunucuya taşınmış sayılmaz |
+| Güncel üretim yolları | Senaryo üretimi, A/B/C karşılaştırması, klip planı |
+| Eski video analiz/yükleme yolları | Mevcut deployment modunda açık değil |
+| Ağ erişimi | Şimdilik doğrudan IP üzerinden HTTP/80 |
+| HTTPS / alan adı | Ertelendi; Caddy dosyaları hazır ama canlı HTTPS doğrulanmadı |
+
+Sunucu taşımak mobildeki yerel taslakları veya kullanıcı video eşlemelerini taşımaz. Bunlar gerekiyorsa uygulama tarafında ayrıca dışa aktarılmalıdır. İleride sunucuya veritabanı, yüklenen video veya dosya deposu eklenirse yedek listesine mutlaka eklenmelidir.
+
+## 2. Kanıtlanmış kurulum kaydı
+
+| Tarih | İşlem | Durum |
+| --- | --- | --- |
+| 25.10.2026 | Lunhost, 8 GB RAM, yaklaşık 60 GB disk, Ubuntu 24.04 | Kullanıcı tarafından kuruldu |
+| 25.10.2026 | APT güncellemesi ve gerekli reboot | Kernel `6.8.0-147-generic` ile doğrulandı |
+| 25.10.2026 | celil, mustafa, mertcan hesapları | Oluşturuldu; Mertcan SSH/sudo doğrulandı |
+| 25.10.2026 | UFW 22/tcp, 80/tcp, 443/tcp, 443/udp | Active çıktısı görüldü |
+| 25.10.2026 | Resmî APT deposundan Docker + Compose | Kurulum ve image build geçti |
+| 25.10.2026 | `/opt/norogelisim/app`, `entegrasyon` | Repo klonlandı |
+| 25.10.2026 | Loopback backend + SSH tüneli | Sunucu/Windows health ve ilk uzak senaryo üretimi geçti |
+| 25.10.2026 | Git sunucu eşitleme | `b4c1e4b` doğrulandı; arkadaşın yeni güncellemesi henüz burada uygulanmış sayılmaz |
+| 25.10.2026 | Doğrudan IP/HTTP erişimi | Windows'tan `http://31.77.69.171/health` online |
+| Bekliyor | Gerçek telefonda APK + yeni HTTP adresi | Henüz doğrulanmadı |
+| Bekliyor | Başka sunucuda yedekten geri yükleme | Henüz uygulanmadı |
+
+Yerel hazırlıkta kullanıcı 86 backend testi, temiz bağımlılık audit'i ve container içinden Caddy proxy smoke kontrolü bildirdi. Bu kayıtlar sonraki değişikliklerin otomatik olarak test edildiği anlamına gelmez.
+
+## 3. Taşımadan önce toplanacak bilgiler
+
+Yeni sağlayıcı, IP, işletim sistemi, disk/RAM, SSH portu ve konsol erişimini yazın. Eski sunucuyu yeni sunucu doğrulanmadan iptal etmeyin.
+
+**ESKİ SUNUCUDA:**
+
+```bash
+cd /opt/norogelisim/app
+git rev-parse HEAD
+git status --short
+uname -r
+cat /etc/os-release
+sudo docker --version
+sudo docker compose version
+sudo docker inspect --format '{{.Image}}' norogelisim-backend-1
+```
+
+Çıktıdaki commit'i taşıma kaydına yazın. Dağıtılacak commit'i seçerken sadece “en yeni” varsayımı yapmayın. Başarılı çalışan sürümü önce yeni sunucuda tekrar kurmak, ardından yeni özellikleri almak sorun ayrımını kolaylaştırır.
+
+### Saklanacaklar
+
+- GitHub'daki kaynak kod ve dağıtılan commit kimliği.
+- Sunucuya özel `.env`; gerçek anahtarları GitHub'a koymayın.
+- `compose.http.yaml` gibi henüz takip edilmeyen işletim dosyaları.
+- Dockerfile, Compose, Caddyfile ve kurulum notları.
+- Canlı container'a eklenmiş volume/mount listesi ve varsa içlerindeki kalıcı veri.
+- İleride HTTPS kullanılırsa Caddy data/config volume'ları ve sertifika hesap durumu.
+- Yeni sunucuya eklenecek kişilerin **açık SSH anahtarları**; özel anahtarlar kişilerin bilgisayarlarında kalır.
+
+**ESKİ SUNUCUDA mount listesi:**
+
+```bash
+sudo docker inspect --format '{{range .Mounts}}{{println .Type .Name .Source "->" .Destination}}{{end}}' norogelisim-backend-1
+```
+
+Burada bilinmeyen kalıcı veri görürseniz kopyalama planını tamamlamadan geçişi bitirmeyin. Mevcut backend container'ının geçici dosya sistemini yedek yerine kabul etmeyin.
+
+## 4. Sunucuya özel ayarları şifreli yedekleme
+
+Bu bölüm **önerilen, henüz uygulanmamış** yedek/geri yükleme yoludur. Veritabanı veya video deposu yedeği değildir. Git'e girmeyen çalışma ayarlarını korur.
+
+**ESKİ SUNUCUDA:**
+
+```bash
+sudo apt install -y gnupg
+```
+
+```bash
+(
+  set -e
+  set -o pipefail
+  umask 077
+  cd /opt/norogelisim/app/backend
+  backup_root="$HOME/norogelisim-backups"
+  mkdir -p "$backup_root"
+  chmod 700 "$backup_root"
+  stamp=$(date +%Y%m%d-%H%M%S)
+  note=$(mktemp)
+  trap 'rm -f "$note"' EXIT
+  git rev-parse HEAD > "$note"
+
+  files=(.env compose.yaml Dockerfile)
+  for file in compose.ssh.yaml compose.http.yaml Caddyfile; do
+    if [ -f "$file" ]; then files+=("$file"); fi
+  done
+
+  tar -czf - "${files[@]}" \
+    | gpg --symmetric --cipher-algo AES256 \
+      --output "$backup_root/backend-config-$stamp.tar.gz.gpg"
+  cp "$note" "$backup_root/backend-config-$stamp.commit.txt"
+  sha256sum "$backup_root/backend-config-$stamp.tar.gz.gpg"
+  echo "Yedek klasoru: $backup_root"
+)
+```
+
+GPG için güçlü bir yedek parolası belirleyin; bu parola dosyanın içine veya komuta yazılmaz. Yedek şifresini ayrı, güvenli bir yerde saklayın. İşlem başarısızsa oluşmuş dosyayı geçerli yedek saymayın.
+
+**WINDOWS POWERSHELL:** Yedek klasöründeki şifreli dosyayı ve commit kaydını alın. `GERCEK_DOSYA_ADI` yerlerini yukarıdaki dosya adlarıyla değiştirin:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\Documents\NorogelisimYedek" | Out-Null
+scp -i "$env:USERPROFILE\.ssh\norogelisim_mertcan" mertcan@31.77.69.171:/home/mertcan/norogelisim-backups/GERCEK_DOSYA_ADI.tar.gz.gpg "$env:USERPROFILE\Documents\NorogelisimYedek\"
+scp -i "$env:USERPROFILE\.ssh\norogelisim_mertcan" mertcan@31.77.69.171:/home/mertcan/norogelisim-backups/GERCEK_DOSYA_ADI.commit.txt "$env:USERPROFILE\Documents\NorogelisimYedek\"
+```
+
+Kaynak dosya adları `.tar.gz.gpg` ve `.commit.txt` için çıktıya göre ayrı seçilmelidir. Windows'ta `Get-FileHash -Algorithm SHA256 DOSYA_YOLU` ile şifreli dosyanın hash'ini karşılaştırın. Yedeğin tek kopyasını eski sunucuda bırakmayın.
+
+## 5. Yeni Ubuntu sunucuyu hazırlama
+
+Bu bölüm **yeni ve boş sunucu** içindir. Mevcut çalışan makinede tekrar kurulum amacıyla yürütmeyin. `YENI_IP` ve anahtar örnekleri gerçek bilgilerle değiştirilecektir.
+
+### 5.1 İlk root girişi ve güncellemeler
+
+**WINDOWS POWERSHELL:**
+
+```powershell
+ssh root@YENI_IP
+```
+
+Sunucunun parmak izini sağlayıcı konsolundan doğrulayın. Sonra **YENİ SUNUCUDA root olarak**:
+
+```bash
+apt update
+apt upgrade -y
+apt install -y ca-certificates curl git ufw openssh-server
+if [ -f /var/run/reboot-required ]; then cat /var/run/reboot-required; fi
+```
+
+Reboot gerekiyorsa `reboot` uygulayın; SSH kesilir. Makine açıldıktan sonra tekrar bağlanıp `uname -r` kontrolünü kaydedin. Doğrudan farklı Ubuntu ana sürümüne yükseltme bu rehberin kapsamı değildir.
+
+### 5.2 Kullanıcıları oluşturma
+
+**YENİ SUNUCUDA root olarak:**
+
+```bash
+adduser mertcan
+adduser celil
+adduser mustafa
+usermod -aG sudo mertcan
+groupadd -f norogelisim
+usermod -aG norogelisim mertcan
+usermod -aG norogelisim celil
+usermod -aG norogelisim mustafa
+install -d -m 700 -o mertcan -g mertcan /home/mertcan/.ssh
+nano /home/mertcan/.ssh/authorized_keys
+```
+
+Nano'ya Mertcan'ın kendi `.pub` dosyasının **tek satırlık açık anahtarını** yapıştırın. Ctrl+O, Enter ile kaydedin; Ctrl+X ile çıkın. Sonra:
+
+```bash
+chown mertcan:mertcan /home/mertcan/.ssh/authorized_keys
+chmod 600 /home/mertcan/.ssh/authorized_keys
+```
+
+Her arkadaşın açık anahtarı kendi hesabına eklenir. Herkese otomatik sudo veya Docker grubu vermeyin; dağıtımı yapacak kişiyi belirleyin.
+
+Windows'ta yeni bir pencerede test edin:
+
+```powershell
+ssh -o IdentitiesOnly=yes -i "$env:USERPROFILE\.ssh\norogelisim_mertcan" mertcan@YENI_IP
+```
+
+**YENİ SUNUCUDA mertcan olarak:**
+
+```bash
+whoami
+sudo whoami
+```
+
+Sonuçlar sırasıyla `mertcan` ve `root` olmalı. Bu doğrulanmadan mevcut yönetici oturumunu kapatmayın. Root/parola SSH erişimini kapatma bu rehberde otomatik yapılmaz; hesap erişimleri doğrulandıktan sonra ayrı bakım adımıdır.
+
+### 5.3 Firewall
+
+Gerçek SSH portu 22 ise **YENİ SUNUCUDA**:
+
+```bash
+sudo sshd -T | grep '^port '
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 443/udp
+sudo ufw enable
+sudo ufw status verbose
+```
+
+SSH farklı porttaysa önce o portu izinli yapın. Sağlayıcı panelindeki ayrı firewall kuralları varsa aynı portları orada da kontrol edin. Docker'ın yayımladığı portlar UFW kurallarını aşabildiğinden, backend 8000 portunu dışarı açmayın; mevcut yöntem 80 ve loopback 8000 kullanır.
+
+## 6. Docker ve Compose kurulumu
+
+**YENİ SUNUCUDA:**
+
+```bash
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+```
+
+```bash
+sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+```
+
+```bash
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker --version
+sudo docker compose version
+sudo docker run --rm hello-world
+```
+
+Bu adımlar boş Ubuntu kurulumu içindir. Eski Docker/containerd paketleri bulunan bir makinede önce resmî Docker kurulum belgesindeki çakışma kontrolünü yapın; çalışan başka servislerin paketlerini otomatik kaldırmayın. Bu komutlar o gün depodaki sürümü kurar; eski makinenin sürümünü birebir sabitlemez. Kurulan sürümleri taşıma kaydına yazın.
+
+## 7. Repo ve sürüm seçimi
+
+**YENİ SUNUCUDA mertcan olarak:**
+
+```bash
+sudo install -d -m 2775 -o mertcan -g norogelisim /opt/norogelisim
+(
+  umask 0002
+  git clone --branch entegrasyon --single-branch \
+    https://github.com/Mustafa-Pektas/norogelisimsel-farkindalik-platformu.git \
+    /opt/norogelisim/app
+)
+cd /opt/norogelisim/app
+git branch --show-current
+git log -1 --oneline
+git status --short
+```
+
+Seçilen commit eski sunucudakinden farklıysa farkı bilinçli onaylayın. Birebir taşıma için commit kaydı esas alınır; klonlanan dal daha ileride olabilir. Eski commit özel olarak dağıtılacaksa ayrı bir worktree/sürüm klasörüyle planlayın; rutin güncelleme bloğu dalın `entegrasyon` olmasını bekler.
+
+## 8. .env ve sunucuya özel dosyaları hazırlama
+
+### Seçenek A: Yeni ayarları örnekten oluşturma
+
+**YENİ SUNUCUDA:**
+
+```bash
+cd /opt/norogelisim/app/backend
+(umask 077; cp .env.example .env)
+chmod 600 .env
+nano .env
+```
+
+Gerçek API anahtarını ve ekip erişim anahtarını yalnız sunucuda girin. İsimleri `.env.example` ve seçilen commit'in README'sinden alın. Mevcut projede özellikle `BACKEND_MODE=deployment`, `TEAM_ACCESS_KEY`, `SCENARIO_INPUT_MODEL` ve `GENERATION_MAX_CONCURRENT` önemlidir. Daha önce kullanılan model `gemini-3.5-flash-lite` idi; yeni commit ve API hesabıyla uyumluluğunu kontrol edin. Gemini anahtarının ortam değişkeni adını tahmin etmeyin; örnek dosyadaki adı kullanın.
+
+Yeni rastgele ekip anahtarı gerektiğinde:
+
+```bash
+openssl rand -hex 32
+```
+
+Bu çıktıyı `.env` içindeki ilgili alana girin; paylaşılacak terminal kaydına eklemeyin. Anahtar değişirse uygulama kullanan ekip üyeleri de yeni anahtarı girmelidir.
+
+### Seçenek B: Şifreli yedekten ayar geri yükleme
+
+Windows'taki şifreli dosyayı `scp` ile yeni kullanıcının ev dizinine gönderin. **YENİ SUNUCUDA**, kendi oluşturduğunuz yedeği özel geçici dizine açın:
+
+```bash
+(
+  set -e
+  set -o pipefail
+  umask 077
+  restore_dir=$(mktemp -d "$HOME/norogelisim-restore.XXXXXX")
+  gpg --decrypt "$HOME/GERCEK_DOSYA_ADI.tar.gz.gpg" \
+    | tar -xzf - -C "$restore_dir"
+  echo "Geri yukleme inceleme dizini: $restore_dir"
+)
+```
+
+`gnupg` yoksa önce `sudo apt install -y gnupg` kurun. Yedeği doğrudan yeni repo üzerine açmayın. Yeni commit'in Compose/ortam gereksinimleriyle karşılaştırdıktan sonra `.env` dosyasını backend klasörüne kopyalayın ve `chmod 600 .env` uygulayın. Eski Compose dosyalarını güncel takip edilen dosyaların üzerine körlemesine yazmayın. Geçici geri yükleme dizini sır içerir; işlem sonunda yalnız bu dizini temizleyin.
+
+## 9. Mevcut HTTP erişimini yeniden oluşturma
+
+Bu bölüm şimdiki IP/HTTP yöntemini tekrarlar. HTTPS'e geçildiyse bunu uygulamak yerine Caddy bölümündeki yeni yöntemi kullanın.
+
+Repo sürümünde `compose.ssh.yaml` yoksa aşağıdaki loopback override'ını oluşturun; varsa içeriğini kontrol edip koruyun:
+
+```yaml
+services:
+  backend:
+    ports:
+      - "127.0.0.1:8000:8000"
+```
+
+`backend/compose.http.yaml` yoksa **YENİ SUNUCUDA backend klasöründe** oluşturun:
+
+```bash
+cat > compose.http.yaml <<'EOF'
+services:
+  backend:
+    ports:
+      - "80:8000"
+EOF
+```
+
+8000 yalnız sunucu içinden/SSH tünelinden, 80 doğrudan telefonlardan erişim sağlar. Caddy bu yöntemde başlatılmaz. `compose.http.yaml` henüz Git'e kaydedilmemiş olabilir; bu yüzden dosya hem yedek listesinde hem bu belgede yer alır.
+
+**YENİ SUNUCUDA:**
+
+```bash
+(
+  set -e
+  cd /opt/norogelisim/app/backend
+  sudo env PUBLIC_DOMAIN=api.example.invalid docker compose \
+    -f compose.yaml -f compose.ssh.yaml -f compose.http.yaml config --quiet
+  sudo docker build --pull -t norogelisim-backend:local .
+  sudo env PUBLIC_DOMAIN=api.example.invalid docker compose \
+    -f compose.yaml -f compose.ssh.yaml -f compose.http.yaml \
+    up -d --no-build --wait --wait-timeout 60 backend
+  curl --fail --silent --show-error http://127.0.0.1/health
+  echo
+)
+```
+
+`api.example.invalid` gerçek DNS adresi değildir; bu çalıştırmada seçilmeyen Caddy servisinin zorunlu alanını ayrıştırmak için kullanılır. Eski sunucuya ait `.env` değerini de çıktılamadan korur.
+
+## 10. Yeni sunucuda kabul testleri
+
+**WINDOWS POWERSHELL:**
+
+```powershell
+Invoke-RestMethod 'http://YENI_IP/health'
+```
+
+Kontrol listesi:
+
+- [ ] Container `healthy`; yerel ve dış health `online`.
+- [ ] Dışarı açılan portlar beklenenler; 8000 yalnız loopback'te.
+- [ ] Anahtarsız üretim isteği 401; eski kapalı yollar 404. Test scripti varsa o commit'e uygun kullanın.
+- [ ] Uygulamada sunucu adresi `http://YENI_IP` olarak değiştirildi.
+- [ ] Ekip anahtarı geçerli; APK içine gömülmedi.
+- [ ] Bir bilinçli senaryo üretimi başarılı; bu gerçek API kotası tüketir.
+- [ ] Değişen özellik/JSON sözleşmesi mobil uygulamayla uyumlu.
+- [ ] Telefonun mobil internetinden, bilgisayar ve SSH tüneli kapalıyken erişim denendi.
+- [ ] Yapılandırılan kalıcı veriler gerçekten geri yüklendi; hash/kayıt doğrulaması yapıldı.
+- [ ] Planlı yeniden başlatmadan sonra Docker ve backend geri geldi; dış health tekrar geçti.
+- [ ] Günlükler, sürüm ve test sonuçları taşıma kaydına eklendi.
+
+Gömülü D01/D02 videolarını yeni sunucuya ayrıca yüklemek gerekmez; APK içindedir. Ancak APK'daki IP'ye özel Android HTTP istisnası eski IP ile sınırlıysa yeni IP için ağ yapılandırması ve yeni APK gerekir. Yalnız uygulama ayarındaki URL'yi değiştirmek her durumda yeterli olmayabilir.
+
+## 11. Geçiş ve geri dönüş
+
+1. Yeni sunucuyu eski sunucudan bağımsız kurun; eski servisi çalışır bırakın.
+2. Aynı çalışır commit ve gerekli ayarlarla kabul testlerini tamamlayın.
+3. Ekiple geçiş saatini belirleyin. Sunucuda yeni kalıcı yazmalar varsa son eşitleme penceresini planlayın.
+4. Uygulamadaki adresi/uygun APK'yı yeni sunucuya yönlendirin.
+5. Bir sorun varsa eski adres ve eski uyumlu APK/ayarlarla eski sunucuya dönün.
+6. Eski sunucuyu ancak kabul ve yedek doğrulamasından sonra kapatın/iptal edin.
+
+IP yöntemiyle taşımada istemcide adres değişir. Gelecekte sabit bir alan adı kullanılırsa DNS kaydı yeni IP'ye taşınabilir; DNS yayılımı ve HTTPS sertifikası ayrıca kontrol edilir.
+
+## 12. Daha sonra HTTPS'e geçiş
+
+Mevcut `compose.yaml` ve `Caddyfile` bunun için hazırlandı. Genel sıra: alan adını doğru IP'ye yönlendir → `PUBLIC_DOMAIN` ayarla → HTTP/80 doğrudan backend yayınıyla Caddy'nin 80 portu çakışmasını kaldır → base Compose ile backend ve Caddy'yi başlat → dışarıdan HTTPS/sertifika doğrula → mobil URL'yi değiştir.
+
+**HTTP overlay ile Caddy'yi aynı anda 80 portuna bağlamayın.** Yeni HTTPS komutlarını uygulamadan önce mevcut Compose portlarını kontrol edin. Caddy'nin `/data` ve `/config` volume'larını kalıcı tutun; veri kaybettiren `down --volumes` işlemini rutin güncelleme olarak kullanmayın.
+
+Bu bölümün canlı uygulaması henüz yapılmadı; ayrı kontrollü değişiklik olarak belgelenmelidir.
+
+## 13. GitHub'da belgeyi sürdürme
+
+Önerilen dosya yolu: `backend/SUNUCU_TASIMA_VE_YENIDEN_KURULUM_REHBERI.md`. Günlük erişim rehberiyle beraber mevcut `backend/SUNUCU_KURULUM.md` ve `backend/README.md` içinden bağlantı verin. Bu hazırlanmış dosya henüz sizin Git çalışma ağacınıza eklenmedi.
+
+Her değişiklikte şu kaydı güncelleyin:
+
+```text
+Tarih / işlemi yapan:
+Sağlayıcı / sunucu / OS:
+Önceki ve yeni IP:
+Dağıtılan Git commit:
+Docker ve Compose sürümleri:
+Yedek dosyası / şifrelenmiş dosya SHA256:
+Kalıcı veri ve volume listesi:
+Uygulanan komutlar / sapmalar:
+Başarılı kontroller:
+Başarısız denemeler ve nedenleri:
+Henüz doğrulanmayanlar:
+Geçiş kararı / geri dönüş adresi:
+```
+
+Parola, API anahtarı, TEAM_ACCESS_KEY, DuckDNS token'ı, özel SSH anahtarı veya çözülmüş `.env` dosyasını bu kayda eklemeyin.
+
+## Resmî kaynaklar
+
+- [Docker Engine: Ubuntu kurulumu](https://docs.docker.com/engine/install/ubuntu/): resmî APT deposu ve paketler; Docker/UFW etkileşimi.
+- [Docker Compose up](https://docs.docker.com/reference/cli/docker/compose/up/): container yenileme ve health bekleme.
+- [Ubuntu OpenSSH](https://ubuntu.com/server/docs/how-to/security/openssh-server/): hesap ve anahtarlı erişim temeli.
+- [Caddy Automatic HTTPS](https://caddyserver.com/docs/automatic-https): gelecekte DNS, port ve sertifika otomasyonu.
+- Projeye özgü mevcut kurulum bilgileri: 25 Ekim 2026 tarihli kullanıcı terminal çıktıları; yeni sunucuda taşıma/geri yükleme henüz doğrulanmış değildir.
