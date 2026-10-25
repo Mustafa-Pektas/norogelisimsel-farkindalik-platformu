@@ -24,10 +24,12 @@ class _NoDeviceDocuments extends PathProviderPlatform {
 }
 
 class _D01Bundle extends CachingAssetBundle {
-  _D01Bundle(this.sources, {this.gate});
+  _D01Bundle(this.sources, {this.gate, this.videoAssets = const {}});
   final Map<String, String> sources;
   final Completer<void>? gate;
+  final Set<String> videoAssets;
   final reads = <String>[];
+  final videoAssetReads = <String>[];
 
   @override
   Future<String> loadString(String key, {bool cache = true}) async {
@@ -39,7 +41,12 @@ class _D01Bundle extends CachingAssetBundle {
   }
 
   @override
-  Future<ByteData> load(String key) => throw UnimplementedError();
+  Future<ByteData> load(String key) async {
+    videoAssetReads.add(key);
+    if (!videoAssets.contains(key)) throw StateError('TEST: bundled video asset missing');
+    final bytes = Uint8List.fromList([1, 2, 3, 4]);
+    return ByteData.view(bytes.buffer);
+  }
 }
 
 void main() {
@@ -85,12 +92,17 @@ void main() {
     }
   }
 
-  Future<void> close(WidgetTester tester) async {
+  Future<void> close(WidgetTester tester, {
+    int expectedStoreMutations = 0,
+    int maximumAllowedLivePlayers = 1,
+  }) async {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
     expect(harness.live, 0);
-    expect(harness.maximumLive, lessThanOrEqualTo(1));
-    expect(harness.store.mutations, 0);
+    expect(harness.maximumLive, lessThanOrEqualTo(maximumAllowedLivePlayers));
+    expect(harness.playing, 0);
+    expect(harness.maximumPlaying, lessThanOrEqualTo(1));
+    expect(harness.store.mutations, expectedStoreMutations);
     expect(tester.takeException(), isNull);
   }
 
@@ -123,6 +135,177 @@ void main() {
     expect(harness.players.single.closed, isTrue);
     await close(tester);
   });
+
+  testWidgets('Yeni D01/D02 graf, plan ve video dosyaları paket asset listesinde bulunur; kurmaca yaş 36 aydır', (tester) async {
+    for (final example in [d01NameTurningExample, d02PointingDirectionExample]) {
+      final graphJson = await rootBundle.loadString(example.graphAssetPath);
+      final planJson = await rootBundle.loadString(example.planAssetPath);
+      final exampleGraph = ScenarioGraph.fromJsonString(graphJson);
+      final examplePlan = ScenarioClipPlan.fromJsonString(planJson);
+      examplePlan.validateAgainst(exampleGraph);
+      expect(exampleGraph.ageMonths, 36);
+      expect(exampleGraph.authoringNote, contains('36 ay'));
+      expect(exampleGraph.authoringNote, contains('kaynak videodan yaş doğrulanmamıştır'));
+      expect(examplePlan.authoringNote, contains('36 ay'));
+      expect(examplePlan.authoringNote, contains('kaynak videodan yaş doğrulanmamıştır'));
+      for (final assetPath in example.videoAssetsByClipId.values) {
+        final asset = await rootBundle.load(assetPath);
+        expect(asset.lengthInBytes, greaterThan(0), reason: assetPath);
+      }
+    }
+  });
+
+  void addBundledExampleTest({
+    required BundledGraphPlaybackExample example,
+    required String entryKey,
+    required String branchLabel,
+    required int choiceIndex,
+    required String firstClipId,
+    required String secondClipId,
+  }) {
+    testWidgets('${example.id}: paket videoları mevcut dallı oynatıcı ve seçilmiş yol tekrarıyla kullanılır', (tester) async {
+      final graphSource = File(example.graphAssetPath).readAsStringSync();
+      final planSource = File(example.planAssetPath).readAsStringSync();
+      final exampleGraph = ScenarioGraph.fromJsonString(graphSource);
+      final examplePlan = ScenarioClipPlan.fromJsonString(planSource);
+      examplePlan.validateAgainst(exampleGraph);
+      harness = GraphPlaybackHarness(exampleGraph, examplePlan);
+      harness.store.bindings.clear(); // İlk kullanım: asset eşlemeleri henüz yok.
+      final bundle = _D01Bundle(
+        {
+          ...sources,
+          example.graphAssetPath: graphSource,
+          example.planAssetPath: planSource,
+        },
+        videoAssets: example.videoAssetsByClipId.values.toSet(),
+      );
+      await mount(tester, bundle);
+      expect(find.byKey(ValueKey(entryKey)), findsOneWidget);
+      await tap(tester, entryKey);
+
+      final screen = tester.widget<GraphPlaybackScreen>(find.byType(GraphPlaybackScreen));
+      expect(screen.graph.scenarioId, exampleGraph.scenarioId);
+      expect(screen.plan.planId, examplePlan.planId);
+      expect(screen.videoStore, same(harness.store));
+      expect(screen.title, example.title);
+      expect(screen.notice, example.notice);
+      expect(bundle.reads, [example.graphAssetPath, example.planAssetPath]);
+      expect(bundle.videoAssetReads, example.videoAssetsByClipId.values.toList());
+      expect(harness.store.bundledAssetCopies.keys.toSet(),
+          examplePlan.clips.map((clip) => clip.id).toSet());
+      expect(harness.store.mutations, examplePlan.clips.length);
+      expect(harness.players, isEmpty); // Eşleme sırasında/ekran açılışında video player açılmaz.
+
+      await tap(tester, 'graph-playback-start');
+      expect(find.textContaining(exampleGraph.startSceneId), findsOneWidget);
+      expect(harness.players, hasLength(1));
+      expect(harness.players.single.playing, isTrue);
+      harness.players.single.finish();
+      await tester.pumpAndSettle();
+      expect(find.text('Bir devam seçin:'), findsOneWidget);
+      expect(find.text(branchLabel), findsOneWidget);
+
+      await tap(tester, 'graph-playback-choice:$choiceIndex');
+      await tester.pumpAndSettle();
+      expect(find.textContaining(firstClipId), findsOneWidget);
+      // Son yaratılan player bir sonraki klibin sessiz hazırlığı olabilir.
+      final selectedFirstPlayer = harness.latestPlayerForClip(firstClipId);
+      expect(selectedFirstPlayer.playing, isTrue);
+      selectedFirstPlayer.finish();
+      await tester.pumpAndSettle();
+      expect(find.textContaining(secondClipId), findsOneWidget);
+      expect(find.text('Bir devam seçin:'), findsNothing); // Dalın ikinci klibi otomatik gelir.
+      harness.latestPlayerForClip(secondClipId).finish();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('graph-playback-completed')), findsOneWidget);
+      expect(find.byKey(const ValueKey('graph-playback-replay-path')), findsOneWidget);
+
+      await tap(tester, 'graph-playback-replay-path');
+      await tester.pumpAndSettle();
+      expect(find.textContaining(exampleGraph.startSceneId), findsOneWidget);
+      final replayStartPlayer = harness.latestPlayerForClip(examplePlan.clipsForScene(exampleGraph.startSceneId).single.id);
+      expect(replayStartPlayer.playing, isTrue);
+      replayStartPlayer.finish();
+      await tester.pumpAndSettle();
+      expect(find.text('Bir devam seçin:'), findsNothing); // Tekrar aynı dalı otomatik izler.
+      expect(find.textContaining(firstClipId), findsOneWidget);
+      final replayFirstPlayer = harness.latestPlayerForClip(firstClipId);
+      expect(replayFirstPlayer.playing, isTrue);
+      replayFirstPlayer.finish();
+      await tester.pumpAndSettle();
+      expect(find.textContaining(secondClipId), findsOneWidget);
+      final replaySecondPlayer = harness.latestPlayerForClip(secondClipId);
+      expect(replaySecondPlayer.playing, isTrue);
+      replaySecondPlayer.finish();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('graph-playback-completed')), findsOneWidget);
+      expect(harness.players.length, 6);
+      expect(harness.store.mutations, examplePlan.clips.length);
+      expect(harness.maximumLive, lessThanOrEqualTo(2));
+      expect(harness.maximumPlaying, lessThanOrEqualTo(1));
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      final loadedAssetCount = bundle.videoAssetReads.length;
+      await tap(tester, entryKey);
+      expect(bundle.videoAssetReads, hasLength(loadedAssetCount));
+      expect(harness.store.mutations, examplePlan.clips.length);
+      expect(harness.players, hasLength(6));
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await close(
+        tester,
+        expectedStoreMutations: examplePlan.clips.length,
+        maximumAllowedLivePlayers: 2,
+      );
+    });
+  }
+
+  addBundledExampleTest(
+    example: d01NameTurningExample,
+    entryKey: 'open-d01-name-turning-playback',
+    branchLabel: 'Oyuna devam',
+    choiceIndex: 1,
+    firstClipId: 'd01_name_play_1',
+    secondClipId: 'd01_name_play_2',
+  );
+  addBundledExampleTest(
+    example: d02PointingDirectionExample,
+    entryKey: 'open-d02-pointing-playback',
+    branchLabel: 'Raf yönüne dönme',
+    choiceIndex: 0,
+    firstClipId: 'd02_point_shelf_1',
+    secondClipId: 'd02_point_shelf_2',
+  );
+
+  for (final example in [d01NameTurningExample, d02PointingDirectionExample]) {
+    testWidgets('${example.id}: geri çıkış sırasında geç asset cevabı oynatıcı açmaz', (tester) async {
+      final graphSource = File(example.graphAssetPath).readAsStringSync();
+      final planSource = File(example.planAssetPath).readAsStringSync();
+      final exampleGraph = ScenarioGraph.fromJsonString(graphSource);
+      final examplePlan = ScenarioClipPlan.fromJsonString(planSource);
+      harness = GraphPlaybackHarness(exampleGraph, examplePlan);
+      harness.store.bindings.clear();
+      final gate = Completer<void>();
+      final bundle = _D01Bundle({
+        ...sources,
+        example.graphAssetPath: graphSource,
+        example.planAssetPath: planSource,
+      }, gate: gate, videoAssets: example.videoAssetsByClipId.values.toSet());
+      await mount(tester, bundle);
+      await tap(tester, example.id == d01NameTurningExample.id
+          ? 'open-d01-name-turning-playback' : 'open-d02-pointing-playback', settle: false);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byType(BackButton));
+      await tester.pump();
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(GraphPlaybackScreen), findsNothing);
+      expect(harness.players, isEmpty);
+      expect(bundle.videoAssetReads, isEmpty);
+      expect(harness.store.mutations, 0);
+      await close(tester);
+    });
+  }
 
   testWidgets('Hızlı iki dokunma tek yükleme/ekran açar; tek geri Stüdyoya döner', (tester) async {
     final gate = Completer<void>();

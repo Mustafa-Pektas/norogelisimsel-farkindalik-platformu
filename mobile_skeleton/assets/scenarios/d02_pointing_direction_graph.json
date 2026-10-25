@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "1.0",
+  "scenarioId": "d02-pointing-direction-video-example-20261024",
+  "title": "D02 — İşaret yönü (kısa sentetik örnek)",
+  "language": "tr",
+  "ageMonths": 36,
+  "behaviorId": "D02",
+  "cardVersion": "0.2",
+  "startSceneId": "d02_point_common",
+  "scenes": [
+    { "id": "d02_point_common", "title": "Ortak başlangıç", "summary": "Başlangıç klibi", "description": "İnsan incelemesiyle hazırlanmış bu örneğin ortak başlangıç klibi. Video içeriği ve davranış sonucu otomatik olarak doğrulanmamıştır." },
+    { "id": "d02_point_shelf_1", "title": "Raf yönüne dönme · 1", "summary": "İlk devam klibi", "description": "‘Raf yönüne dönme’ olarak adlandırılan seçeneğin ilk kayıtlı devam klibi. Doğru nesneye bakışın gerçekleştiği doğrulanmamıştır." },
+    { "id": "d02_point_shelf_2", "title": "Raf yönüne dönme · 2", "summary": "İkinci devam klibi", "description": "Aynı seçeneğin ikinci kayıtlı devam klibi. Doğru nesneye bakış, klipler arası süreklilik ve gözlem süresi doğrulanmamıştır." },
+    { "id": "d02_point_table_1", "title": "Masaya bakmayı sürdürme · 1", "summary": "İlk devam klibi", "description": "‘Masaya bakmayı sürdürme’ olarak adlandırılan seçeneğin ilk kayıtlı devam klibi. Başlık dalı tanımlar; videoda davranışın doğrulandığı anlamına gelmez." },
+    { "id": "d02_point_table_2", "title": "Masaya bakmayı sürdürme · 2", "summary": "İkinci devam klibi", "description": "Aynı seçeneğin ikinci kayıtlı devam klibi. Video içeriği, klipler arası süreklilik ve gözlem süresi ayrıca doğrulanmamıştır." }
+  ],
+  "transitions": [
+    { "fromSceneId": "d02_point_common", "toSceneId": "d02_point_shelf_1", "label": "Raf yönüne dönme", "description": "İnsan incelemesiyle adlandırılmış kısa sentetik oynatma alternatifi. Doğru nesneye bakış doğrulanmamıştır; otomatik analiz sonucu değildir." },
+    { "fromSceneId": "d02_point_shelf_1", "toSceneId": "d02_point_shelf_2", "label": "Devam", "description": "Seçilen dalın ikinci klibine otomatik geçiş." },
+    { "fromSceneId": "d02_point_common", "toSceneId": "d02_point_table_1", "label": "Masaya bakmayı sürdürme", "description": "İnsan incelemesiyle adlandırılmış kısa sentetik oynatma alternatifi. Otomatik davranış sonucu değildir." },
+    { "fromSceneId": "d02_point_table_1", "toSceneId": "d02_point_table_2", "label": "Devam", "description": "Seçilen dalın ikinci klibine otomatik geçiş." }
+  ],
+  "endSceneIds": ["d02_point_shelf_2", "d02_point_table_2"],
+  "authoringNote": "İnsan incelemesiyle hazırlanmış kısa sentetik oynatma örneğidir; otomatik analiz sonucu değildir. 36 ay kurmaca senaryo karakterinin örnek graf metadata değeridir; kaynak videodan yaş doğrulanmamıştır. ‘Raf yönüne dönme’ doğru nesneye bakışın doğrulandığı anlamına gelmez. Klip içeriği, süreklilik ve gözlem süresi doğrulanmamıştır; tanı, risk veya puanlama içermez."
+}

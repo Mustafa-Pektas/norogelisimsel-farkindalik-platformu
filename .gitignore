@@ -37,6 +37,8 @@ ENV/
 
 # Media & Temp files
 *.mp4
+!mobile_skeleton/assets/videos/d01_name_turning/*.mp4
+!mobile_skeleton/assets/videos/d02_pointing_direction/*.mp4
 *.avi
 *.mov
 temp/

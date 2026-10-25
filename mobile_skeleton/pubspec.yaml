@@ -67,8 +67,14 @@ flutter:
     - assets/scenarios/d01_scenario_graph.json
     - assets/scenarios/d01_scenario_input.json
     - assets/scenarios/d01_clip_plan.json
+    - assets/scenarios/d01_name_turning_graph.json
+    - assets/scenarios/d01_name_turning_clip_plan.json
+    - assets/scenarios/d02_pointing_direction_graph.json
+    - assets/scenarios/d02_pointing_direction_clip_plan.json
     - assets/evaluations/d01_qwen_v1.json
     - assets/videos/
+    - assets/videos/d01_name_turning/
+    - assets/videos/d02_pointing_direction/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

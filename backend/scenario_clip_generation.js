@@ -168,8 +168,10 @@ birbirini dışlayan dalların sürelerini toplayarak pencereyi doldurmuş sayma
 Pencere tek klibe sığmıyorsa aynı yolun devam kliplerini kullan; devam kliplerinde çağrı tekrarlanmaz.
 Çağrı bitişini tam son kareye zorla yerleştirme; doğal çağrı için pay bırak. Hedef süreler ve ses zamanı
 plan önerileridir; gerçek zamanlar ve süreklilik üretilen videoda ölçülüp doğrulanmalıdır.
-Yönelme erken gerçekleşse de gözlem fırsatını planla; pencere boyunca göz teması veya başka ek hareketi
-zorunlu tutma. 'Hızla' gibi yargılarla tepki başarısı veya norm çıkarma.
+Yönelme erken gerçekleşse de gözlem fırsatını planla; temel yönelme baş/bakış yönünün çağıran kişiye dönmesidir,
+göz teması veya tüm bedenin dönmesi gerekmez. Sesli/sözel yanıt varsa bunu yönelmeden ayrı olay olarak belirt;
+biri diğerinin yerine geçmesin. Pencere boyunca ek hareket zorunlu tutma. 'Hızla' gibi yargılarla tepki başarısı
+veya norm çıkarma.
 Grafın sahne sınırı çağrı ile yanıt arasına kesme gerektiriyorsa çağrıyı yeniden ekleyerek bunu gizleme.
 Bu sınırı authoringNote içinde belirt: kesintisiz D01 denemesi ve zaman kanıtı henüz doğrulanmadı.
 ` : '';
@@ -182,14 +184,16 @@ Her klip 0 < targetDurationS <= ${input.request.production?.maxClipDurationS || 
 Graf sahnelerinin behaviorIds ilişkilerini sceneId üzerinden kliplere taşı; hiçbir seçilen kartı atlama.
 schemaVersion 1.0; planId ve scenarioId istektekilerle aynı. Klip kimlikleri benzersiz olsun.
 Yaş, isim/karakter, ortam ve olaylar verilen istek ve graf metninden gelsin; istenmedikçe sabit yaş veya 26 sahne kullanma.
-Belirtilmemiş kıyafet, ışık, görünüm ve nesne ayrıntılarını visualSuggestions alanında açıkça
-'Üretilmiş görsel öneri' olarak belirt; continuityNotes ve her productionPrompt bunlarla tutarlı olsun.
-Bağlı sahnelerin başlangıç/bitiş durumu ve karakter/nesne/ortam sürekliliğini koru.
+Kaynakta bulunmayan görsel ayrıntıları visualSuggestions alanında 'Üretilmiş görsel öneri' olarak açıkça belirt;
+continuityNotes ve ilgili klip alanlarında aynı öneriyi tutarlı taşı, doğrulanmış istek bilgisi gibi sunma.
+Kaynakta verilen yetişkin konumu/duruşu, ortam ve kamera koşullarını ilgili kliplerin plannedAction,
+initialState, finalState, productionPrompt ve continuityNotes alanlarında tutarlı taşı; voiceoverInstructions
+yalnız seslendirme/ses olaylarını tarif etsin ve bu koşullarla çelişmesin. Bağlı sahnelerin başlangıç/bitiş
+durumu ve karakter/nesne/ortam sürekliliğini koru.
 Kamera sürekliliği: İstek, ek yönerge veya graf sabit kamera açısı/kadrajı açıkça belirtiyorsa ilgili kliplerde aynı açı ve kadrajı koru; gerekçesiz yakın plan, zoom veya yeniden kadraj ekleme. Sabit açı/kadraj belirtilmemişse bunu kullanıcı tercihi gibi varsayma.
 Her klip dış araçta bağımsız üretilir: productionPrompt kendi başına anlaşılır olsun; yalnız 'öncekiyle aynı'
 demekle yetinme. Her promptta aynı karakter görünümü/yaşı, kıyafet, oyuncak, yetişkinin konumu,
 ortam yerleşimi ve kamera/kadraj özelliklerini tutarlı biçimde taşı. İstekte verilmiş özellikleri değiştirme.
-Eksik görsel özellik önerilerini visualSuggestions içinde açıkça etiketle; bunlar doğrulanmış istek bilgisi değildir.
 plannedAction, initialState, finalState ve voiceoverInstructions aynı olay sırası ve durumlarla uyumlu olsun;
 önceki klibin bitişini sonraki klibin başlangıcına taşı, yapılmış eylemi yeniden başlatma.
 Seslendirme ve söylenecek sözleri yalnız ayrı voiceoverInstructions alanında planla;

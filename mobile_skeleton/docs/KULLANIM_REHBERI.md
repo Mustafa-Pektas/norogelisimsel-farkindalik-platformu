@@ -50,6 +50,24 @@ Senaryo/prompt hazırlama ve model karşılaştırması proje ekibinin araçlar�
 | Sunucu/oturum ayarı | Adres ve geçici ekip erişimi. | Sunucu motorundaki ayarı kullanın; gerekiyorsa ekip anahtarını girin, iş bitince temizleyin. | Adresin bulunması model erişiminin kanıtı değildir. Anahtar yalnız bellekte tutulur; internette gerçek anahtar için HTTPS gerekir. |
 | Kurum bilgi listesi | Mevcut kurum/bağlantı bilgilerine bakma. | Bilgiyi inceleyip mevcut bağlantının hedefini kontrol edin. | Klinik onay, yetkilendirme veya en iyi kurum sıralaması değildir; güncellik ayrıca doğrulanmalıdır. |
 
+## Yeni kısa videolu örnekler
+
+Menü yolu: **Simülasyon ve Eğitim → Stüdyo → Hazır örnekler ve diğer araçlar**. Eski **Hazır D01 örneği: videolu dallı oynatma** girişi korunmuştur. Yanındaki **D01 örneği: İsme yönelme** ve **D02 örneği: İşaret yönü** girişleri aynı graf tabanlı oynatıcıyı açar. Video ilk kez kullanılırken paket içindeki dosyalar uygulamanın mevcut yerel video deposuna kopyalanır; kaynak dosyalar değiştirilmez. Var olan eşlemeler kullanılır, eksik kayıtlı kopya sessizce başka videoyla değiştirilmez.
+
+Yeni D01/D02 graf örneklerindeki `ageMonths: 36`, kurmaca karakter için hazırlanmış graf metadata değeridir; videodan yaş doğrulanmamıştır. D01’de baş/bakış yönelmesi göz temasından ve tüm bedenin dönmesinden ayrıdır; varsa sesli yanıt da ayrı olay olarak ele alınır.
+
+| Örnek / yol | Klip sırası (dosya adındaki zaman damgası) |
+|---|---|
+| D01 ortak başlangıç | `20261024200425.mp4` |
+| D01 — Anne yönüne dönme | `20261024200833.mp4` → `20261024204922.mp4` |
+| D01 — Oyuna devam | `20261024201633.mp4` → `20261024202154.mp4` |
+| D01 — Başka yöne dönme | `20261024202847.mp4` → `20261024203806.mp4` |
+| D02 ortak başlangıç | `20261024214654.mp4` |
+| D02 — Raf yönüne dönme | `20261024220131.mp4` → `20261024225140.mp4` |
+| D02 — Masaya bakmayı sürdürme | `20261024222918.mp4` → `20261024224133.mp4` |
+
+Başlat’a dokununca ortak klip oynar. Gerçek video bitişinden sonra bir alternatif seçilir; o dalın iki klibi sırayla oynar ve ikinci klipten sonra tekrar seçim istenmez. Yol tamamlanınca **Seçtiğim yolu tekrar oynat** aynı başlangıç ve seçilmiş dalı kullanır. Dosya adına göre sıra/olay çıkarılmaz; yukarıdaki eşleme ve graf verisi kullanılır. Bunlar insan incelemesiyle hazırlanmış kısa sentetik oynatma örnekleridir, otomatik analiz sonucu değildir ve 2–3 dakikalık tamamlanmış senaryo değildir. Kesin tepki zamanı, tam gözlem penceresi veya klipler arası içerik/süreklilik doğrulanmış değildir. D02’de **Raf yönüne dönme**, doğru nesneye bakışın doğrulandığı anlamına gelmez.
+
 ## A/B/C kaynakları ve sonuçları
 
 - **A:** Ek kart metni yoktur; ortak görev ve güvenlik talimatları ile seçili davranış adları korunur.

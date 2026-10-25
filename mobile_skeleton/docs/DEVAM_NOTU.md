@@ -4,6 +4,23 @@ Bu bölüm tarihsel takipten önceliklidir. Yalnız `mobil_rag_223bc7d` kaynakla
 
 **Bu güncelleme:** A/B/C sabit özeti artık seçili tüm davranışları, kart sürümlerini, yaşı ve senaryo düzenini gösterir. A/B/C kaynak farkı ortak görev/güvenlik talimatlarını da açıklayacak biçimde görünür; dar ekranda süre ve token değerleri etiketli, satır kıran sonuç kartlarıyla erişilir ve null ölçüm bilinmiyor kalır. Klip planı istemi, açıkça istenmiş sabit kamera/kadrajı korumayı ve D02 nesne kimliği/konumu/hedef sürekliliğini ister; eksik ayrıntılar üretilmiş öneri diye ayrılır. Bunlar içerik doğrulaması değildir. İlgili testler bu turda çalıştırılmadı.
 
+### 25 Ekim 2026 — D01/D02 içerik tutarlılığı
+
+- D01 anlatı ve klip planı istemleri, baş/bakış yönünü temel yönelme olarak ayırır; göz teması veya tüm bedenin dönmesini şart koşmaz. Sesli/sözel yanıt ayrı olay olarak ele alınır. Klip planı, kaynakta verilen yetişkin konumu/duruşu, ortam ve kamera koşullarını ilgili plan alanlarında taşımayı; eksik görsel ayrıntıları tutarlı ve açıkça üretilmiş öneri olarak etiketlemeyi ister. Bu kurallar anlamsal doğrulama veya üretilmiş videoda süreklilik kanıtı değildir.
+- D01/D02 örnek graf metadata yaşı 36 aya güncellendi. Bu, kurmaca karakter için örnek metadata değeridir; video yaşını doğrulamaz. Klip planlarında da ilişkili grafın bu metadata değeri açıklandı; plan şemasına yaş alanı eklenmedi.
+- **Kullanıcı bildirimi:** D01 ortak başlangıç, dal seçimi ve seçilen yol tekrarı kontrol edildi; D02 manuel kontrolü atlandı. 17 oynatma testi ve 10 dosya/eşleme kontrolü geçti. Senaryo → düzenleme → graf → klip planı → dışa aktarma akışı manuel kontrol edildi.
+- Bu turdaki istem, örnek JSON, test beklentisi ve belge değişiklikleri henüz çalıştırılmadı; yeni test/analiz sonucu yoktur.
+
+### 25 Ekim 2026 — D01/D02 kısa videolu örnekler
+
+**Giriş:** Simülasyon ve Eğitim → Stüdyo → Hazır örnekler ve diğer araçlar → **D01 örneği: İsme yönelme** veya **D02 örneği: İşaret yönü**. Önceki **Hazır D01 örneği: videolu dallı oynatma** girişi ve aynı `GraphPlaybackScreen`/`GraphPlaybackController` yolu korunmuştur. Yeni örneklerde ortak başlangıçtan sonra kullanıcı dal seçer; dalın ikinci klibi otomatik sürer. Tamamlanan yol mevcut seçili-yol tekrarıyla yeniden oynatılır.
+
+**Asset eşlemesi:** 12 MP4, `assets/videos/d01_name_turning/` (7 dosya) ve `assets/videos/d02_pointing_direction/` (5 dosya) altına kopyalandı; kaynak dosyalar değiştirilmedi. Her kaynak için zaman damgası sonekinden tek eşleşme bulundu ve kopyanın SHA256 değeri kaynakla aynı çıktı. `.gitignore` içindeki genel MP4 kuralına yalnız bu iki klasör için istisna eklendi. Dört yeni graf/plan JSON’u `assets/scenarios/` altındadır; dört JSON ve iki video klasörü `pubspec.yaml` içinde tanımlıdır. İlk kullanımda dosya baytları mevcut `ClipVideoStore` uygulama-belge kopyasına ve `planId/clipId` indeksine sıralı eklenir. Mevcut eşleme korunur; kayıtlı kopyası bulunmayan eşleme sessizce değiştirilmez. Runtime kaynak Downloads/Windows yolu kullanmaz. Eski D01 assetleri ve eşlemeleri değişmedi.
+
+**Etiket ve sınırlar:** İnsan incelemesiyle hazırlanmış kısa sentetik oynatma örnekleridir; otomatik analiz veya içerik onayı değildir. Düzeltme: Yeni graf örneklerinin zorunlu `ageMonths` metadata değeri 36 aydır; bu kurmaca karakter için örnek değerdir ve kaynak videolardan yaş doğrulanmamıştır (önceki 30 ay notu güncel değildir). D02’de “Raf yönüne dönme” doğru nesneye bakış kanıtı değildir. Klip sürekliliği, gerçek süre, tepki zamanı ve tam gözlem penceresi doğrulanmadı. Her yol ortak başlangıç ve iki kısa devamdan oluşur; tamamlanmış 2–3 dakikalık senaryo değildir. Gerçek video sonu ve mevcut oynatıcı temizliği korunur.
+
+**Test kanıtı:** `d01_playback_entry_test.dart` içinde asset manifesti, iki örneğin eşlemesi, dal seçimi, gerçek-bitişle ilerleme, seçilmiş yol tekrarı, yeniden açılışta eşlemeyi koruma ve geç yükleme/geri çıkış için kontrollü testler hazırlandı. `clip_video_store_checks.dart` paket baytlarını göreli kalıcı kopyaya yazma/yeniden açma ve mevcut kullanıcı eşlemesini koruma kontrollerini kapsar. Bu görevde Flutter/test/analiz çalıştırılmadı; yeni kontrollerin sonucu yoktur.
+
 ## Özellik ve bağlantı takibi
 
 | Özellik / gereksinim | Güncel giriş ve bağlantı | Uygulanan durum / açık sınır |

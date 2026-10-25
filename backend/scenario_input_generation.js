@@ -114,14 +114,16 @@ D01 ANLATI AYRINTILARI:
 İsim çağrısında kullanılacak adı ortak başlangıçta açıklaştır. İstekte ad varsa aynı adı ve yazımı kullan;
 ad yoksa seçtiğin adı yalnız 'taslak önerisi' olarak açıkça tanıt, istekten gelen doğrulanmış bilgi sayma.
 Başlangıç bakış hedefini ve çağıran yetişkinin çocuğa göre görünür konumunu anlat; yetişkine yönelme
-ile başka bir hedefe bakma ayrılabilsin. Yerleşim verilmemişse önerdiğin düzeni de taslak önerisi diye belirt.
+ile başka bir hedefe bakma ayrılabilsin. D01'de temel yönelme baş/bakış yönünün çağıran kişiye dönmesidir;
+göz teması veya tüm bedenin dönmesi gerekmez. Yerleşim verilmemişse önerdiğin düzeni de taslak önerisi diye belirt.
 Çağrıdan önce çocuk çağıran yetişkine zaten yönelmiş olmasın. Yetişkin çocuğa dokunmaz;
 el sallamaz veya çağrıyla eşzamanlı başka yönerge/uyaran eklemez. Adını doğal sesle bir kez söyler.
 Ortak başlangıçtaki çağrıyı alternatif devam veya bitişte yeniden söyletme; her izlenen yolda tek çağrı olsun.
 'Hızla', 'hemen', 'gecikmeden' gibi belirsiz hız yargıları veya klinik yanıt süresi hükümleri kullanma;
 hedefin ve olay sırasının görünür anlatımını kullan. Sayısal bir süre ekliyorsan yalnız üretim önerisidir.
-Oyunun durması, oyuncağın bırakılması, göz teması kurulması, gülümsemenin görülmesi veya ek beden
-hareketleri D01'in zorunlu baş yönelme koşulları değildir; bunları yeni başarı ölçütü olarak ekleme.
+Oyunun durması, oyuncağın bırakılması, gülümsemenin görülmesi veya ek beden hareketleri D01'in zorunlu
+baş yönelme koşulları değildir; bunları yeni başarı ölçütü olarak ekleme. Sesli/sözel yanıt planlanıyorsa,
+onu baş/bakış yönelmesinden ayrı olay olarak anlat; biri diğerinin yerine geçmesin.
 İstekte olmayan ayrıntıları doğrulanmış koşul gibi sunma; öneri beyanını mevcut anlatı alanlarında yap.
 ` : '';
   return {

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0",
+  "scenarioId": "d01-name-turning-video-example-20261024",
+  "title": "D01 — İsme yönelme (kısa sentetik örnek)",
+  "language": "tr",
+  "ageMonths": 36,
+  "behaviorId": "D01",
+  "cardVersion": "0.2",
+  "startSceneId": "d01_name_common",
+  "scenes": [
+    { "id": "d01_name_common", "title": "Ortak başlangıç", "summary": "Başlangıç klibi", "description": "İnsan incelemesiyle hazırlanmış bu örneğin ortak başlangıç klibi. Video içeriği ve davranış sonucu otomatik olarak doğrulanmamıştır." },
+    { "id": "d01_name_mother_1", "title": "Anne yönüne dönme · 1", "summary": "İlk devam klibi", "description": "‘Anne yönüne dönme’ olarak adlandırılan seçeneğin ilk kayıtlı devam klibi. Başlık dalı tanımlar; videoda davranışın doğrulandığı anlamına gelmez." },
+    { "id": "d01_name_mother_2", "title": "Anne yönüne dönme · 2", "summary": "İkinci devam klibi", "description": "Aynı seçeneğin ikinci kayıtlı devam klibi. Video içeriği, klipler arası süreklilik ve gözlem süresi ayrıca doğrulanmamıştır." },
+    { "id": "d01_name_play_1", "title": "Oyuna devam · 1", "summary": "İlk devam klibi", "description": "‘Oyuna devam’ olarak adlandırılan seçeneğin ilk kayıtlı devam klibi. Başlık dalı tanımlar; videoda davranışın doğrulandığı anlamına gelmez." },
+    { "id": "d01_name_play_2", "title": "Oyuna devam · 2", "summary": "İkinci devam klibi", "description": "Aynı seçeneğin ikinci kayıtlı devam klibi. Video içeriği, klipler arası süreklilik ve gözlem süresi ayrıca doğrulanmamıştır." },
+    { "id": "d01_name_other_1", "title": "Başka yöne dönme · 1", "summary": "İlk devam klibi", "description": "‘Başka yöne dönme’ olarak adlandırılan seçeneğin ilk kayıtlı devam klibi. Başlık dalı tanımlar; videoda davranışın doğrulandığı anlamına gelmez." },
+    { "id": "d01_name_other_2", "title": "Başka yöne dönme · 2", "summary": "İkinci devam klibi", "description": "Aynı seçeneğin ikinci kayıtlı devam klibi. Video içeriği, klipler arası süreklilik ve gözlem süresi ayrıca doğrulanmamıştır." }
+  ],
+  "transitions": [
+    { "fromSceneId": "d01_name_common", "toSceneId": "d01_name_mother_1", "label": "Anne yönüne dönme", "description": "İnsan incelemesiyle adlandırılmış kısa sentetik oynatma alternatifi. Otomatik davranış sonucu değildir." },
+    { "fromSceneId": "d01_name_mother_1", "toSceneId": "d01_name_mother_2", "label": "Devam", "description": "Seçilen dalın ikinci klibine otomatik geçiş." },
+    { "fromSceneId": "d01_name_common", "toSceneId": "d01_name_play_1", "label": "Oyuna devam", "description": "İnsan incelemesiyle adlandırılmış kısa sentetik oynatma alternatifi. Otomatik davranış sonucu değildir." },
+    { "fromSceneId": "d01_name_play_1", "toSceneId": "d01_name_play_2", "label": "Devam", "description": "Seçilen dalın ikinci klibine otomatik geçiş." },
+    { "fromSceneId": "d01_name_common", "toSceneId": "d01_name_other_1", "label": "Başka yöne dönme", "description": "İnsan incelemesiyle adlandırılmış kısa sentetik oynatma alternatifi. Otomatik davranış sonucu değildir." },
+    { "fromSceneId": "d01_name_other_1", "toSceneId": "d01_name_other_2", "label": "Devam", "description": "Seçilen dalın ikinci klibine otomatik geçiş." }
+  ],
+  "endSceneIds": ["d01_name_mother_2", "d01_name_play_2", "d01_name_other_2"],
+  "authoringNote": "İnsan incelemesiyle hazırlanmış kısa sentetik oynatma örneğidir; otomatik analiz sonucu değildir. 36 ay kurmaca senaryo karakterinin örnek graf metadata değeridir; kaynak videodan yaş doğrulanmamıştır. Klip içeriği, süreklilik, tepki zamanı ve tam gözlem penceresi doğrulanmamıştır; tanı, risk veya puanlama içermez."
+}

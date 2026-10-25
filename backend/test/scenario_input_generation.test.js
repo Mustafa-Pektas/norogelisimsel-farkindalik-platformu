@@ -102,7 +102,10 @@ test('D01 istemi bağlamı aynen taşır; ad/yerleşim önerisini ve ek hareket 
   assert.equal(JSON.stringify(req), before);
   for (const rule of ['D01 ANLATI AYRINTILARI', 'aynı adı ve yazımı kullan',
     "'taslak önerisi'", 'Başlangıç bakış hedefini', 'her izlenen yolda tek çağrı',
-    "'Hızla'", "D01'in zorunlu baş yönelme koşulları değildir", 'Yetişkin çocuğa dokunmaz']) {
+    'baş/bakış yönünün çağıran kişiye dönmesidir', 'göz teması veya tüm bedenin dönmesi gerekmez',
+    'Sesli/sözel yanıt planlanıyorsa', 'ayrı olay olarak anlat', "'Hızla'",
+    'baş yönelme koşulları değildir; bunları yeni başarı ölçütü olarak ekleme',
+    'Yetişkin çocuğa dokunmaz']) {
     assert.ok(prompts.system.includes(rule), rule);
   }
   assert.ok(prompts.system.includes(card.section));

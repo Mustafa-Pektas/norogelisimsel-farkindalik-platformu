@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 /// Yalnızca yerel dosya eşlemesi; video/gözlem doğrulaması içermez.
 class ClipVideoBinding {
@@ -180,6 +181,45 @@ class ClipVideoStore {
     }
     final cleanup = await _deleteOwnedCopy(old);
     return (binding: binding, warning: warning ?? cleanup);
+  });
+
+  /// Paket video baytlarını kullanıcı klipleriyle aynı kalıcı eşlemeye yazar.
+  /// Paket içindeki kaynak dosya değiştirilmez.
+  Future<ClipVideoAttachResult> attachBytes({
+    required String planId,
+    required String clipId,
+    required Uint8List bytes,
+    required String fileName,
+  }) => _serial(() async {
+    if (bytes.isEmpty) throw const FileSystemException('Seçilen video boş.');
+    final root = await documentsDirectory();
+    final all = await _read(root);
+    final old = all[(planId, clipId)];
+    if (old != null) {
+      throw const FileSystemException('Bu klip için kayıtlı video eşlemesi zaten var.');
+    }
+    final media = await Directory('${root.path}/clip_videos').create(recursive: true);
+    final directory = await media.createTemp('import_');
+    final name = fileName.split(RegExp(r'[/\\]')).last;
+    final extension = RegExp(r'\.[a-zA-Z0-9]{1,8}$').firstMatch(name)?.group(0) ?? '.video';
+    final folder = directory.uri.pathSegments.where((part) => part.isNotEmpty).last;
+    final relative = 'clip_videos/$folder/video$extension';
+    final target = File('${root.path}/$relative');
+    late ClipVideoBinding binding;
+    String? warning;
+    try {
+      binding = ClipVideoBinding(planId: planId, clipId: clipId, relativePath: relative, fileName: name);
+      await target.writeAsBytes(bytes, flush: true);
+      if (await target.length() != bytes.length) {
+        throw const FileSystemException('Video kopyası tamamlanamadı.');
+      }
+      all[(planId, clipId)] = binding;
+      warning = await _save(root, all.values);
+    } catch (_) {
+      await _cleanTemporary(target, directory);
+      rethrow;
+    }
+    return (binding: binding, warning: warning);
   });
 
   Future<String?> remove({required String planId, required String clipId}) => _serial(() async {

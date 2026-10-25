@@ -152,6 +152,9 @@ test('D01 plan istemi tek çağrıyı, alan uyumunu ve bağımsız klip sürekli
     'çağrı öncesi süreyi pencereye dahil etme', 'her alternatif yol için ayrı hesapla',
     'birbirini dışlayan dalların sürelerini toplayarak', 'devam kliplerinde çağrı tekrarlanmaz',
     'Her klip dış araçta bağımsız üretilir', 'kamera/kadraj',
+    'Kaynakta verilen yetişkin konumu/duruşu', 'plannedAction,', 'initialState, finalState, productionPrompt ve continuityNotes',
+    'ilgili klip alanlarında aynı öneriyi tutarlı taşı', 'baş/bakış yönünün çağıran kişiye dönmesidir',
+    'göz teması veya tüm bedenin dönmesi gerekmez', 'Sesli/sözel yanıt varsa bunu yönelmeden ayrı olay olarak belirt',
     'yalnız yapısaldır', 'kesintisiz D01 denemesi ve zaman kanıtı henüz doğrulanmadı']) {
     assert.ok(prompts.system.includes(rule), rule);
   }

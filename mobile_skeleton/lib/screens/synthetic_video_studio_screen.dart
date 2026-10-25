@@ -25,6 +25,56 @@ import '../services/server_api_service.dart';
 import '../services/http_scenario_generation_service.dart';
 import 'scenario_graph_screen.dart';
 
+class BundledGraphPlaybackExample {
+  const BundledGraphPlaybackExample({
+    required this.id,
+    required this.title,
+    required this.graphAssetPath,
+    required this.planAssetPath,
+    required this.videoAssetsByClipId,
+    required this.notice,
+  });
+
+  final String id;
+  final String title;
+  final String graphAssetPath;
+  final String planAssetPath;
+  final Map<String, String> videoAssetsByClipId;
+  final String notice;
+}
+
+const d01NameTurningExample = BundledGraphPlaybackExample(
+  id: 'd01_name_turning_20261024',
+  title: 'D01 videolu örneği: İsme yönelme',
+  graphAssetPath: 'assets/scenarios/d01_name_turning_graph.json',
+  planAssetPath: 'assets/scenarios/d01_name_turning_clip_plan.json',
+  videoAssetsByClipId: {
+    'd01_name_common': 'assets/videos/d01_name_turning/20261024200425.mp4',
+    'd01_name_mother_1': 'assets/videos/d01_name_turning/20261024200833.mp4',
+    'd01_name_mother_2': 'assets/videos/d01_name_turning/20261024204922.mp4',
+    'd01_name_play_1': 'assets/videos/d01_name_turning/20261024201633.mp4',
+    'd01_name_play_2': 'assets/videos/d01_name_turning/20261024202154.mp4',
+    'd01_name_other_1': 'assets/videos/d01_name_turning/20261024202847.mp4',
+    'd01_name_other_2': 'assets/videos/d01_name_turning/20261024203806.mp4',
+  },
+  notice: 'İnsan incelemesiyle hazırlanmış kısa sentetik oynatma örneğidir; otomatik analiz sonucu değildir. Video içeriği, sürekliliği ve gözlem süresi doğrulanmamıştır.',
+);
+
+const d02PointingDirectionExample = BundledGraphPlaybackExample(
+  id: 'd02_pointing_direction_20261024',
+  title: 'D02 videolu örneği: İşaret yönü',
+  graphAssetPath: 'assets/scenarios/d02_pointing_direction_graph.json',
+  planAssetPath: 'assets/scenarios/d02_pointing_direction_clip_plan.json',
+  videoAssetsByClipId: {
+    'd02_point_common': 'assets/videos/d02_pointing_direction/20261024214654.mp4',
+    'd02_point_shelf_1': 'assets/videos/d02_pointing_direction/20261024220131.mp4',
+    'd02_point_shelf_2': 'assets/videos/d02_pointing_direction/20261024225140.mp4',
+    'd02_point_table_1': 'assets/videos/d02_pointing_direction/20261024222918.mp4',
+    'd02_point_table_2': 'assets/videos/d02_pointing_direction/20261024224133.mp4',
+  },
+  notice: 'Raf yönüne dönme etiketi doğru nesneye bakışın doğrulandığı anlamına gelmez. Bu kısa sentetik örnek otomatik analiz sonucu değildir; içerik ve süreklilik ayrıca incelenmelidir.',
+);
+
 class SyntheticVideoStudioScreen extends StatefulWidget {
   final String? initialOntologyCode;
   final int? initialAgeMonths;
@@ -53,6 +103,112 @@ class SyntheticVideoStudioScreen extends StatefulWidget {
 
 class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen> {
   bool _openingD01Playback = false;
+
+  Future<LoadedClipPlan> _loadBundledExample(
+    AssetBundle bundle,
+    ClipVideoStore store,
+    BundledGraphPlaybackExample example,
+    bool Function() isCancelled,
+  ) async {
+    final loaded = await ClipProductionPlanScreen.loadPlanAssets(
+      bundle,
+      graphAssetPath: example.graphAssetPath,
+      planAssetPath: example.planAssetPath,
+    );
+    if (isCancelled()) throw StateError('Örnek yüklemesi iptal edildi.');
+    final clipIds = loaded.plan.clips.map((clip) => clip.id).toSet();
+    if (clipIds.length != example.videoAssetsByClipId.length ||
+        !clipIds.containsAll(example.videoAssetsByClipId.keys)) {
+      throw const FormatException('Örnek video eşlemeleri klip planıyla uyuşmuyor.');
+    }
+
+    var bindings = await store.loadPlan(loaded.plan.planId);
+    for (final clip in loaded.plan.clips) {
+      if (isCancelled()) throw StateError('Örnek yüklemesi iptal edildi.');
+      final current = bindings[clip.id];
+      if (current != null) {
+        if (!await store.fileExists(current)) {
+          throw FileSystemException('Örnek klibinin kayıtlı video kopyası bulunamadı: ${clip.id}.');
+        }
+        continue;
+      }
+      final assetPath = example.videoAssetsByClipId[clip.id]!;
+      final data = await bundle.load(assetPath);
+      if (isCancelled()) throw StateError('Örnek yüklemesi iptal edildi.');
+      final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      await store.attachBytes(
+        planId: loaded.plan.planId,
+        clipId: clip.id,
+        bytes: bytes,
+        fileName: assetPath.split('/').last,
+      );
+      bindings = await store.loadPlan(loaded.plan.planId);
+    }
+    for (final clip in loaded.plan.clips) {
+      final binding = bindings[clip.id];
+      if (binding == null || !await store.fileExists(binding)) {
+        throw FileSystemException('Örnek klibinin videosu kullanılamıyor: ${clip.id}.');
+      }
+    }
+    return loaded;
+  }
+
+  Future<void> _openBundledExample(BundledGraphPlaybackExample example) async {
+    if (_openingD01Playback) return;
+    setState(() { _openingD01Playback = true; });
+    final bundle = DefaultAssetBundle.of(context);
+    final store = widget.playbackVideoStore ??
+        ClipVideoStore(documentsDirectory: getApplicationDocumentsDirectory);
+    var left = false;
+    final loading = _loadBundledExample(bundle, store, example, () => left || !mounted);
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PopScope<void>(
+            onPopInvokedWithResult: (didPop, result) {
+              if (didPop) left = true;
+            },
+            child: FutureBuilder<LoadedClipPlan>(
+              future: loading,
+              builder: (context, snapshot) {
+                if (left || !mounted) return const SizedBox.shrink();
+                if (snapshot.hasData) {
+                  return GraphPlaybackScreen(
+                    graph: snapshot.data!.graph,
+                    plan: snapshot.data!.plan,
+                    videoStore: store,
+                    createPlayer: widget.createPlaybackPlayer,
+                    title: example.title,
+                    notice: example.notice,
+                  );
+                }
+                return Scaffold(
+                  appBar: AppBar(
+                    title: Text(example.title),
+                    backgroundColor: const Color(0xFF0F172A),
+                    foregroundColor: Colors.white,
+                  ),
+                  body: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: snapshot.hasError
+                          ? Text(
+                              '${example.title} açılamadı. Video eşlemesini veya paket kaynağını kontrol edin.',
+                              key: ValueKey('${example.id}-load-error'),
+                            )
+                          : const CircularProgressIndicator(),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() { _openingD01Playback = false; });
+    }
+  }
 
   Future<void> _openD01Playback() async {
     if (_openingD01Playback) return;
@@ -832,6 +988,28 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                     title: const Text('Hazır D01 örneği: videolu dallı oynatma', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     trailing: const Icon(Icons.chevron_right, size: 18),
                     onTap: _openingD01Playback ? null : _openD01Playback,
+                  ),
+                  const Divider(height: 1, indent: 16, endIndent: 16, color: Color(0xFFF1F5F9)),
+                  ListTile(
+                    key: const ValueKey('open-d01-name-turning-playback'),
+                    enabled: !_openingD01Playback,
+                    dense: true,
+                    leading: const Icon(Icons.account_tree_outlined, color: Color(0xFF2563EB)),
+                    title: const Text('D01 örneği: İsme yönelme'),
+                    subtitle: const Text('Ortak başlangıç ve seçilebilir üç kısa devam.'),
+                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    onTap: _openingD01Playback ? null : () => _openBundledExample(d01NameTurningExample),
+                  ),
+                  const Divider(height: 1, indent: 16, endIndent: 16, color: Color(0xFFF1F5F9)),
+                  ListTile(
+                    key: const ValueKey('open-d02-pointing-playback'),
+                    enabled: !_openingD01Playback,
+                    dense: true,
+                    leading: const Icon(Icons.assistant_direction_outlined, color: Color(0xFF2563EB)),
+                    title: const Text('D02 örneği: İşaret yönü'),
+                    subtitle: const Text('Ortak başlangıç ve seçilebilir iki kısa devam.'),
+                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    onTap: _openingD01Playback ? null : () => _openBundledExample(d02PointingDirectionExample),
                   ),
                   const Divider(height: 1, indent: 16, endIndent: 16, color: Color(0xFFF1F5F9)),
                   ListTile(

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:neuro_awareness_app/models/scenario_clip_plan.dart';
@@ -26,6 +27,7 @@ class FakeGraphStore extends ClipVideoStore {
   Future<File>? fileGate;
   final fileRequested = Completer<void>();
   int mutations = 0;
+  final bundledAssetCopies = <String, Uint8List>{};
 
   @override
   Future<Map<String, ClipVideoBinding>> loadPlan(String planId) async {
@@ -53,6 +55,21 @@ class FakeGraphStore extends ClipVideoStore {
   }
 
   @override
+  Future<ClipVideoAttachResult> attachBytes({required String planId,
+      required String clipId, required Uint8List bytes, required String fileName}) async {
+    mutations++;
+    bundledAssetCopies[clipId] = Uint8List.fromList(bytes);
+    final binding = ClipVideoBinding(
+      planId: planId,
+      clipId: clipId,
+      relativePath: 'clip_videos/import_BUNDLED_$clipId/video.mp4',
+      fileName: fileName,
+    );
+    bindings[clipId] = binding;
+    return (binding: binding, warning: null);
+  }
+
+  @override
   Future<String?> remove({required String planId, required String clipId}) async {
     mutations++;
     throw StateError('Graf oynatma eşleme silmemeli.');
@@ -60,10 +77,11 @@ class FakeGraphStore extends ClipVideoStore {
 }
 
 class FakeGraphPlayer extends GraphClipPlayer {
-  FakeGraphPlayer(this.id, this.events, this.onClosed);
+  FakeGraphPlayer(this.id, this.events, this.onClosed, this.onPlayingChanged);
   final String id;
   final List<String> events;
   final VoidCallback onClosed;
+  final void Function(bool playing) onPlayingChanged;
   Completer<void>? openGate;
   Completer<void>? closeGate;
   final opened = Completer<void>();
@@ -95,14 +113,20 @@ class FakeGraphPlayer extends GraphClipPlayer {
   @override
   Future<void> play() async {
     if (closed) throw StateError('Kapalı oynatıcı kullanıldı.');
-    playing = true;
+    if (!playing) {
+      playing = true;
+      onPlayingChanged(true);
+    }
     events.add('play:$id');
   }
 
   @override
   Future<void> pause() async {
     if (closed) throw StateError('Kapalı oynatıcı kullanıldı.');
-    playing = false;
+    if (playing) {
+      playing = false;
+      onPlayingChanged(false);
+    }
     events.add('pause:$id');
   }
 
@@ -117,7 +141,10 @@ class FakeGraphPlayer extends GraphClipPlayer {
     final gate = closeGate;
     if (gate != null) await gate.future;
     closed = true;
-    playing = false;
+    if (playing) {
+      playing = false;
+      onPlayingChanged(false);
+    }
     events.add('closed:$id');
     onClosed();
     super.dispose();
@@ -144,12 +171,26 @@ class GraphPlaybackHarness {
   String? failedClip;
   int live = 0;
   int maximumLive = 0;
+  int playing = 0;
+  int maximumPlaying = 0;
+
+  /// Önden hazırlanan başka bir oynatıcı listeye daha sonra eklenebilir.
+  FakeGraphPlayer latestPlayerForClip(String clipId) =>
+      players.lastWhere((player) => player.id == clipId);
 
   FakeGraphPlayer create(File file) {
-    final id = file.uri.pathSegments.last.replaceFirst(RegExp(r'\.mov$'), '');
+    final id = file.uri.pathSegments.last.replaceFirst(RegExp(r'\.[a-zA-Z0-9]+$'), '');
     live++;
     maximumLive = math.max(maximumLive, live);
-    final player = FakeGraphPlayer(id, events, () { live--; })
+    final player = FakeGraphPlayer(
+      id,
+      events,
+      () { live--; },
+      (isPlaying) {
+        playing += isPlaying ? 1 : -1;
+        maximumPlaying = math.max(maximumPlaying, playing);
+      },
+    )
       ..openGate = openGates[id] ?? nextOpenGate
       ..failOpen = failedClip == id;
     nextOpenGate = null;

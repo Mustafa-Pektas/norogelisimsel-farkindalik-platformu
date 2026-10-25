@@ -2,6 +2,7 @@
 // dart --disable-dart-dev --packages=.dart_tool/package_config.json test/clip_video_store_checks.dart
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:neuro_awareness_app/services/clip_video_store.dart';
 
@@ -23,6 +24,42 @@ Future<void> fails(Future<dynamic> Function() action) async {
 Future<void> main() async {
   final workspaceCache = Directory('.dart_tool').absolute;
   final tests = <String, Future<void> Function(Directory)>{
+    'Paket asset baytları aynı göreli video deposuna yazılır ve yeniden açılır': (temp) async {
+      final docs = Directory('${temp.path}/documents');
+      final bytes = Uint8List.fromList([0, 2, 4, 8, 16, 32]);
+      final store = ClipVideoStore(documentsDirectory: () async => docs);
+      final result = await store.attachBytes(
+        planId: 'bundled-plan',
+        clipId: 'bundled-clip',
+        bytes: bytes,
+        fileName: '20261024200425.mp4',
+      );
+      check(result.binding.relativePath.startsWith('clip_videos/import_'), 'Kopya göreli uygulama yolunda');
+      check(result.binding.relativePath.endsWith('/video.mp4'), 'MP4 uzantısı korunur');
+      final copy = await (await store.fileFor(result.binding)).readAsBytes();
+      check(copy.length == bytes.length && copy.join(',') == bytes.join(','), 'Paket baytları eksiksiz kopyalandı');
+      final reopened = ClipVideoStore(documentsDirectory: () async => docs);
+      final binding = (await reopened.loadPlan('bundled-plan'))['bundled-clip'];
+      check(binding?.fileName == '20261024200425.mp4', 'Klip eşlemesi yeniden açılır');
+      check(binding?.relativePath == result.binding.relativePath, 'Mutlak kaynak yolu kaydedilmez');
+    },
+    'Paket asset ekleme var olan kullanıcı eşlemesini değiştirmez': (temp) async {
+      final docs = Directory('${temp.path}/documents');
+      final source = await File('${temp.path}/user_video.bin').writeAsString('USER VIDEO BYTES');
+      final store = ClipVideoStore(documentsDirectory: () async => docs);
+      final old = await store.attach(planId: 'p', clipId: 'c', source: source, fileName: 'user.mov');
+      await fails(() => store.attachBytes(
+        planId: 'p',
+        clipId: 'c',
+        bytes: Uint8List.fromList([1, 2, 3]),
+        fileName: 'bundled.mp4',
+      ));
+      check((await store.loadPlan('p'))['c']?.relativePath == old.binding.relativePath,
+          'Önceki eşleme aynı kaldı');
+      check(await (await store.fileFor(old.binding)).readAsString() == 'USER VIDEO BYTES',
+          'Önceki uygulama kopyası aynı kaldı');
+      check(await source.exists(), 'Kaynak dosya korundu');
+    },
     'Kopya kalıcı dizine gider; göreli JSON yeni depo örneğinde aynı plan/klibi yükler': (temp) async {
       final docs = Directory('${temp.path}/documents');
       final source = await File('${temp.path}/gallery_fixture.bin').writeAsString('UNIT TEST FILE BYTES');
