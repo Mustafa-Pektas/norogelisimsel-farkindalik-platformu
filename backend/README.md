@@ -1,5 +1,9 @@
 # Güncel üretim sözleşmesi — 24 Ekim 2026
 
+Tekrarlanabilir ilk uzak kurulum dosyaları ve işletim adımları için
+[`SUNUCU_KURULUM.md`](SUNUCU_KURULUM.md) belgesine bakın. Bu dosyalar hazırlıktır;
+sunucu, DNS veya sertifika henüz kurulmuş değildir.
+
 Stüdyo tek formu normal üretime ve A/B/C’ye taşır. Eski tek kartlı istekler
 korunur. Çoklu/üretim hedefli istek `requestVersion:2.0`, bütün kartların
 `behaviors:[{behaviorId,cardVersion}]` referansları ve isteğe bağlı `production`
@@ -199,11 +203,12 @@ $env:BACKEND_MODE = 'deployment'
 node backend/server.js
 ```
 
-Yerel akış için değeri `development` yapın veya kaldırın. Bu mod endpoint
-kapsamını, gövde boyutunu ve aşağıdaki süreç içi üretim kapasitesini sınırlar.
-**Kişi bazlı kimlik doğrulama, istek hızı sınırı ve HTTPS henüz tamamlanmadı**. CORS kimlik doğrulaması değildir;
-internet erişimine açmadan önce bu işler ayrıca yapılmalıdır. Mobil uygulamaya
-sabit gizli anahtar eklenmez.
+Yerel akış için değeri `development` yapın veya kaldırın. Deployment modu endpoint
+kapsamını, gövde boyutunu, geçici ekip Bearer anahtarını ve aşağıdaki süreç içi
+üretim kapasitesini sınırlar; bu, kişi/rol hesabı veya istek hızı sınırı değildir.
+CORS kimlik doğrulaması değildir. Caddy/Compose HTTPS yapılandırması eklendi ancak
+gerçek DNS, sertifika ve dış erişim kabulü yapılmadı. Mobil uygulamaya sabit gizli
+anahtar eklenmez.
 
 ### Geçici ekip erişimi
 
@@ -261,10 +266,12 @@ yeniden başlatma arasında paylaşılan sayaç/kota sağlamaz. Çoklu süreçte
 toplam yük ayrıca kontrol edilmelidir; bu bir saniyelik hız limiti veya dağıtık
 sağlayıcı kota koruması değildir.
 
-Backend bağımlılıkları `package-lock.json` ile kurulmalıdır. Gerekli ayarlar
-`PORT`, `GEMINI_API_KEY` ve `SCENARIO_INPUT_MODEL` için
-`.env.example` dosyasında belgelenmiştir. Gerçek anahtarı Git'e veya mobil
-uygulamaya eklemeyin. Backend'i `npm start` veya başka bir dizinden
+Backend bağımlılıkları `package-lock.json` ile kurulmalıdır. Yerel geliştirme ve
+deployment değişkenleri (`BACKEND_MODE`, `TEAM_ACCESS_KEY`,
+`GENERATION_MAX_CONCURRENT`, `PUBLIC_DOMAIN`, `PORT`, `GEMINI_API_KEY`,
+`SCENARIO_INPUT_MODEL`, `BEHAVIOR_CARDS_PATH`) `.env.example` içinde açıklanır;
+Compose deployment örneği ve HTTPS kurulum adımları `SUNUCU_KURULUM.md` içindedir.
+Gerçek anahtarı Git'e veya mobil uygulamaya eklemeyin. Backend'i `npm start` veya başka bir dizinden
 `node /mutlak/depo/backend/server.js` ile başlatmak kart yolunu değiştirmez.
 
 `BEHAVIOR_CARDS_PATH` boşsa paket içindeki kaynak kullanılır. Açıkça bir yol
