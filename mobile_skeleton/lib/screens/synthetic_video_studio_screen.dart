@@ -1214,7 +1214,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       icon: const Icon(Icons.settings_outlined, size: 16, color: Color(0xFF2563EB)),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
-                      tooltip: 'Sunucu IP Ayarı',
+                      tooltip: 'Gelişmiş bağlantı ayarları',
                       onPressed: _showServerConfigDialog,
                     ),
                   ],
@@ -1518,7 +1518,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 children: [
                   Icon(Icons.router_rounded, color: Color(0xFF2563EB), size: 22),
                   SizedBox(width: 8),
-                  Text('Sunucu IP & Bağlantı Ayarı', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  Text('Gelişmiş bağlantı ayarları', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                 ],
               ),
               content: Column(
@@ -1526,7 +1526,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Gerçek telefonda Sunucu (Gemini AI) modunu kullanmak için telefonunuzla bilgisayarınızın aynı Wi-Fi ağında olması gerekir.',
+                    'Uygulama varsayılan sunucuya otomatik bağlanır. Yalnız farklı bir sunucu kullanıyorsanız adresi burada değiştirin.',
                     style: TextStyle(fontSize: 12, color: Color(0xFF475569), height: 1.35),
                   ),
                   const SizedBox(height: 12),

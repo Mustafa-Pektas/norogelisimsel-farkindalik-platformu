@@ -62,6 +62,56 @@ void main() {
     expect(client.closes, 1);
   });
 
+  test('Sunucu adresi varsayılanı dart-define ile belirlenir ve kayıt yoksa kullanılır', () async {
+    SharedPreferences.setMockInitialValues({});
+    final before = ServerApiService.baseUrl;
+    addTearDown(() { ServerApiService.baseUrl = before; });
+    const configured = String.fromEnvironment('SCENARIO_SERVER_URL');
+    final expected = configured.isEmpty ? 'http://31.77.69.171' : configured;
+
+    expect(ServerApiService.defaultBaseUrl, expected);
+    ServerApiService.baseUrl = 'http://stale-in-memory-value.invalid';
+    expect(await ServerApiService.getBaseUrl(), expected);
+    expect(ServerApiService.baseUrl, expected);
+
+    final client = _Http();
+    final adapter = HttpScenarioGenerationService(clientFactory: () => client);
+    final job = adapter.start(request);
+    final answer = expectLater(job.response, completion(raw));
+    final sent = await client.started.future;
+    expect(sent.url.toString(), '$expected/api/generate-scenario-input');
+    client.reply.complete(response(envelope()));
+    await answer;
+    await job.dispose();
+  });
+
+  test('Yalnız bilinen eski emülatör ve tünel adresleri varsayılana taşınır', () async {
+    const legacyAddresses = [
+      'http://10.0.2.2:8000',
+      'http://10.0.2.2:18000',
+    ];
+    final before = ServerApiService.baseUrl;
+    addTearDown(() { ServerApiService.baseUrl = before; });
+
+    for (final legacy in legacyAddresses) {
+      SharedPreferences.setMockInitialValues({'custom_server_base_url': legacy});
+      expect(await ServerApiService.getBaseUrl(), ServerApiService.defaultBaseUrl);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('custom_server_base_url'), isNull);
+    }
+  });
+
+  test('Özel kullanıcı adresi, yerel IP olsa bile geçişte korunur', () async {
+    const customAddress = 'http://192.168.110.42:8000';
+    SharedPreferences.setMockInitialValues({'custom_server_base_url': customAddress});
+    final before = ServerApiService.baseUrl;
+    addTearDown(() { ServerApiService.baseUrl = before; });
+
+    expect(await ServerApiService.getBaseUrl(), customAddress);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('custom_server_base_url'), customAddress);
+  });
+
   test('HTTP: sabit istek alanları ve tam ham cevap; tek POST ve tek close', () async {
     final client = _Http();
     final job = service(client).start(request);

@@ -16,8 +16,15 @@ class ServerHealthStatus {
 }
 
 class ServerApiService {
-  // Android emülatöründe 10.0.2.2 kullanılır. Gerçek telefonda bilgisayarın yerel IP'si kullanılır.
-  static String baseUrl = 'http://10.0.2.2:8000';
+  static const String defaultBaseUrl = String.fromEnvironment(
+    'SCENARIO_SERVER_URL',
+    defaultValue: 'http://31.77.69.171',
+  );
+  static const Set<String> _legacyLocalServerUrls = {
+    'http://10.0.2.2:8000',
+    'http://10.0.2.2:18000',
+  };
+  static String baseUrl = defaultBaseUrl;
   static const String _serverUrlKey = 'custom_server_base_url';
   static String selectedArm = 'B';
   static const String _serverArmKey = 'custom_server_arm';
@@ -28,7 +35,17 @@ class ServerApiService {
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString(_serverUrlKey);
       if (saved != null && saved.trim().isNotEmpty) {
-        baseUrl = saved.trim();
+        final normalized = saved.trim();
+        if (_legacyLocalServerUrls.contains(normalized)) {
+          // Remove only the two app-provided emulator/tunnel endpoints. Any
+          // other saved address belongs to the user and must remain intact.
+          await prefs.remove(_serverUrlKey);
+          baseUrl = defaultBaseUrl;
+        } else {
+          baseUrl = normalized;
+        }
+      } else {
+        baseUrl = defaultBaseUrl;
       }
       final savedArm = prefs.getString(_serverArmKey);
       if (savedArm != null && ['A', 'B', 'C'].contains(savedArm)) {
