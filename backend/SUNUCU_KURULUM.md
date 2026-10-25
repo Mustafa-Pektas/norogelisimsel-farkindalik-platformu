@@ -2,23 +2,36 @@
 
 ## Durum ve kapsam
 
-Bu belge tekrarlanabilir kurulum hazırlığını tanımlar; gerçek sunucu, DNS, HTTPS
-sertifikası veya dış ağdan erişim kurulmuş/doğrulanmış değildir. 25 Ekim 2026'da
-kullanıcı aşağıdaki image/deployment kontrollerini çalıştırıp geçtiğini bildirdi;
-bu sonuçlar Compose servislerinin birlikte çalıştığını veya dış erişimi kanıtlamaz.
+Bu belge tekrarlanabilir kurulum ve iki ayrı erişim biçimini açıklar: ekip için
+SSH tüneli ve isteğe bağlı, ayrıca kurulacak HTTPS ters proxy. 25 Ekim 2026'da
+kullanıcı bir VDS üzerinde yalnız backend'i SSH tüneli için başlattığını bildirdi.
+Caddy, alan adı ve genel HTTPS başlatılmadı; dış erişim kurulmuş sayılmaz.
 Kurulum yalnız `backend/` içindeki API içindir. Mobil paket videoları ve
 uygulamanın belge dizinindeki video kopyaları sunucuya taşınmaz.
 
-| Hazırlanan | Kullanıcı bildirimiyle doğrulanan | Sunucu gelince yapılacak |
+| Hazırlanan | Kullanıcı bildirimiyle doğrulanan (25 Ekim 2026) | Henüz doğrulanmayan |
 |---|---|---|
-| Node Dockerfile, lockfile tabanlı kurulum, kanonik kart kaynağı | Linux Docker image build; deployment `createApp` yükleme kontrolü; yeniden image içinde `npm audit --omit=dev` sonucu 0 açık; aynı ağ kapalı image içinde 86 backend testi | Ubuntu sunucusu, alan adı ve güvenlik duvarı |
-| Backend için dışa port açmayan Compose servisi | `docker compose config --quiet` | Compose servislerinin birlikte çalışması ve proxy üzerinden HTTP erişimi |
-| Caddy ters proxy, HTTPS otomatik sertifika yapılandırması ve health check | `caddy:2.11.7-alpine` ile ağ kapalı `caddy validate`: `Valid configuration` | DNS, dış health/erişim kontrolleri, sertifika edinimi |
-| Log döndürme, yeniden başlatma ve kalıcı Caddy volume’ları | `package-lock.json` içindeki body-parser güvenlik düzeltmesinin npm ile güncellenmesi | Gerçek sağlayıcı isteği, yedekten geri yükleme uygulaması |
+| Node Dockerfile, lockfile tabanlı kurulum, kanonik kart kaynağı | Linux image build; deployment `createApp` kontrolü; image içinde `npm audit --omit=dev` 0 açık ve ağ kapalı 86 backend testi | Bu kontroller bu oturumda yeniden çalıştırılmadı |
+| Backend için iç/loopback port düzeni | VDS container healthy; sunucu `/health`; `compose ps`/`ss` ile `127.0.0.1:8000`; Windows SSH tüneli health; Android emülatöründen senaryo üretimi | Yedekten geri yükleme ve host yeniden başladıktan sonra container dönüşü |
+| Caddy ters proxy, HTTPS otomatik sertifika yapılandırması ve health check | `docker compose config --quiet`; ağ kapalı `caddy:2.11.7-alpine` doğrulaması `Valid configuration` | Caddy ile proxy erişimi, DNS, sertifika ve dış HTTPS kabulü |
+| Log döndürme, yeniden başlatma ve kalıcı Caddy volume’ları | body-parser güvenlik düzeltmeli lockfile ile image denetimleri | Caddy/HTTPS başlatılmadı; geri yükleme uygulanmadı |
 
-Bu doğrulamalar kullanıcı tarafından 25 Ekim 2026'da bildirildi; bu oturumda
-yeniden çalıştırılmadı. `npm audit` ve backend testleri aynı yeniden oluşturulmuş
-image içinde, ağ erişimi kapalıyken çalıştırılmıştır.
+Sunucu kurulumu kullanıcı bildirimiyle: Lunhost VDS Large (8 GB RAM/60 GB disk),
+Ubuntu 24.04.5 LTS x86_64, kernel 6.8.0-147-generic; güncellemeler ve reboot
+tamamlandı. `celil`, `mustafa`, `mertcan` hesapları, `norogelisim` grubu ve
+`/opt/norogelisim/app` oluşturuldu. Yalnız `mertcan` için kişisel SSH anahtarıyla
+giriş ve sudo doğrulandı; diğer iki hesabın SSH anahtarları eklenmedi. Docker
+29.9.2, Compose 5.6.1 ve `hello-world` geçti; `entegrasyon` dalı `03bc618`
+klonlandı ve backend image build edildi. Gerçek `.env` sunucuda izin 600 ile
+duruyor; sır değerleri bu belgeye alınmaz. Deployment kapasitesi 1 ve model
+kimliği `gemini-3.5-flash-lite` olarak bildirildi.
+
+UFW etkin: gelen varsayılan deny, giden allow; 22/tcp, 80/tcp, 443/tcp ve
+443/udp izinli. Backend yalnız SSH overlay'iyle başlatıldı, Caddy başlatılmadı.
+`PUBLIC_DOMAIN=api.example.invalid` yalnız Compose değişken çözümlemesi için
+yer tutucudur, gerçek DNS değildir. Root/parola SSH erişiminin kapatılması,
+yedekten geri yükleme ve sunucu reboot'u sonrasında container'ın dönüşü henüz
+doğrulanmadı.
 
 ## Çalışma biçimi ve endpoint’ler
 
@@ -238,6 +251,70 @@ olduğunu kabul öncesi sınamak için ekip anahtarıyla **tek bir açık üreti
 gönderin; bu sağlayıcı kullanımı/kota tüketebilir. A/B/C önizlemesi model çağrısı
 yapmaz; üretim eylemi yapar. Benchmark veya otomatik tekrar başlatmayın.
 
+### SSH tüneli üzerinden ekip geliştirme erişimi
+
+Bu yöntem SSH şifrelemesi içinden HTTP taşır; backend'i sunucuda yalnız
+`127.0.0.1:8000` adresine yayımlar. `backend/compose.ssh.yaml` temel Compose
+dosyasına yalnız bu loopback port eşlemesini ekler. UFW'de TCP 8000 açılmaz;
+internetten doğrudan backend erişimi oluşmaz. Bu, herkese açık HTTPS değildir.
+
+#### Linux sunucu — başlatma ve güncelleme
+
+Aşağıdaki komutlar **Linux sunucusunda**, `/opt/norogelisim/app/backend`
+dizininde çalışır. Her komutta iki Compose dosyasını birlikte kullanın.
+`PUBLIC_DOMAIN` burada gerçek alan adı değildir; temel Compose dosyası Caddy
+değişkenini her servis seçimi sırasında da çözdüğü için zararsız yer tutucudur.
+Bu komut yalnız backend servisini başlatır; Caddy'yi başlatmaz:
+
+```bash
+sudo env PUBLIC_DOMAIN=api.example.invalid docker compose \
+  -f compose.yaml -f compose.ssh.yaml \
+  up -d --no-build --wait --wait-timeout 60 backend
+sudo docker compose -f compose.yaml -f compose.ssh.yaml ps backend
+sudo ss -ltnp 'sport = :8000'
+curl --fail --silent --show-error http://127.0.0.1:8000/health
+```
+
+Yeni onaylı kaynak commit'inden image yeniden kurulacaksa, aynı iki Compose
+dosyasıyla `up` komutunda `--no-build` yerine `--build` kullanın. Yalnız backend
+servisini seçin. Caddy/HTTPS kurulumunu başlatmak bu ekip tüneli adımının parçası
+değildir.
+
+#### Windows PowerShell — tünel ve mobil adres
+
+Kendi kişisel SSH anahtarı yüklü `mertcan` hesabıyla bu komutu Windows
+PowerShell'de çalıştırın ve terminali açık tutun:
+
+```powershell
+ssh -N -L 18000:127.0.0.1:8000 mertcan@SUNUCU_IP
+```
+
+Windows'ta health kontrolü:
+
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:18000/health -TimeoutSec 5
+```
+
+Android emülatöründe **Simülasyon ve Eğitim → Stüdyo → Sunucu ayarları**
+alanına `http://10.0.2.2:18000` girin. Önceden kayıtlı
+`custom_server_base_url` varsa yeni adresi elle kaydedin. Gerçek senaryo üretimi
+için ekip anahtarını uygulamanın oturum alanına girin; anahtar oturum belleğinde
+kalır ve istekler için tünel açık olmalıdır. Üretim çağrısı Gemini kotası
+kullanabilir.
+
+Tüneli kapatmak için SSH terminalinde `Ctrl+C` kullanın. Bu yalnız yerel SSH
+iletimini kapatır; backend container'ı sunucuda çalışmayı sürdürür. Backend'i
+durdurmak için ayrı olarak Linux sunucuda, backend dizininde:
+
+```bash
+sudo docker compose -f compose.yaml -f compose.ssh.yaml stop backend
+```
+
+**Kullanıcı bildirimi:** Windows tünelinden health ve Android emülatöründen
+gerçek senaryo üretimi geçti. Bu, yalnız backend üretim yolunu doğrular; Caddy,
+herkese açık HTTPS, video analizi veya video verilerinin sunucuya taşınmasını
+kanıtlamaz. Alan adı ve herkese açık HTTPS kullanıcı isteğiyle ertelendi.
+
 ### 6. Mobil uygulamayı uzak HTTPS adresine bağlama
 
 Uygulamada **Simülasyon ve Eğitim → Stüdyo → Sunucu ayarları** alanından tam
@@ -420,8 +497,13 @@ boyutu bu belgeden tahmin edilmemelidir.
 - [ ] Mobilde kayıtlı eski URL güncellenip HTTPS health ve oturumluk ekip anahtarı
       ile tek açık işlem doğrulandı.
 
-Kabul listesinin tamamı henüz geçilmiş değildir. Yukarıdaki kullanıcı bildirimiyle
-image, deployment yükleme, bağımlılık denetimi, backend testleri, Compose yapı
-kontrolü ve Caddy yapılandırma doğrulaması tamamlandı. Gerçek sunucu, servislerin
-birlikte çalışması/proxy erişimi, DNS, sertifika, firewall, mobil uzak bağlantı,
-yedekten geri yükleme ve gerçek sağlayıcı çağrısı hâlâ doğrulanmadı.
+Kabul listesinin tamamı henüz geçilmiş değildir. Kullanıcı bildirimiyle backend
+sunucuda çalıştırılmış, loopback `/health`, Windows SSH tüneli ve Android
+emülatöründen gerçek senaryo üretimi doğrulanmıştır. Bu, Caddy/HTTPS yolunu
+doğrulamaz: Caddy başlatılmadı; DNS ve herkese açık TLS ertelendi. Yedekten geri
+yükleme ve host yeniden başladıktan sonra container'ın dönüşü de denenmedi.
+Image, deployment yükleme, bağımlılık denetimi, backend testleri, Compose yapı
+kontrolü ve Caddy yapılandırma doğrulaması daha önce kullanıcı tarafından
+bildirilmiş doğrulamalardır. Gerçek sağlayıcı erişimi dışında tek bir bilinçli
+istek ayrıca bu SSH tünelli kurulumda çalışmıştır; video analizi sunucuya
+taşınmış değildir.
