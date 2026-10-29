@@ -9,6 +9,9 @@ import 'package:neuro_awareness_app/widgets/expandable_finding_card.dart';
 import 'package:neuro_awareness_app/widgets/finding_notification_pill.dart';
 import 'package:neuro_awareness_app/widgets/floating_video_controls.dart';
 import 'package:neuro_awareness_app/widgets/fullscreen_video_screen.dart';
+import 'package:neuro_awareness_app/services/d01_pilot_service.dart';
+import 'package:neuro_awareness_app/models/d01_pilot_result.dart';
+import 'support/d01_pilot_fixtures.dart';
 // Mevcut video_player paketinin test sınırı; gerçek video motoru kullanılmaz.
 // ignore: depend_on_referenced_packages
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
@@ -115,7 +118,8 @@ void main() {
 
   Future<void> mount(WidgetTester tester, Future<XFile?> Function(ImageSource) pick,
       {bool settle = true, ValueNotifier<bool>? tabVisibility,
-      Size surfaceSize = const Size(1000, 1000), double textScale = 1}) async {
+      Size surfaceSize = const Size(1000, 1000), double textScale = 1,
+      bool pilot = false, D01PilotApi? pilotApi}) async {
     await tester.binding.setSurfaceSize(surfaceSize);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(MaterialApp(
@@ -123,7 +127,8 @@ void main() {
         data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
         child: child!,
       ),
-      home: VideoAnalysisScreen(pickVideo: pick, tabVisibility: tabVisibility),
+      home: VideoAnalysisScreen(pickVideo: pick, tabVisibility: tabVisibility,
+        experimentalD01: pilot, pilotApi: pilotApi),
     ));
     if (settle) {
       await tester.pumpAndSettle();
@@ -132,7 +137,8 @@ void main() {
     }
   }
 
-  Future<void> pickFromGallery(WidgetTester tester, String label) async {
+  Future<void> pickFromGallery(WidgetTester tester, String label,
+      {bool checkSourceLayout = false}) async {
     final button = find.byKey(const ValueKey('video-source-button'));
     expect(button, findsOneWidget, reason: 'Video kaynağı eylemi: $label');
     await tester.ensureVisible(button);
@@ -141,6 +147,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     final gallery = find.text('Galeri');
     expect(gallery, findsOneWidget, reason: 'Video kaynağı seçici açılmalı.');
+    if (checkSourceLayout) {
+      final heading = find.text('Video Kaynağı');
+      final close = find.byKey(const ValueKey('video-source-close'));
+      expect(heading, findsOneWidget);
+      expect(close.hitTestable(), findsOneWidget);
+      expect(tester.getRect(heading).right, lessThanOrEqualTo(tester.getRect(close).left),
+          reason: 'Tam başlık kullanılabilir genişlikte satır kırmalı; kapatma düğmesini taşırmamalı.');
+      expect(gallery.hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
     await tester.tap(gallery);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -223,6 +239,115 @@ void main() {
     }
     expect(tester.takeException(), isNull);
   }
+
+  Future<void> startPilot(WidgetTester tester) async {
+    final address = find.byKey(const ValueKey('pilot-address'));
+    await tester.ensureVisible(address);
+    await tester.enterText(address, 'http://10.0.2.2:8000');
+    final button = find.byKey(const ValueKey('pilot-start'));
+    await tester.ensureVisible(button); await tester.tap(button);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('Pilot uses existing preview/fullscreen; seek pauses same controller without playing', (tester) async {
+    // Establish and restore a valid foreground baseline, including on failure.
+    void resumeLifecycle() {
+      final binding = tester.binding;
+      if (binding.lifecycleState == AppLifecycleState.paused) {
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      }
+      if (binding.lifecycleState == AppLifecycleState.hidden) {
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      }
+      if (binding.lifecycleState != AppLifecycleState.resumed) {
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      }
+    }
+    resumeLifecycle();
+    addTearDown(resumeLifecycle);
+    final api = ControlledPilotApi();
+    final task = ControlledPilotTask()
+      ..readStatus = () async => D01PilotStatus.fromJson(pilotStatusJson('completed'));
+    api.makeTask = () => task;
+    await mount(tester, (_) async => XFile('second.mp4'), pilot: true, pilotApi: api);
+    expect(platform.sources, isEmpty, reason: 'Pilot must not open a different default example.');
+    expect(find.byTooltip('Gemini API Anahtarı'), findsNothing);
+    await pickFromGallery(tester, 'Video seç');
+    final controller = controls(tester).controller;
+    await controller.play(); await tester.pump();
+    await startPilot(tester);
+    final candidate = find.byKey(const ValueKey('pilot-raw-candidate_001'));
+    await tester.ensureVisible(candidate); await tester.tap(candidate); await tester.pumpAndSettle();
+    expect(controls(tester).controller, same(controller));
+    expect(controller.value.position, const Duration(milliseconds: 1500));
+    expect(controller.value.isPlaying, isFalse);
+    expect(platform.calls.where((x) => x == 'play:0'), hasLength(1));
+    expect(task.submits, 1);
+    await controller.play();
+    try {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      expect(controller.value.isPlaying, isFalse,
+          reason: 'Video arka plana geçerken duraklamalı.');
+    } finally {
+      resumeLifecycle();
+    }
+    await tester.pump();
+    expect(tester.binding.lifecycleState, AppLifecycleState.resumed);
+    expect(controller.value.isPlaying, isFalse);
+    expect(controls(tester).controller, same(controller));
+    expect(controller.value.position, const Duration(milliseconds: 1500));
+    await checkFullscreen(tester, expectedTitle: 'second.mp4');
+    expect(find.byKey(const ValueKey('pilot-raw-candidate_001')), findsOneWidget);
+    await close(tester);
+  });
+
+  testWidgets('Pilot 320px/double text keeps preview and start controls accessible', (tester) async {
+    await mount(tester, (_) async => XFile('second.mp4'), pilot: true,
+      pilotApi: ControlledPilotApi(), surfaceSize: const Size(320, 744), textScale: 2);
+    await pickFromGallery(tester, 'Video seç', checkSourceLayout: true); await tester.pumpAndSettle();
+    final preview = find.byType(FloatingVideoControls);
+    await tester.ensureVisible(preview); await tester.pumpAndSettle();
+    expect(controls(tester).wrapControls, isTrue);
+    for (final icon in [Icons.play_arrow_rounded, Icons.replay_5_rounded,
+      Icons.forward_5_rounded, Icons.volume_up_rounded, Icons.fullscreen_rounded]) {
+      final control = find.descendant(of: preview, matching: find.widgetWithIcon(IconButton, icon));
+      expect(control.hitTestable(), findsOneWidget);
+    }
+    expect(tester.takeException(), isNull);
+    final start = find.byKey(const ValueKey('pilot-start'));
+    await tester.ensureVisible(start); await tester.pumpAndSettle();
+    expect(start.hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await close(tester);
+  });
+
+  testWidgets('Pilot source cancel/failure preserves result; successful source change drops old identity', (tester) async {
+    final api = ControlledPilotApi();
+    final task = ControlledPilotTask()
+      ..readStatus = () async => D01PilotStatus.fromJson(pilotStatusJson('completed'));
+    api.makeTask = () => task;
+    XFile? selection = XFile('second.mp4');
+    await mount(tester, (_) async => selection, pilot: true, pilotApi: api);
+    await pickFromGallery(tester, 'Video seç'); await startPilot(tester);
+    final controller = controls(tester).controller;
+    selection = null;
+    await pickFromGallery(tester, 'Video değiştir');
+    expect(controls(tester).controller, same(controller));
+    expect(find.byKey(const ValueKey('pilot-raw-candidate_001')), findsOneWidget);
+    platform.failInitialize = true; selection = XFile('bad.mp4');
+    await pickFromGallery(tester, 'Video değiştir'); await tester.pumpAndSettle();
+    expect(controls(tester).controller, same(controller));
+    expect(find.byKey(const ValueKey('pilot-raw-candidate_001')), findsOneWidget);
+    platform.failInitialize = false; selection = XFile('new.mp4');
+    await pickFromGallery(tester, 'Video değiştir'); await tester.pumpAndSettle();
+    expect(controls(tester).controller, isNot(same(controller)));
+    expect(find.byKey(const ValueKey('pilot-raw-candidate_001')), findsNothing);
+    expect(task.submits, 1); expect(task.cancels, 0);
+    await close(tester);
+  });
 
 
 

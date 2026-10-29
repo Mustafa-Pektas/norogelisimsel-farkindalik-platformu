@@ -1,0 +1,15 @@
+{
+  "version": "d01-reviewed-profiles-1.0",
+  "profiles": [
+    {
+      "id": "d01-first-reviewed",
+      "sha256": "6f127ff5387de2e0399d548ce21a3799710b0ec75ad594ef1ac2e5fe91e4c451",
+      "roi": {"x":250,"y":-40,"width":440,"height":440,"padding_ltrb_source_px":[0,40,0,0],"padding_rgb":[128,128,128],"human_supplied":true}
+    },
+    {
+      "id": "d01-second-reviewed",
+      "sha256": "b6e12246983f8852f2cef4397b328ec9c0412294564a17212a4021a653eaf605",
+      "roi": {"x":220,"y":140,"width":320,"height":320,"padding_ltrb_source_px":[0,0,0,0],"human_supplied":true}
+    }
+  ]
+}

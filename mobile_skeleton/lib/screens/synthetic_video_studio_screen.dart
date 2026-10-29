@@ -25,6 +25,7 @@ import '../services/synthetic_video_service.dart';
 import '../services/server_api_service.dart';
 import '../services/http_scenario_generation_service.dart';
 import 'scenario_graph_screen.dart';
+import 'video_analysis_screen.dart';
 
 class BundledGraphPlaybackExample {
   const BundledGraphPlaybackExample({
@@ -1079,6 +1080,19 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(builder: (_) => const ScenarioGraphScreen()),
                     ),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    key: const ValueKey('open-d01-pilot-analysis'),
+                    leading: const Icon(Icons.science_outlined),
+                    title: const Text('Deneysel D01 baş hareketi analizi'),
+                    subtitle: const Text('Ekip aracı · Yalnız iki denetlenmiş video; genel davranış analizi değildir.'),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => VideoAnalysisScreen(
+                        experimentalD01: true,
+                        initialPilotAccessKey: _teamAccessKeyController.text.trim(),
+                      ),
+                    )),
                   ),
                 ],
               ),

@@ -11,9 +11,11 @@ const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const { generateText, generateTextWithUsage } = require('./gemini_text');
 const { createScenarioInputHandler, defaultCardsPath } = require('./scenario_input_generation');
 const { createGenerationCapacity } = require('./generation_capacity');
+const { createPilotJobs } = require('./d01_pilot_jobs');
 
 function createApp({ env = process.env, generate = generateTextWithUsage, genAI: injectedGenAI, generationTimers,
-  reportMeasurement } = {}) {
+  reportMeasurement, pilotD01 } = {}) {
+const pilotEnabled = env.PILOT_D01_ENABLED === 'true';
 const mode = env.BACKEND_MODE || 'development';
 if (!['development', 'deployment'].includes(mode)) {
   throw new Error('BACKEND_MODE development veya deployment olmalıdır.');
@@ -21,7 +23,7 @@ if (!['development', 'deployment'].includes(mode)) {
 const deployment = mode === 'deployment';
 const capacity = deployment ? createGenerationCapacity(env.GENERATION_MAX_CONCURRENT) : null;
 let teamKeyHash;
-if (deployment) {
+if (deployment || pilotEnabled) {
   if (typeof env.TEAM_ACCESS_KEY !== 'string' || !/^[\x21-\x7e]+$/.test(env.TEAM_ACCESS_KEY)) {
     throw new Error('Deployment için TEAM_ACCESS_KEY boş olmayan, boşluksuz bir erişim anahtarı olmalıdır.');
   }
@@ -36,14 +38,18 @@ if (deployment) {
   app.use((req, res, next) => {
     const allowed = (req.path === '/health' && ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) ||
       (['/api/generate-scenario-input', '/api/generate-clip-plan', '/api/compare-scenario'].includes(req.path) &&
-        ['POST', 'OPTIONS'].includes(req.method));
+        ['POST', 'OPTIONS'].includes(req.method)) || (pilotEnabled &&
+        ((req.path === '/api/pilot-d01/jobs' && ['POST', 'OPTIONS'].includes(req.method)) ||
+        (/^\/api\/pilot-d01\/jobs\/[^/]+$/.test(req.path) && ['GET', 'DELETE', 'OPTIONS'].includes(req.method)) ||
+        (/^\/api\/pilot-d01\/jobs\/[^/]+\/result$/.test(req.path) && ['GET', 'OPTIONS'].includes(req.method))));
     if (!allowed) return res.status(404).json({ success: false, error: 'Endpoint bu çalışma modunda açık değil.' });
     next();
   });
 }
 app.use(cors());
-if (deployment) {
+if (deployment || pilotEnabled) {
   app.use((req, res, next) => {
+    if (!deployment && !req.path.startsWith('/api/pilot-d01/')) return next();
     if (req.path === '/health' || req.method === 'OPTIONS') return next();
     const authorization = req.get('authorization');
     const match = typeof authorization === 'string' ? /^Bearer ([^\s]+)$/i.exec(authorization) : null;
@@ -60,6 +66,10 @@ if (deployment) {
 }
 app.use(express.json({ limit: deployment ? '1mb' : '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: deployment ? '1mb' : '50mb' }));
+if (pilotEnabled) {
+  app.locals.pilotD01 = createPilotJobs(env, pilotD01);
+  app.locals.pilotD01.install(app);
+}
 
 // Multer (Video yüklemeleri için bellekte tutucu)
 const upload = multer({
@@ -470,7 +480,7 @@ function getLocalIps() {
   return results;
 }
 
-app.listen(port, '0.0.0.0', () => {
+const server = app.listen(port, '0.0.0.0', () => {
   const ips = getLocalIps();
   console.log('====================================================');
   console.log(`🚀 Nörogelişimsel Platform Backend Sunucusu Hazır!`);
@@ -484,4 +494,10 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`Çalışma modu: ${deployment ? 'deployment' : 'development'}`);
   console.log('====================================================');
 });
+if (app.locals.pilotD01) {
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
+    server.close();
+    app.locals.pilotD01.shutdown().catch(() => { console.error('[pilot] shutdown_failed'); process.exitCode = 1; });
+  });
+}
 }

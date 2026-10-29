@@ -1,0 +1,22 @@
+{
+  "protocol_version": "d01-pilot-fixed-1.0",
+  "motion_config": "motion_candidates_v1.json",
+  "settling_config": "settling_regions_v1.json",
+  "motion_config_sha256": "4a0013eb654498df4c13f9262f8eb21b725ade682d291a5521e46e5e286e9d18",
+  "settling_config_sha256": "43b31558e36c9166c37c51e38e3913c7ba37c63f4f39e281dfbc000d61ebfb30",
+  "movement_setting": "base",
+  "ema_alpha": 0.5,
+  "fps": 24,
+  "cpu_threads": 4,
+  "matrix_tolerance": 0.0001,
+  "weights_sha256": "3ee08f1e04b8d452a6c4a40926a6f38051894ae6d0aaa6d191fe6d8bc6e4f9c6",
+  "official_source_sha256": {
+    "test.py": "d6c18a24c11b59f720581e8511dcb16bf8b10b8272e0102cc79f6d2834ad7988",
+    "utils.py": "2bb3fa3ae7d848cc657c4d6c5b2b231fc0b06380e26e7bb109bd70bfc11068f9",
+    "datasets.py": "61bcbf3e44b431f26e68fc76d88ae5bfbece7ac8c2f04eef6929efb4378ed379"
+  },
+  "frame_count": "read from video; never fixed",
+  "missing_data": "preserve null decoder times and invalid matrices; no interpolation; EMA continuity resets across missing/invalid data",
+  "settling_starts": "every known base V1 start, separately, through clip end; unknown start explicitly unassessable",
+  "roi_source": "human-supplied pilot ROI, not automatic child tracking"
+}

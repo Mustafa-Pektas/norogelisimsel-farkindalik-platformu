@@ -4,6 +4,28 @@ Bu uygulamanın iki ana alanı **Video Analizi** ve **Simülasyon ve Eğitim**�
 Senaryo/prompt hazırlama ve model karşılaştırması proje ekibinin araçlarıdır.
 Üretilen anlatı ve planlar taslaktır; tanı, klinik puan veya gözlenmiş davranış değildir.
 
+## Deneysel D01 baş hareketi analizi — ekip pilotu
+
+**Menü:** Simülasyon ve Eğitim → Hazır örnekler ve diğer araçlar → Deneysel D01 baş hareketi analizi. Bu araç genel Video Analizi/Gemini analizi değildir. Yalnız backend'in `d01-first-reviewed` ve `d01-second-reviewed` hash profilleri desteklenir; diğer videolara otomatik ROI uygulanmaz. Paketli D01 videolarının tamamı destekleniyor sanılmamalıdır; ikinci denetlenmiş video `assets/videos/d01_name_turning/20261024200833.mp4` dosyasıdır.
+
+1. Yerel backend'i `backend/D01_PILOT.md` içindeki Python/ağırlık/resmî kaynak ayarlarıyla, `PILOT_D01_ENABLED=true`, oturumluk `TEAM_ACCESS_KEY` ve bu denemeye ayrılmış yeni iş köküyle hazırlayın. Önceki650 sn gerçek koşu nedeniyle bu denemede açık `PILOT_D01_TIMEOUT_MS=900000`, `PILOT_D01_KILL_GRACE_MS=10000` kullanın; .env/varsayılanları değiştirmeyin. Bu backend CPU işi ve Python ortamı gerektirir; mevcut Node-only Docker imajı tek başına yeterli değildir. Tamamlanmış doğrulama betiği kendi backend'ini kapatır; mobil deneme için dinleyen yerel backend ayrıca gerekir. Bu tur backend/model başlatılmadı.
+2. Denetlenmiş videoyu emülatörün galerisinden seçilebilir şekilde cihaza aktarın; uygulama paketindeki assetler kendiliğinden galeride görünmez. “Video seç” ile açın, önizleyin. Açılış hatası veya seçim iptali önceki çalışan videoyu/sonucu korur; başarılı değişim eski sonucu ve yalnız istemci takibini temizler.
+3. Pilot adresine Android emülatörde `http://10.0.2.2:8000` (backend farklı porttaysa o port), ekip anahtarına aynı backend oturumunun anahtarını girin. Stüdyo'daki anahtar varsa pencere açılışında devralınır. İkisi de bu ekran oturumundadır; senaryo sunucusunun adresi/tercihleri değişmez. Debug derlemede emülatör/loopback HTTP izinlidir; release izinleri genişletilmedi. Bu düz HTTP erişimi yerel ekip denemesi içindir; internet üzerinde gerçek anahtarla kullanılacak HTTPS kurulumu yerine geçmez.
+4. **Pilot analizi başlat** düğmesi multipart yükler,202 ile iş kimliği alır;5 saniye aralıklarla önceki sorgu bittikten sonra durum sorar. Birkaç dakika sürebilir. Sunucu kare ilerlemesi bildirmiyorsa yüzde/zaman tahmini yapılmaz. İşlem başına HTTP beklemesi30 sn; istemci takip sınırı20 dk. Bağlantı hatasında yeni analiz otomatik başlamaz; iş kimliği varsa **Aynı işi yeniden takip et** yalnız GET takibini sürdürür.
+5. Completed sonrasında ham ve EMA α=.50 adaylarını ayrı inceleyin. **Aday aralığı** ve daha sonraki **doğrulama zamanı** farklıdır. Adaya dokunmak aynı videoda başlangıca gider ve duraklatır; oynatma kendi kontrolünüzdedir. Eksik/ters/süre dışı aralıkta kısayol kapalıdır. Hareket adayları isme tepki veya doğru hedef sınıflandırması değildir. Çağrı zamanları gönderilmez; bilinmeyen değerler sıfır/tepki yok sayılmaz. Yerleşme sonuçları fiziksel hareket bitişini kanıtlamaz.
+6. **Sunucudaki işi iptal et** ayrı DELETE isteğidir;202 yalnız isteğin kabulüdür, kapanış durumu ayrıca beklenir. Ekrandan çıkmak/video değiştirmek sunucu işini iptal etmez. İş kimliğini operatör incelemesi için saklayın; bu tur iş geçmişi/analiz sonucu kalıcılığı eklenmedi. Anahtar kaydedilmez, dışa aktarılmaz veya loglanmaz.
+
+Normal Windows PowerShell'de, `mobile_skeleton` dizininde (bu tur ortam engeli nedeniyle çalıştırılarak doğrulanmadı):
+
+```powershell
+& 'C:\dev\flutter\bin\flutter.bat' analyze --no-pub
+& 'C:\dev\flutter\bin\flutter.bat' test --no-pub test/d01_pilot_service_test.dart test/d01_pilot_panel_test.dart test/video_analysis_source_test.dart test/studio_sections_test.dart
+# Kontroller geçtikten ve yerel backend hazırlandıktan sonra kullanıcı başlatır:
+& 'C:\dev\flutter\bin\flutter.bat' run --no-pub --dart-define=D01_PILOT_SERVER_URL=http://10.0.2.2:8000
+```
+
+İlk cihaz kontrolünde yeni iş kimliği/gerçek yükleme, completed sayımları, ham/EMA ayrı listeler, duraklatılmış zaman kısayolu ve video değiştirme kontrol edilir. İptal/ekran kapanışı sunucuya iptal gönderme bakımından ayrı sınanmalıdır. Önceki gerçek yerel API koşusu yeni mobil arayüzün çalıştırıldığı anlamına gelmez.
+
 ## Hangi kavram ne demek?
 
 | Kavram | Anlamı |

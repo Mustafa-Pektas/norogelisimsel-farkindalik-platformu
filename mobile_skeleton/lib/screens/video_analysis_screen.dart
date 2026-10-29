@@ -10,25 +10,33 @@ import '../widgets/fullscreen_video_screen.dart';
 import '../widgets/api_key_dialog.dart';
 import '../widgets/finding_notification_pill.dart';
 import '../services/server_api_service.dart';
+import '../services/d01_pilot_service.dart';
+import '../widgets/d01_pilot_panel.dart';
 import 'institutions_screen.dart';
 
 class VideoAnalysisScreen extends StatefulWidget {
   final Future<XFile?> Function(ImageSource)? pickVideo;
   final ValueNotifier<bool>? tabVisibility;
   final dynamic analysisService;
+  final bool experimentalD01;
+  final D01PilotApi? pilotApi;
+  final String initialPilotAccessKey;
 
   const VideoAnalysisScreen({
     super.key,
     this.pickVideo,
     this.tabVisibility,
     this.analysisService,
+    this.experimentalD01 = false,
+    this.pilotApi,
+    this.initialPilotAccessKey = '',
   });
 
   @override
   State<VideoAnalysisScreen> createState() => _VideoAnalysisScreenState();
 }
 
-class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
+class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> with WidgetsBindingObserver {
   final int _selectedCaseIndex = 0; // 0: Deniz Senaryosu
   VideoPlayerController? _controller;
   bool _isAnalyzing = false;
@@ -226,9 +234,12 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.experimentalD01) {
+      WidgetsBinding.instance.addObserver(this);
+    }
     widget.tabVisibility?.addListener(_tabVisibilityChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
+      if (mounted && !widget.experimentalD01) {
         _loadVideoForCurrentCase();
       }
     });
@@ -252,6 +263,16 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
     final controller = _controller;
     if (controller != null && controller.value.isInitialized && controller.value.isPlaying) {
       unawaited(controller.pause().catchError((Object _) {}));
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (widget.experimentalD01 && state != AppLifecycleState.resumed) {
+      final controller = _controller;
+      if (controller != null && controller.value.isInitialized) {
+        unawaited(controller.pause().catchError((Object _) {}));
+      }
     }
   }
 
@@ -430,15 +451,18 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Video Kaynağı',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0F172A),
+                    const Expanded(
+                      child: Text(
+                        'Video Kaynağı',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                        ),
                       ),
                     ),
                     IconButton(
+                      key: const ValueKey('video-source-close'),
                       icon: const Icon(Icons.close, size: 20),
                       onPressed: () => Navigator.pop(context),
                     ),
@@ -461,7 +485,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
                     _pickVideo(ImageSource.camera);
                   },
                 ),
-                if (_isCustomVideo) ...[
+                if (_isCustomVideo && !widget.experimentalD01) ...[
                   const Divider(height: 16),
                   ListTile(
                     leading: const Icon(Icons.restore_outlined, color: Color(0xFF0F172A)),
@@ -511,6 +535,9 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
   }
 
   Future<void> _runPipelineAnalysis() async {
+    if (widget.experimentalD01) {
+      return;
+    }
     final file = _customVideoFile;
     final controller = _controller;
     if (!_isCustomVideo || file == null || controller?.value.isInitialized != true ||
@@ -601,8 +628,21 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
     );
   }
 
+  Future<void> _seekPilot(VideoPlayerController? expected, Duration target) async {
+    final controller = _controller;
+    if (_openingVideo || controller == null || !identical(controller, expected) || !controller.value.isInitialized ||
+        target < Duration.zero || target >= controller.value.duration) {
+      return;
+    }
+    await controller.pause();
+    if (!mounted || !identical(controller, _controller) || _openingVideo) return;
+    await controller.seekTo(target);
+    if (mounted && identical(controller, _controller)) setState(() => _showControls = true);
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     ++_selectionRequest;
     ++_analysisRequest;
     widget.tabVisibility?.removeListener(_tabVisibilityChanged);
@@ -621,6 +661,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final pilotController = _controller;
     final hasServerResult = _isCustomVideo && _customAnalysisDone;
     final findings = hasServerResult ? _customFindings : const <BehaviorFinding>[];
     final bookmarks = hasServerResult
@@ -640,13 +681,13 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('Video Analizi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        title: Text(widget.experimentalD01 ? 'D01 pilot' : 'Video Analizi', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
 
-          IconButton(
+          if (!widget.experimentalD01) IconButton(
             tooltip: 'Gemini API Anahtarı',
             icon: const Icon(Icons.key_outlined, size: 20),
             onPressed: () => ApiKeyDialog.show(context),
@@ -659,7 +700,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            if (!_isCustomVideo)
+            if (!_isCustomVideo && !widget.experimentalD01)
               Container(
                 key: const ValueKey('video-analysis-example-notice'),
                 width: double.infinity,
@@ -700,7 +741,9 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
                             : Container(
                                 color: const Color(0xFF0F172A),
                                 child: Center(
-                                  child: _videoOpenError == null
+                                  child: widget.experimentalD01 && !_openingVideo && _videoOpenError == null
+                                      ? const Text('Önizleme için video seçin.', style: TextStyle(color: Colors.white))
+                                      : _videoOpenError == null
                                       ? CircularProgressIndicator(
                                           key: ValueKey('video-opening-spinner'),
                                           color: Colors.white,
@@ -736,6 +779,8 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
                       if (_controller != null && _controller!.value.isInitialized)
                         Positioned(
                           bottom: 4,
+                          left: widget.experimentalD01 ? 0 : null,
+                          right: widget.experimentalD01 ? 0 : null,
                           child: AnimatedOpacity(
                             duration: const Duration(milliseconds: 260),
                             curve: Curves.easeInOut,
@@ -744,6 +789,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
                               ignoring: !_showControls,
                               child: FloatingVideoControls(
                                 controller: _controller!,
+                                wrapControls: widget.experimentalD01,
                                 onFullscreenToggle: _openingVideo ? null : _openFullscreen,
                               ),
                             ),
@@ -783,7 +829,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
                     ),
                   ),
                 ),
-                if (_isCustomVideo) ...[
+                if (_isCustomVideo && !widget.experimentalD01) ...[
                   const SizedBox(width: 8),
                   IconButton.filledTonal(
                     key: const ValueKey('video-reset-example'),
@@ -906,6 +952,16 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
             ],
 
             // ANALİZ YÜRÜT BUTONU
+            if (widget.experimentalD01) ...[
+              if (_videoOpenError != null) Text(_videoOpenError!, key: const ValueKey('video-open-error')),
+              D01PilotPanel(
+                video: _customVideoFile, videoIdentity: _controller,
+                duration: _controller?.value.duration ?? Duration.zero,
+                openingVideo: _openingVideo, onSeek: (target) => _seekPilot(pilotController, target),
+                api: widget.pilotApi ?? const HttpD01PilotApi(),
+                initialAccessKey: widget.initialPilotAccessKey,
+              ),
+            ] else ...[
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF0F172A),
@@ -995,6 +1051,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> {
                 style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold),
               ),
             ),
+            ],
           ],
         ),
       ),

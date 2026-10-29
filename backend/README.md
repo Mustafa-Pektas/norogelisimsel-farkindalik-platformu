@@ -309,3 +309,7 @@ karşılaştırmayı açın, A/B/C sistem istemlerini inceleyin, çağrı sayıs
 Başlat'a basın. Hoca için aynı girdiyi/model ayarını, üç ham çıktıyı, hataları ve
 bilinmeyen tokenları ayrı gösterin; sonuçları kapatmadan kopyalayın. Bu belgedeki
 başlatma adımları asistan tarafından çalıştırılmadı.
+
+# Deneysel yerel D01 iş API'si
+
+Varsayılan kapalı, ekip anahtarlı yükleme→iş kimliği→durum→ana sonuç bağlantısı eklendi. Mevcut senaryo endpoint'lerinden ve eski Gemini video analizinden ayrıdır. Yalnız iki denetlenmiş video hash'i ve kayıtlı ROI kabul edilir. Python/model Node Docker image'ına eklenmedi; gerçek Node→CLI koşusu henüz denenmedi. Yapılandırma, sözleşme,25 MiB sınırı, tek CPU işi, kesinti ve24 saat/en yeni10 iş saklama politikası: [D01_PILOT.md](D01_PILOT.md).

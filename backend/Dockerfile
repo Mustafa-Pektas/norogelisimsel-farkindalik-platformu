@@ -12,9 +12,10 @@ RUN npm ci --omit=dev
 # Yalnız sunucunun çalıştırdığı modüller, doğrulayıcı ve kanonik kart kaynağı.
 COPY --chown=node:node server.js gemini_text.js scenario_input_generation.js \
   scenario_clip_generation.js scenario_comparison.js generation_capacity.js \
-  generation_measurement.js ./
+  generation_measurement.js d01_pilot_jobs.js pilot_timing.js ./
 COPY --chown=node:node validators/ ./validators/
 COPY --chown=node:node resources/Davranis_Kartlari_v02.md ./resources/
+COPY --chown=node:node resources/d01_pilot_profiles.json ./resources/
 
 USER node
 EXPOSE 8000

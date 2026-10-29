@@ -5,12 +5,14 @@ class FloatingVideoControls extends StatefulWidget {
   final VideoPlayerController controller;
   final VoidCallback? onFullscreenToggle;
   final bool isFullscreen;
+  final bool wrapControls;
 
   const FloatingVideoControls({
     super.key,
     required this.controller,
     this.onFullscreenToggle,
     this.isFullscreen = false,
+    this.wrapControls = false,
   });
 
   @override
@@ -19,6 +21,10 @@ class FloatingVideoControls extends StatefulWidget {
 
 class _FloatingVideoControlsState extends State<FloatingVideoControls> {
   bool _isMuted = false;
+
+  Widget _controlsLayout(List<Widget> children) => widget.wrapControls
+      ? Wrap(alignment: WrapAlignment.center, crossAxisAlignment: WrapCrossAlignment.center, children: children)
+      : Row(mainAxisSize: MainAxisSize.min, children: children);
 
   String _formatDuration(Duration duration) {
     final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
@@ -70,9 +76,7 @@ class _FloatingVideoControlsState extends State<FloatingVideoControls> {
               ),
             ],
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+          child: _controlsLayout([
               // Oynat / Duraklat
               IconButton(
                 visualDensity: VisualDensity.compact,
@@ -141,8 +145,7 @@ class _FloatingVideoControlsState extends State<FloatingVideoControls> {
                   icon: Icon(widget.isFullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded),
                   onPressed: widget.onFullscreenToggle,
                 ),
-            ],
-          ),
+            ]),
         );
       },
     );

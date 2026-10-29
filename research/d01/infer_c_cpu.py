@@ -123,8 +123,8 @@ def main():
         info['timing']['imports_s']=time.perf_counter()-t
         info['packages']={n:importlib.metadata.version(n) for n in ('torch','torchvision','numpy','pillow','matplotlib')}
         torch.set_num_threads(min(4,os.cpu_count() or 1));info['cpu_threads']=torch.get_num_threads()
-        resize,crop=transforms.Resize(256),transforms.CenterCrop(224)
-        norm=transforms.Compose([transforms.ToTensor(),transforms.Normalize([.485,.456,.406],[.229,.224,.225])])
+        from official_runtime import input_transforms, load_official_model
+        resize,crop,norm=input_transforms()
         expected=[r for r in csv.DictReader((AUDIT/'kareler.csv').open(encoding='utf-8',newline='')) if r['candidate']=='C_ust40_acik_dolgu']
         assert [int(r['frame_index']) for r in expected]==list(range(168))
         t=time.perf_counter();cap=cv2.VideoCapture(roi['video_path'])
@@ -153,11 +153,8 @@ def main():
         official=importlib.import_module('test');utils=importlib.import_module('utils')
         assert Path(official.__file__).resolve()==(SOURCE/'sixdrepnet360/test.py').resolve()
         t=time.perf_counter()
-        model=official.SixDRepNet360(torchvision.models.resnet.Bottleneck,[3,4,6,3],6).cpu()
-        state=torch.load(WEIGHTS,map_location='cpu',weights_only=True)
-        state=state['model_state_dict'] if 'model_state_dict' in state else state
-        info['missing_keys']=sorted(set(model.state_dict())-set(state));info['unexpected_keys']=sorted(set(state)-set(model.state_dict()))
-        model.load_state_dict(state,strict=True);model.eval();info['strict_load_ok']=True
+        model,utils,load_checks=load_official_model(SOURCE,WEIGHTS)
+        info.update(load_checks)
         info['timing']['model_create_load_s']=time.perf_counter()-t;mem('model_loaded')
         red=norm(Image.new('RGB',(224,224),(255,0,0)))
         assert torch.allclose(red[:,0,0],torch.tensor([(1-.485)/.229,-.456/.224,-.406/.225]),atol=1e-6)

@@ -79,13 +79,10 @@ def main():
     P=np.array([polar(r) for r in R])
     def delta(a,b):return float(np.degrees(Rotation.from_matrix(a.T@b).magnitude()))
     def filters(mats):
+        from rotation_processing import causal_ema_matrices
         out={'raw':mats.copy()}
         for name,alpha in [('ema_050',.5),('ema_025',.25)]:
-            filtered=[mats[0]]
-            for target in mats[1:]:
-                rel=Rotation.from_matrix(filtered[-1].T@target).as_rotvec()
-                filtered.append(filtered[-1]@Rotation.from_rotvec(alpha*rel).as_matrix())
-            out[name]=np.array(filtered)
+            out[name]=np.array(causal_ema_matrices(mats,alpha))
         out['centered_5']=np.array([polar(np.mean(mats[max(0,i-2):min(len(mats),i+3)],axis=0)) for i in range(len(mats))])
         return out
     F=filters(P);F['raw']=R.copy() # immutable original matrices remain the raw reference, no silent replacement
