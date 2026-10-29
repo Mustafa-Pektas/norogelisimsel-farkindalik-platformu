@@ -1,0 +1,37 @@
+{
+  "d01_libvlc.py": {
+    "source": "araclar/d01_libvlc.py",
+    "sha256": "715947a1ee0da2da23c2cd908dd737a24c445280e13adf5719a987403c017f93",
+    "repository_copy_utf8_lf_sha256": "7bf524c1cfbeb7fcb1f46bbd91cde6e4783e194c6d16ba82ccb0085c8f66f211"
+  },
+  "d01_etiketleme.py": {
+    "source": "araclar/d01_etiketleme.py",
+    "sha256": "7f070e7d967761689b057866f27f72009ca3f75b625e1fec99454c4275ce2e4a",
+    "repository_copy_utf8_lf_sha256": "65358be665b9e5eb553311deb00cc215d11c4a3187005fbc0ee9b949e88a50c7"
+  },
+  "test_d01_libvlc.py": {
+    "source": "araclar/test_d01_libvlc.py",
+    "sha256": "4e272d2572fcbd7caf3ad94f34c3df47e79fab457aa7774ade1b58d7292f8a24",
+    "repository_copy_utf8_lf_sha256": "6422e161f5d3db6c082d225979c4ae67b47575d7427a414d945f24b15e0d2383"
+  },
+  "roi_review.py": {
+    "source": "outputs/d01_headpose_6drepnet360/roi_adaylari_20261029T073859Z/roi_kontrol.py",
+    "sha256": "e1db5a8951e78c78409795e475b3a996072e00487fe7aee52f6a1a90c4852478",
+    "repository_copy_utf8_lf_sha256": "ba34e293c1bc351a17f4e1096f745ce4ad0b7e2d543192733298f551ab6588e9"
+  },
+  "infer_c_cpu.py": {
+    "source": "outputs/d01_headpose_6drepnet360/c_cpu_20261029T080111Z/run.py",
+    "sha256": "580238cf57608109338ada5573fe1759bd0440644a152aea4c36cc8eab4f9544",
+    "repository_copy_utf8_lf_sha256": "8e2a66f3019205d279e18245cdc979de8dfadf95626ea946995b801be32f3291"
+  },
+  "smooth_rotations.py": {
+    "source": "outputs/d01_headpose_6drepnet360/c_smoothing_20261029T082741Z/analyze.py",
+    "sha256": "fef731e49dcc2184cad2d1ea5dff6c500508312a420bd23e4d7514aaf6f2e7ee",
+    "repository_copy_utf8_lf_sha256": "73348dd45b8e41081c1422992ad8630f52ac7b7561a4bcb04b18f1950115b250"
+  },
+  "parameters/smoothing.json": {
+    "source": "outputs/d01_headpose_6drepnet360/c_smoothing_20261029T082741Z/parametreler.json",
+    "sha256": "02073a514d8692cdc97423609db7df3cc5bf0f2d72de922e0520b0076cc7cc65",
+    "repository_copy_utf8_lf_sha256": "02073a514d8692cdc97423609db7df3cc5bf0f2d72de922e0520b0076cc7cc65"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "declared_before_processing": true,
+  "selection_basis": "Small fixed comparison of two causal strengths and one offline window; no manual-interval optimization",
+  "methods": [
+    {"id": "raw", "filter": "none"},
+    {"id": "ema_050", "filter": "SO3 exponential moving average via relative rotation log/exp", "alpha": 0.5, "causal": true, "initialization": "first raw matrix", "invalid_policy": "This experiment rejects input if any source frame is invalid; no filling"},
+    {"id": "ema_025", "filter": "SO3 exponential moving average via relative rotation log/exp", "alpha": 0.25, "causal": true, "initialization": "first raw matrix", "invalid_policy": "This experiment rejects input if any source frame is invalid; no filling"},
+    {"id": "centered_5", "filter": "equal-weight matrix chordal mean projected onto SO3 by SVD", "window_frames": 5, "future_frames": 2, "causal": false, "boundary": "truncate at clip ends; reject input if any source frame is invalid; no filling"}
+  ],
+  "fps": 24,
+  "euler_component_averaging": false,
+  "euler_unwrap": false,
+  "manual_interval_used_only_for_plot_annotation": [0.75, 1.4],
+  "synthetic_controls": "60 degree Z step at frame 10 and constant 2 degrees/frame Z ramp; algorithm demonstrations, not video truth or parameter selection",
+  "no_inference": true
+}

@@ -1,0 +1,12 @@
+# Keep only code, parameters and concise summaries here.
+.d01_test_*
+__pycache__/
+*.py[cod]
+*.csv
+*.jsonl
+*.mp4
+*.pth
+*.pt
+*.png
+*.svg
+runtime/

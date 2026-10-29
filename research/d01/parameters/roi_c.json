@@ -1,0 +1,21 @@
+{
+  "experiment_condition": "C ROI; padding effect and pose accuracy unverified",
+  "x": 250,
+  "y": -40,
+  "width": 440,
+  "height": 440,
+  "source_read_box": [250, 0, 690, 400],
+  "paste_into_canvas_xy": [0, 40],
+  "padding_ltrb": [0, 40, 0, 0],
+  "fill_rgb": [128, 128, 128],
+  "preprocessing": "RGB/PIL Resize(256) bilinear antialias -> CenterCrop(224) -> ToTensor -> ImageNet Normalize",
+  "frame_count": 168,
+  "nominal_fps": 24,
+  "frame_index_origin": 0,
+  "video_sha256": "6f127ff5387de2e0399d548ce21a3799710b0ec75ad594ef1ac2e5fe91e4c451",
+  "weights_sha256": "3ee08f1e04b8d452a6c4a40926a6f38051894ae6d0aaa6d191fe6d8bc6e4f9c6",
+  "official_commit": "b06e4fed77f802fbf05319b85bb65215087d5c7a",
+  "manual_interval_s": [0.75, 1.4],
+  "manual_end_is_approximate": true,
+  "manual_interval_is_ground_truth": false
+}
