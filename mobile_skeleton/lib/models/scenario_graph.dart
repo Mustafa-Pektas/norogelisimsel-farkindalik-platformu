@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'scenario_behavior_ref.dart';
+import 'scenario_age_group.dart';
 
 /// Planlanan bir sahne; gözlenmiş bir davranış veya video etiketi değildir.
 class ScenarioScene {
@@ -90,7 +91,8 @@ class ScenarioGraph {
     required this.scenarioId,
     required this.title,
     required this.language,
-    required this.ageMonths,
+    this.ageMonths,
+    this.ageGroup,
     required this.behaviorId,
     required this.cardVersion,
     required this.startSceneId,
@@ -107,16 +109,24 @@ class ScenarioGraph {
   }
 
   factory ScenarioGraph.fromJson(Map<String, dynamic> json) {
-    if (json['schemaVersion'] == '1.1' && json['behaviors'] == null) {
-      throw const FormatException('1.1 grafta davranış referansları zorunludur.');
+    if (['1.1', '1.2'].contains(json['schemaVersion']) && json['behaviors'] == null) {
+      throw const FormatException('Yeni graf şemalarında davranış referansları zorunludur.');
     }
     final note = json['authoringNote'];
     if (note != null && note is! String) {
       throw const FormatException('authoringNote metin olmalıdır.');
     }
+    final schema = json['schemaVersion'];
     final age = json['ageMonths'];
-    if (age is! int) {
-      throw const FormatException('ageMonths ay cinsinden tam sayı olmalıdır.');
+    final ageGroup = schema == '1.2' ? ScenarioAgeGroup.fromJson(json['ageGroup']) : null;
+    if (schema == '1.2' && json.containsKey('ageMonths')) {
+      throw const FormatException('1.2 grafında ageMonths kullanılamaz; sürümlü ageGroup gereklidir.');
+    }
+    if (schema != '1.2' && age is! int) {
+      throw const FormatException('Eski graf şemasında ageMonths eksik veya tam sayı değil.');
+    }
+    if (schema != '1.2' && json.containsKey('ageGroup')) {
+      throw const FormatException('Eski graf şemasında ageGroup kullanılamaz; ageMonths gereklidir.');
     }
     final rawScenes = _readList(json, 'scenes');
     final rawTransitions = _readList(json, 'transitions');
@@ -126,7 +136,8 @@ class ScenarioGraph {
       scenarioId: _readString(json, 'scenarioId'),
       title: _readString(json, 'title'),
       language: _readString(json, 'language'),
-      ageMonths: age,
+      ageMonths: age as int?,
+      ageGroup: ageGroup,
       behaviorId: _readString(json, 'behaviorId'),
       cardVersion: _readString(json, 'cardVersion'),
       behaviors: readScenarioBehaviors(json['behaviors']),
@@ -160,12 +171,14 @@ class ScenarioGraph {
   }
 
   static const currentSchemaVersion = '1.0';
+  static const ageGroupSchemaVersion = '1.2';
 
   final String schemaVersion;
   final String scenarioId;
   final String title;
   final String language;
-  final int ageMonths;
+  final int? ageMonths;
+  final ScenarioAgeGroup? ageGroup;
   final String behaviorId;
   final String cardVersion;
   final List<ScenarioBehaviorRef> behaviors;
@@ -181,7 +194,7 @@ class ScenarioGraph {
 
   void validate() {
     _requireText(schemaVersion, 'Şema sürümü');
-    if (schemaVersion != currentSchemaVersion && schemaVersion != '1.1') {
+    if (schemaVersion != currentSchemaVersion && schemaVersion != '1.1' && schemaVersion != ageGroupSchemaVersion) {
       throw FormatException('Desteklenmeyen şema sürümü: $schemaVersion.');
     }
     _requireText(scenarioId, 'Senaryo kimliği');
@@ -191,7 +204,7 @@ class ScenarioGraph {
     _requireText(cardVersion, 'Davranış kartı sürümü');
     if (behaviors.isEmpty || behaviors.first.behaviorId != behaviorId || behaviors.first.cardVersion != cardVersion ||
         behaviors.map((ref) => ref.behaviorId).toSet().length != behaviors.length ||
-        (behaviors.length > 1 && schemaVersion != '1.1')) {
+        (behaviors.length > 1 && !['1.1', ageGroupSchemaVersion].contains(schemaVersion))) {
       throw const FormatException('Grafın davranış listesi/sürümü uyuşmuyor.');
     }
     final covered = <String>{};
@@ -201,7 +214,7 @@ class ScenarioGraph {
     }
     for (final scene in scenes) {
       final ids = behaviorIdsFor(scene);
-      if ((schemaVersion == '1.1' && scene.behaviorIds == null) || ids.isEmpty ||
+      if ((schemaVersion != '1.0' && scene.behaviorIds == null) || ids.isEmpty ||
           ids.toSet().length != ids.length || ids.any((id) => !hasBehavior(id))) {
         throw const FormatException('Sahnenin davranış ilişkisi geçersiz.');
       }
@@ -212,8 +225,12 @@ class ScenarioGraph {
     }
     _requireText(startSceneId, 'Başlangıç sahnesi kimliği');
     if (authoringNote != null) _requireText(authoringNote!, 'Taslak notu');
-    if (ageMonths <= 0) {
-      throw const FormatException('ageMonths pozitif bir tam sayı olmalıdır.');
+    if (schemaVersion == ageGroupSchemaVersion) {
+      if (ageGroup == null || ageMonths != null) {
+        throw const FormatException('1.2 grafı yalnız sürümlü ageGroup taşımalıdır.');
+      }
+    } else if (ageMonths == null || ageMonths! <= 0 || ageGroup != null) {
+      throw const FormatException('Eski graf şeması pozitif ageMonths taşımalıdır.');
     }
     if (scenes.isEmpty) {
       throw const FormatException('Graf en az bir sahne içermelidir.');
@@ -280,10 +297,10 @@ class ScenarioGraph {
     'scenarioId': scenarioId,
     'title': title,
     'language': language,
-    'ageMonths': ageMonths,
+    if (ageGroup != null) 'ageGroup': ageGroup!.toJson() else 'ageMonths': ageMonths,
     'behaviorId': behaviorId,
     'cardVersion': cardVersion,
-    if (schemaVersion == '1.1') 'behaviors': behaviors.map((ref) => ref.toJson()).toList(),
+    if (schemaVersion != '1.0') 'behaviors': behaviors.map((ref) => ref.toJson()).toList(),
     'startSceneId': startSceneId,
     'scenes': [for (final scene in scenes) scene.toJson()],
     'transitions': [for (final transition in transitions) transition.toJson()],

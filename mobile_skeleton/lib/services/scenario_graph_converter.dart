@@ -80,6 +80,7 @@ class ScenarioGraphConverter {
       title: input.title,
       language: input.language,
       ageMonths: input.ageMonths,
+      ageGroup: input.ageGroup,
       behaviorId: input.behaviorId,
       cardVersion: input.cardVersion,
       behaviors: input.behaviors,

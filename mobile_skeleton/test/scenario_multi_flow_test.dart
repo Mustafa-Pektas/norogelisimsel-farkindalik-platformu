@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neuro_awareness_app/models/scenario_behavior_ref.dart';
+import 'package:neuro_awareness_app/models/scenario_age_group.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_request.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_result.dart';
 import 'package:neuro_awareness_app/models/scenario_input.dart';
@@ -21,7 +22,7 @@ import 'package:neuro_awareness_app/services/http_scenario_generation_service.da
 
 final _refs = ['D01','D02','D03'].map((id) => ScenarioBehaviorRef(behaviorId: id, cardVersion: '0.2')).toList();
 ScenarioGenerationRequest _request({bool linear = false}) => ScenarioGenerationRequest(
-  behaviorId: 'D01', cardVersion: '0.2', behaviors: _refs, ageMonths: 31, sceneContext: '  Evde oyun.  ',
+  behaviorId: 'D01', cardVersion: '0.2', behaviors: _refs, ageGroup: ScenarioAgeGroup.months24To36, sceneContext: '  Evde oyun.  ',
   production: linear ? ScenarioProductionSettings(structure: 'linear26', targetDurationS: 210, maxClipDurationS: 8) : null);
 String _raw(ScenarioGenerationRequest request) => ' \n${jsonEncode({
   'structure': request.linear ? 'linear26' : 'branched', 'commonStart': '  Ortak anlatı.  ',
@@ -70,7 +71,9 @@ class _Plans implements ClipPlanGenerationService {
   @override
   ScenarioGenerationJob startPlan(ClipPlanGenerationRequest request) {
     requests.add(request);
-    return _Job(jsonEncode({'schemaVersion': '1.0', 'planId': request.planId, 'scenarioId': request.graph.scenarioId,
+    return _Job(jsonEncode({'schemaVersion': request.request.ageGroup == null ? '1.0' : '1.1',
+      if (request.request.ageGroup != null) 'ageGroup': request.request.ageGroup!.toJson(),
+      'planId': request.planId, 'scenarioId': request.graph.scenarioId,
       'authoringNote': 'İncelenmedi.', 'continuityNotes': 'Aynı karakter ve ortam.', 'visualSuggestions': 'Üretilmiş görsel öneri.',
       'd01CallTiming': [{'clipId': 'clip-start', 'callEndS': 3}],
       'clips': [for (final scene in request.graph.scenes) {
@@ -89,6 +92,7 @@ Future<void> _field(WidgetTester tester, String key, String value) async {
   final target = find.byKey(ValueKey(key)); await tester.ensureVisible(target); await tester.enterText(target,value);
   await tester.testTextInput.receiveAction(TextInputAction.done); await tester.pump();
 }
+Future<void> _selectAgeGroup(WidgetTester tester, String id) => _tap(tester, 'scenario-age-group-$id');
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   String? copied;
@@ -177,7 +181,7 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: SyntheticVideoStudioScreen(generationService: service,
         clipPlanService: plans, scenarioDraftStore: store)));
       await tester.pumpAndSettle(); await _tap(tester,'studio-engine-server');
-      await _field(tester,'scenario-request-age','31'); await _field(tester,'scenario-request-context','  Evde oyun.  ');
+      await _selectAgeGroup(tester, '18_24'); await _field(tester,'scenario-request-context','  Evde oyun.  ');
       if (linear) {
         await _tap(tester,'scenario-structure-linear26');
         final goals = find.text('Süre ve klip hedefleri');
@@ -202,6 +206,8 @@ void main() {
       }
       expect(service.requests,isEmpty); await _tap(tester,'studio-generate-scenario');
       expect(service.requests.single.behaviors.map((ref) => ref.behaviorId), ['D01','D02','D03']);
+      expect(service.requests.single.ageGroup, ScenarioAgeGroup.months18To24);
+      expect(service.requests.single.ageMonths, isNull);
       expect(service.requests.single.linear, linear);
       if (linear) {
         expect(service.requests.single.production!.targetDurationS, 210);
@@ -234,7 +240,7 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle(); expect(tester.takeException(),isNull);
     });
   }
-  testWidgets('320px iki kat yazı: yaş rozeti alana değmez; hata alanın yanında, düzenler erişilir', (tester) async {
+  testWidgets('320px iki kat yazı: yaş grubu seçimi erişilir; seçim gereksinimi görünür ve eylemler korunur', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320,800)); addTearDown(() => tester.binding.setSurfaceSize(null));
     final service = _Generation();
     await tester.pumpWidget(MaterialApp(builder:(context,child) => MediaQuery(
@@ -242,10 +248,11 @@ void main() {
       home:SyntheticVideoStudioScreen(generationService:service)));
     await tester.pumpAndSettle(); await _tap(tester,'studio-engine-server');
     final age = find.byKey(const ValueKey('scenario-request-age')); await tester.ensureVisible(age);
-    expect(tester.getRect(age).top,greaterThan(tester.getRect(find.text('12–36 ay')).bottom));
-    await _field(tester,'scenario-request-age','11');
-    expect(find.text('12–36 arasında tam ay girin.'),findsOneWidget);
-    await _field(tester,'scenario-request-age','31'); expect(find.text('12–36 arasında tam ay girin.'),findsNothing);
+    expect(tester.getRect(age).top,greaterThan(tester.getRect(find.text('Yaş grubu (zorunlu)')).top));
+    await _tap(tester,'scenario-request-validate');
+    expect(find.text('Üretime devam etmek için bir yaş grubu seçin.'),findsOneWidget);
+    await _selectAgeGroup(tester, '24_36');
+    expect(find.text('Üretime devam etmek için bir yaş grubu seçin.'),findsNothing);
     for (final mode in ['linear26','branched']) { await _tap(tester,'scenario-structure-$mode'); }
     await tester.ensureVisible(find.byKey(const ValueKey('studio-generate-scenario')));
     expect(find.byKey(const ValueKey('studio-generate-scenario')).hitTestable(),findsOneWidget);

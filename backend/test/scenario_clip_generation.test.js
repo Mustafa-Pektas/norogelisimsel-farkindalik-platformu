@@ -106,6 +106,25 @@ test('Graf/istek referansları, erişim ve bitiş kuralları doğrulanır; dalla
     const value = structuredClone(input); mutate(value); assert.throws(() => validatePlanRequest(value));
   }
 });
+test('Sürümlü yaş grubu graf ve klip planında tam eşleşir; eski ay şeması değişmeden kalır', async () => {
+  for (const id of ['12_18', '18_24', '24_36']) {
+    const ageGroup = { contractVersion: '1.0', id };
+    const ageRequest = { requestVersion: '3.0', behaviors: [{ behaviorId: 'D01', cardVersion: '0.2' }],
+      ageGroup, sceneContext: request.sceneContext, additionalInstructions: request.additionalInstructions };
+    const ageGraph = structuredClone(graph);
+    ageGraph.schemaVersion = '1.2'; delete ageGraph.ageMonths; ageGraph.ageGroup = ageGroup;
+    ageGraph.behaviors = ageRequest.behaviors;
+    for (const scene of ageGraph.scenes) scene.behaviorIds = ['D01'];
+    const ageInput = validatePlanRequest({ request: ageRequest, graph: ageGraph, planId: input.planId });
+    const result = plan(); result.schemaVersion = '1.1'; result.ageGroup = ageGroup;
+    assert.deepEqual(validatePlan(JSON.stringify(result), ageInput, sourceCard), result);
+    const prompt = buildPlanPrompts(ageInput, sourceCard);
+    assert.match(prompt.system, new RegExp(`Age-group contract metadata must match the graph exactly:.*${id}`));
+    assert.ok(prompt.system.includes('Do not invent a representative month'));
+    const wrong = structuredClone(result); wrong.ageGroup = { contractVersion: '1.0', id: '12_18' === id ? '18_24' : '12_18' };
+    assert.throws(() => validatePlan(JSON.stringify(wrong), ageInput, sourceCard));
+  }
+});
 test('Klipler tüm sahneleri kesintisiz sırayla kapsar; süre, kimlik ve ses alanı zorunlu', () => {
   assert.deepEqual(validatePlan(JSON.stringify(plan()), input, sourceCard), plan());
   for (const mutate of [p => p.clips = p.clips.filter(c => c.sceneId !== 'b'),

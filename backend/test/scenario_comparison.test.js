@@ -34,7 +34,7 @@ test('223bc7d A/B/C uyarlaması: aynı temel/girdi, tek kanonik kaynak, kaynak m
   assert.equal(previews[2].system.split(card.fullText).length - 1, 1);
   for (const preview of previews) {
     assert.ok(preview.system.includes(card.title));
-    assert.equal(preview.outputContract, 'scenario-input-narrative-v3');
+    assert.equal(preview.outputContract, 'scenario-input-narrative-v4');
     assert.deepEqual(preview.settings, settings);
     assert.deepEqual(JSON.parse(preview.user), request);
     assert.equal(preview.source.sha256, card.sha256);
@@ -46,6 +46,40 @@ test('223bc7d A/B/C uyarlaması: aynı temel/girdi, tek kanonik kaynak, kaynak m
     card, 'other-model'), /değişti/);
   assert.throws(() => prepareComparison({ request, arm: 'A', action: 'generate', protocolId: '0'.repeat(64) },
     card, 'controlled'), /değişti/);
+});
+
+test('Üç yaş grubu normal ve A/B/C istemlerinde aynıdır; temsilî ay eklenmez', async () => {
+  const labels = { '12_18': '12–18 ay', '18_24': '18–24 ay', '24_36': '24–36 ay' };
+  for (const [id, label] of Object.entries(labels)) {
+    const request = { requestVersion: '3.0', behaviors: [
+      { behaviorId: 'D01', cardVersion: '0.2' }, { behaviorId: 'D02', cardVersion: '0.2' },
+    ], ageGroup: { contractVersion: '1.0', id }, sceneContext: 'Evde oyuncaklarla oyun.',
+    additionalInstructions: null };
+    const card = await loadCard(request);
+    let normalUser, normalBase;
+    const normalHandler = createScenarioInputHandler({ modelName: 'controlled', generate: async (_, prompts) => {
+      assert.deepEqual(JSON.parse(prompts.user), request);
+      assert.ok(prompts.system.includes(`Seçilen yaş grubu: ${label}`));
+      normalUser = prompts.user; normalBase = prompts.system.split('KAYNAK BAĞLAMI:')[0];
+      return JSON.stringify({ commonStart: 'Ortak.', structure: 'branched', commonBehaviorIds: ['D01','D02'],
+        alternatives: [{ title: 'Devam', continuation: 'Devam.', ending: 'Bitiş.', behaviorIds: ['D01','D02'] }] });
+    } });
+    const normal = await call(normalHandler, request);
+    assert.equal(normal.statusCode, 200);
+    assert.equal(normal.bodies[0].outputContract, 'scenario-input-narrative-v4');
+    assert.equal(normal.bodies[0].request.requestVersion, '3.0');
+    assert.deepEqual(normal.bodies[0].request.ageGroup, request.ageGroup);
+    const arms = ['A','B','C'].map(arm => prepareComparison({ request, arm, action: 'preview' }, card, 'controlled'));
+    for (const arm of arms) {
+      assert.equal(arm.outputContract, 'scenario-input-narrative-v4');
+      assert.equal(arm.user, normalUser);
+      assert.equal(arm.system.split('KAYNAK BAĞLAMI:')[0], normalBase);
+      assert.ok(arm.system.includes(`Seçilen yaş grubu: ${label}`));
+      assert.ok(arm.system.includes('tek bir ay değeri veya temsilî yaş çıkarma'));
+      assert.deepEqual(arm.settings, settings);
+    }
+    assert.equal(new Set(arms.map(arm => arm.user)).size, 1);
+  }
 });
 
 test('Normal üretim ve A/B/C aynı görev, ayar ve anlatı şemasını kullanır; kaynak dışında kol farkı yoktur', async () => {
@@ -100,7 +134,7 @@ test('Üç ayrı açık başlatma aynı ayarlarla üç çağrı yapar; ham cevap
     const body = response.bodies[0];
     assert.equal(body.rawResponse, raw); assert.equal(body.comparison.arm, arm);
     assert.deepEqual(body.scenarioInput, JSON.parse(raw));
-    assert.equal(body.comparison.outputContract, 'scenario-input-narrative-v3');
+    assert.equal(body.comparison.outputContract, 'scenario-input-narrative-v4');
     assert.equal(body.scenario, undefined);
     assert.equal(body.textualContinuity, undefined);
     assert.equal(body.measurement.outputTokens, 0); assert.equal(body.measurement.endpoint, 'compare-scenario');

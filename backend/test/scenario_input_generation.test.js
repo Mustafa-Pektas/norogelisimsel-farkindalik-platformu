@@ -5,7 +5,9 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { validateRequest, loadCard, buildNarrativePrompts, validateNarrative,
-  createScenarioInputHandler, safeProviderDiagnostic, defaultCardsPath } = require('../scenario_input_generation');
+  createScenarioInputHandler, safeProviderDiagnostic, defaultCardsPath, narrativeContract,
+  narrativeSchemaFor } = require('../scenario_input_generation');
+const { validateAgeGroup, fromLegacyMonths } = require('../scenario_age_group');
 const { generateText } = require('../gemini_text');
 const request = { behaviorId: 'D01', cardVersion: '0.2', ageMonths: 30,
   sceneContext: ' Evde oyuncakla oyun ', additionalInstructions: null };
@@ -37,6 +39,38 @@ test('İstek alanları zorunlu; yaş, eski kimlik, sürüm ve ek alan sessizce t
   for (const ageMonths of [12, 36]) assert.equal(validateRequest({ ...request, ageMonths }).ageMonths, ageMonths);
   assert.equal(validateRequest(request).sceneContext, request.sceneContext);
 });
+test('Sürümlü yaş grupları 12/18/24/36 sınırlarını eşler; yeni normal üretim istemi ay uydurmaz', async () => {
+  assert.deepEqual([11, 12, 17, 18, 23, 24, 36, 37].map(fromLegacyMonths), [
+    null, { contractVersion: '1.0', id: '12_18' }, { contractVersion: '1.0', id: '12_18' },
+    { contractVersion: '1.0', id: '18_24' }, { contractVersion: '1.0', id: '18_24' },
+    { contractVersion: '1.0', id: '24_36' }, { contractVersion: '1.0', id: '24_36' }, null,
+  ]);
+  const card = await loadCard(request);
+  for (const id of ['12_18', '18_24', '24_36']) {
+    const ageGroup = { contractVersion: '1.0', id };
+    const body = { requestVersion: '3.0', behaviors: [{ behaviorId: 'D01', cardVersion: '0.2' }],
+      ageGroup, sceneContext: 'Evde oyun.', additionalInstructions: null };
+    const validated = validateRequest(body);
+    const prompt = buildNarrativePrompts(validated, card);
+    assert.deepEqual(JSON.parse(prompt.user), body);
+    assert.equal(narrativeSchemaFor(validated).required.includes('structure'), true);
+    assert.ok(prompt.system.includes(`Seçilen yaş grubu: ${{
+      '12_18': '12–18 ay', '18_24': '18–24 ay', '24_36': '24–36 ay',
+    }[id]}`));
+    assert.ok(prompt.system.includes('tek bir ay değeri veya temsilî yaş çıkarma'));
+    assert.ok(!prompt.system.includes('İstekteki yaş:'));
+  }
+  assert.equal(narrativeContract, 'scenario-input-narrative-v4');
+  for (const invalid of [undefined, null, { contractVersion: '2.0', id: '18_24' },
+    { contractVersion: '1.0', id: '18_24', ageMonths: 18 }, { contractVersion: '1.0', id: 'unknown' }]) {
+    assert.equal(validateAgeGroup(invalid), null);
+  }
+  assert.throws(() => validateRequest({ requestVersion: '3.0', behaviors: bodyBehaviors(),
+    ageMonths: 18, ageGroup: { contractVersion: '1.0', id: '18_24' }, sceneContext: 'Ev' }));
+  assert.throws(() => validateRequest({ requestVersion: '3.0', behaviors: bodyBehaviors(),
+    sceneContext: 'Ev' }));
+});
+function bodyBehaviors() { return [{ behaviorId: 'D01', cardVersion: '0.2' }]; }
 test('Tek güncel Markdown kaynağı: tüm kartların işlem ve gözlem kuralları okunur', async () => {
   for (let i = 1; i <= 10; i++) {
     const req = { ...request, behaviorId: `D${String(i).padStart(2, '0')}` };

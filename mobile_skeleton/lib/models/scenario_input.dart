@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'scenario_graph.dart';
 import 'scenario_behavior_ref.dart';
+import 'scenario_age_group.dart';
 
 /// Kaynak beyanıdır; modelin çalıştığını veya olayın gözlendiğini doğrulamaz.
 enum ScenarioInputSource { manualExample, modelOutput, editedModelOutput }
@@ -59,7 +60,8 @@ class ScenarioInput {
     required this.scenarioId,
     required this.title,
     required this.language,
-    required this.ageMonths,
+    this.ageMonths,
+    this.ageGroup,
     required this.behaviorId,
     required this.cardVersion,
     required this.source,
@@ -71,7 +73,7 @@ class ScenarioInput {
        commonBehaviorIds = commonBehaviorIds == null ? null : List.unmodifiable(commonBehaviorIds),
        behaviors = List.unmodifiable(behaviors ?? [ScenarioBehaviorRef(behaviorId: behaviorId, cardVersion: cardVersion)]) {
     _text(schemaVersion, 'schemaVersion');
-    if (schemaVersion != ScenarioGraph.currentSchemaVersion && schemaVersion != '1.1') {
+    if (schemaVersion != ScenarioGraph.currentSchemaVersion && schemaVersion != '1.1' && schemaVersion != '1.2') {
       throw FormatException('Desteklenmeyen şema sürümü: $schemaVersion.');
     }
     _text(scenarioId, 'scenarioId');
@@ -83,8 +85,12 @@ class ScenarioInput {
       _text(ref.behaviorId, 'Davranış referansı'); _text(ref.cardVersion, 'Kart sürümü');
     }
     _text(commonStart, 'commonStart');
-    if (ageMonths <= 0) {
-      throw const FormatException('ageMonths pozitif bir tam sayı olmalıdır.');
+    if (schemaVersion == '1.2') {
+      if (ageGroup == null || ageMonths != null) {
+        throw const FormatException('1.2 senaryosu yalnız sürümlü ageGroup taşımalıdır.');
+      }
+    } else if (ageMonths == null || ageMonths! <= 0 || ageGroup != null) {
+      throw const FormatException('Eski şema pozitif ageMonths taşımalıdır.');
     }
     if (structure == 'branched' && this.alternatives.isEmpty) {
       throw const FormatException(
@@ -92,11 +98,11 @@ class ScenarioInput {
       );
     }
     if (!['branched','linear26'].contains(structure) ||
-        (structure == 'linear26' && (schemaVersion != '1.1' || this.linearScenes.length != 26 || this.alternatives.isNotEmpty)) ||
+        (structure == 'linear26' && (!['1.1', '1.2'].contains(schemaVersion) || this.linearScenes.length != 26 || this.alternatives.isNotEmpty)) ||
         (structure == 'branched' && this.linearScenes.isNotEmpty)) {
       throw const FormatException('Anlatı düzeni/sahne sayısı uyuşmuyor; dal uydurulmadı.');
     }
-    if (schemaVersion == '1.1') {
+    if (schemaVersion == '1.1' || schemaVersion == '1.2') {
       final selected = this.behaviors.map((ref) => ref.behaviorId).toSet();
       if (selected.length != this.behaviors.length || selected.isEmpty ||
           this.behaviors.first.behaviorId != behaviorId || this.behaviors.first.cardVersion != cardVersion) {
@@ -118,8 +124,9 @@ class ScenarioInput {
   }
 
   factory ScenarioInput.fromJson(Map<String, dynamic> json) {
-    if (json['schemaVersion'] == '1.1' && json['behaviors'] == null) {
-      throw const FormatException('1.1 senaryo girdisinde davranış referansları zorunludur.');
+    final schemaVersion = json['schemaVersion'];
+    if (['1.1', '1.2'].contains(schemaVersion) && json['behaviors'] == null) {
+      throw FormatException('$schemaVersion senaryo girdisinde davranış referansları zorunludur.');
     }
     _onlyFields(json, const {
       'schemaVersion',
@@ -127,6 +134,7 @@ class ScenarioInput {
       'title',
       'language',
       'ageMonths',
+      'ageGroup',
       'behaviorId',
       'cardVersion',
       'source',
@@ -135,8 +143,15 @@ class ScenarioInput {
       'behaviors', 'structure', 'commonBehaviorIds', 'linearScenes',
     }, 'Senaryo girdisi');
     final age = json['ageMonths'];
-    if (age is! int) {
-      throw const FormatException('ageMonths ay cinsinden tam sayı olmalıdır.');
+    final ageGroup = schemaVersion == '1.2' ? ScenarioAgeGroup.fromJson(json['ageGroup']) : null;
+    if (schemaVersion == '1.2' && json.containsKey('ageMonths')) {
+      throw const FormatException('1.2 şemasında ageMonths kullanılamaz; sürümlü ageGroup gereklidir.');
+    }
+    if (schemaVersion != '1.2' && age is! int) {
+      throw const FormatException('Eski şemada ageMonths eksik veya tam sayı değil.');
+    }
+    if (schemaVersion != '1.2' && json.containsKey('ageGroup')) {
+      throw const FormatException('Eski şemada ageGroup kullanılamaz; ageMonths gereklidir.');
     }
     final sourceText = _readText(json, 'source');
     final source = switch (sourceText) {
@@ -165,7 +180,8 @@ class ScenarioInput {
       scenarioId: _readText(json, 'scenarioId'),
       title: _readText(json, 'title'),
       language: _readText(json, 'language'),
-      ageMonths: age,
+      ageMonths: age as int?,
+      ageGroup: ageGroup,
       behaviorId: _readText(json, 'behaviorId'),
       cardVersion: _readText(json, 'cardVersion'),
       source: source,
@@ -193,7 +209,8 @@ class ScenarioInput {
   final String scenarioId;
   final String title;
   final String language;
-  final int ageMonths;
+  final int? ageMonths;
+  final ScenarioAgeGroup? ageGroup;
   final String behaviorId;
   final String cardVersion;
   final ScenarioInputSource source;

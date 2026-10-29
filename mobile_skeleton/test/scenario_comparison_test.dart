@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_request.dart';
+import 'package:neuro_awareness_app/models/scenario_age_group.dart';
 import 'package:neuro_awareness_app/screens/scenario_comparison_dialog.dart';
 import 'package:neuro_awareness_app/screens/synthetic_video_studio_screen.dart';
 import 'package:neuro_awareness_app/services/server_api_service.dart';
@@ -18,10 +19,11 @@ final input = ScenarioGenerationRequest(behaviorId: 'D01', cardVersion: '0.2', a
   sceneContext: 'Deniz evde bloklarla oynar.', additionalInstructions: 'Sabit kamera.');
 final protocol = List.filled(64, 'a').join();
 class _Server {
-  _Server({this.studio = false});
+  _Server({this.studio = false, this.requestOverride});
   final bool studio;
+  final ScenarioGenerationRequest? requestOverride;
   Map<String, dynamic>? _studioRequest;
-  Map<String, dynamic> get requestJson => _studioRequest ?? input.toJson();
+  Map<String, dynamic> get requestJson => _studioRequest ?? requestOverride?.toJson() ?? input.toJson();
   final requests = <Map<String, dynamic>>[];
   final arms = <String>[];
   final protocols = <String>[];
@@ -31,13 +33,23 @@ class _Server {
   final random = Random.secure();
   late final key = base64UrlEncode(List<int>.generate(32, (_) => random.nextInt(256)));
   Map<String, dynamic> preview(String arm) => {'arm': arm, 'protocolId': protocol, 'model': 'controlled-model',
-    'outputContract': 'scenario-input-narrative-v3',
+    'outputContract': 'scenario-input-narrative-v4',
     'settings': {'temperature': 0.2, 'topP': 0.95, 'maxOutputTokens': 16384},
     'sourceMode': 'Kaynak $arm', 'source': {'sourceId': 'Davranis_Kartlari_v02.md', 'cardVersion': '0.2', 'sha256': List.filled(64, 'b').join()},
     'system': 'Tam sistem istemi $arm', 'user': jsonEncode(requestJson)};
-  String raw(String arm) => ' \n${jsonEncode({'commonStart': '$arm: Deniz oynar; annesi adını bir kez söyler.',
-    'alternatives': [{'title': 'Yönelme', 'continuation': 'Annesine döner.', 'ending': 'Yeni çağrı olmadan biter.'},
-      {'title': 'Oyun', 'continuation': 'Oyuna devam eder.', 'ending': 'Yeni çağrı olmadan biter.'}]})}\n ';
+  String raw(String arm) {
+    final value = <String, dynamic>{'commonStart': '$arm: child plays; mother says the name once.',
+      'alternatives': [{'title': 'Turns', 'continuation': 'Turns toward her.', 'ending': 'Ends without another call.'},
+        {'title': 'Continues', 'continuation': 'Keeps playing.', 'ending': 'Ends without another call.'}]};
+    final current = requestJson;
+    if (current['requestVersion'] == '3.0') {
+      final ids = (current['behaviors'] as List).map((ref) => (ref as Map)['behaviorId'] as String).toList();
+      value['structure'] = 'branched'; value['commonBehaviorIds'] = ids;
+      value['alternatives'] = (value['alternatives'] as List)
+        .map((entry) => {...Map<String, dynamic>.from(entry as Map), 'behaviorIds': ids}).toList();
+    }
+    return ' \n${jsonEncode(value)}\n ';
+  }
   http.Response reply(String arm) => http.Response.bytes(utf8.encode(jsonEncode({
     'success': !(failB && arm == 'B'), 'request': requestJson, 'rawResponse': raw(arm),
     if (failB && arm == 'B') 'error': 'Kontrollü B doğrulama hatası',
@@ -52,9 +64,10 @@ class _Server {
       final body = jsonDecode(sent.body) as Map<String, dynamic>; requests.add(body);
       if (studio && _studioRequest == null) {
         final received = Map<String, dynamic>.from(body['request'] as Map);
-        expect(received['behaviorId'], input.behaviorId);
-        expect(received['cardVersion'], input.cardVersion);
-        expect(received['ageMonths'], input.ageMonths);
+        expect(received['requestVersion'], '3.0');
+        expect(received['behaviors'], [{'behaviorId': input.behaviorId, 'cardVersion': input.cardVersion}]);
+        expect(received['ageGroup'], ScenarioAgeGroup.months24To36.toJson());
+        expect(received.containsKey('ageMonths'), isFalse);
         expect(received['sceneContext'], isA<String>().having((text) => text.isNotEmpty, 'bağlam', isTrue));
         _studioRequest = received;
       }
@@ -109,6 +122,36 @@ void main() {
       expect(server.arms, expected);
     });
   }
+  for (final group in ScenarioAgeGroup.values) {
+    testWidgets('A/B/C aynı $group yaş grubu isteğini ve anlatı sözleşmesini kullanır', (tester) async {
+      final request = ScenarioGenerationRequest(behaviorId: 'D01', cardVersion: '0.2', ageGroup: group,
+        sceneContext: 'Evde oyun.');
+      final server = _Server(requestOverride: request);
+      await _open(tester, server, request: request);
+      await tap(tester, 'comparison-preview');
+      expect(server.requests, hasLength(3));
+      for (final body in server.requests) {
+        final received = Map<String, dynamic>.from(body['request'] as Map);
+        expect(received['ageGroup'], group.toJson());
+        expect(received, isNot(contains('ageMonths')));
+      }
+      await tap(tester, 'comparison-start');
+      expect(server.arms, ['A', 'B', 'C']);
+      expect(server.requests.skip(3).every((body) =>
+        (body['request'] as Map)['ageGroup'] is Map && !(body['request'] as Map).containsKey('ageMonths')), isTrue);
+      for (var i = 0; i < 3; i++) {
+        final arm = ['A', 'B', 'C'][i];
+        final result = find.byKey(ValueKey('comparison-result-$i'));
+        final title = tester.widget<ExpansionTile>(result).title as Text;
+        expect(title.data, contains('$arm — Yapısal olarak geçerli — içerik incelenmedi'));
+        final header = find.descendant(of: result, matching: find.text(title.data!));
+        await tester.ensureVisible(header); await tester.tap(header); await tester.pumpAndSettle();
+        expect(tester.widget<SelectableText>(find.byKey(ValueKey('comparison-raw-$i'))).data, server.raw(arm));
+      }
+      expect(find.textContaining(group.label), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('Sabit istek özeti tüm davranışları, yaşı ve doğrusal düzeni gösterir; A/B/C kaynak farkı açıktır', (tester) async {
     final request = ScenarioGenerationRequest.fromJson({
       'requestVersion': '2.0',
@@ -129,7 +172,7 @@ void main() {
     expect(tester.widget<Text>(behaviorSummary).data, contains('D01 — İsme tepki verme (kart 0.2)'));
     expect(tester.widget<Text>(behaviorSummary).data, contains('D02 — Yetişkinin işaret ettiği hedefe yönelme (kart 0.2)'));
     expect(tester.widget<Text>(behaviorSummary).data, contains('D03 — İstemek için işaret etme (kart 0.2)'));
-    expect(find.text('Yaş: 31 ay'), findsOneWidget);
+    expect(find.text('Yaş grubu: 31 ay (eski istek)'), findsOneWidget);
     expect(find.text('Senaryo düzeni: 26 sahnelik doğrusal anlatı'), findsOneWidget);
     expect(find.text('A — Ek kart metni yok; ortak görev ve güvenlik talimatları ile seçili davranış adları korunur.'), findsOneWidget);
     expect(find.text('B — Seçilen bütün davranış kartlarının metni ve ortak kart kuralları eklenir.'), findsOneWidget);

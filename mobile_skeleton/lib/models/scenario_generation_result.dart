@@ -13,8 +13,12 @@ class ScenarioGenerationResult {
     if (scenarioId.trim().isEmpty || (arm != null && !['A', 'B', 'C'].contains(arm))) {
       throw const FormatException('Üretim sonucu kimliği veya deney kolu geçersiz.');
     }
-    if (outputContract != null && outputContract != contract && outputContract != 'scenario-input-narrative-v2') {
+    if (outputContract != null && outputContract != contract &&
+        outputContract != 'scenario-input-narrative-v3' && outputContract != 'scenario-input-narrative-v2') {
       throw const FormatException('Üretim sonucu eski veya farklı bir anlatı sözleşmesine ait.');
+    }
+    if (outputContract == 'scenario-input-narrative-v3' && request.ageGroup != null) {
+      throw const FormatException('Eski anlatı protokolü yaş grubu sözleşmesi için kullanılamaz.');
     }
     if (outputContract == 'scenario-input-narrative-v2' && request.extended) {
       throw const FormatException('Eski protokol çoklu davranış/doğrusal düzen için kullanılamaz.');
@@ -25,7 +29,7 @@ class ScenarioGenerationResult {
 
   static int _sequence = 0;
   static String newId() => 'generated-${DateTime.now().microsecondsSinceEpoch}-${++_sequence}';
-  static const contract = 'scenario-input-narrative-v3';
+  static const contract = 'scenario-input-narrative-v4';
 
   factory ScenarioGenerationResult.fromServer(ScenarioGenerationRequest request,
       Map<String, dynamic> body) {
@@ -69,7 +73,7 @@ class ScenarioGenerationResult {
     'behaviorSource': behaviorSource,
   };
 
-  String get summary => 'Senaryo: $scenarioId · ${request.behaviors.map((ref) => ref.behaviorId).join(', ')} / ${request.ageMonths} ay · '
+  String get summary => 'Senaryo: $scenarioId · ${request.behaviors.map((ref) => ref.behaviorId).join(', ')} / ${request.ageDescription} · '
       'Kol: ${arm ?? 'normal üretim'} · Model: ${model ?? 'Bilinmiyor'}';
 }
 

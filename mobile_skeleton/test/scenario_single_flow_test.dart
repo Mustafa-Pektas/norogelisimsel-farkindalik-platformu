@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_request.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_result.dart';
 import 'package:neuro_awareness_app/models/scenario_input.dart';
+import 'package:neuro_awareness_app/models/scenario_age_group.dart';
 import 'package:neuro_awareness_app/models/scenario_workspace_draft.dart';
 import 'package:neuro_awareness_app/screens/clip_production_plan_screen.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_import_screen.dart';
@@ -17,14 +18,15 @@ import 'package:neuro_awareness_app/services/http_scenario_generation_service.da
 import 'package:neuro_awareness_app/services/scenario_draft_store.dart';
 import 'package:neuro_awareness_app/services/server_api_service.dart';
 
-final _request = ScenarioGenerationRequest(behaviorId: 'D01', cardVersion: '0.2', ageMonths: 31,
+final _request = ScenarioGenerationRequest(behaviorId: 'D01', cardVersion: '0.2', ageGroup: ScenarioAgeGroup.months24To36,
   sceneContext: '  Deniz evde küplerle oynar.  ', additionalInstructions: 'Sabit kamera.');
 final _protocol = List.filled(64, 'a').join();
 String _raw(String arm) => ' \n${jsonEncode({
+  'structure': 'branched', 'commonBehaviorIds': ['D01'],
   'commonStart': '$arm: Deniz oynar; annesi bir kez Deniz der.',
   'alternatives': [
-    {'title': 'Yönelme', 'continuation': 'Annesine döner.', 'ending': 'Tekrar çağrı olmadan biter.'},
-    {'title': 'Oyun', 'continuation': 'Oyuna devam eder.', 'ending': 'Tekrar çağrı olmadan biter.'},
+    {'behaviorIds': ['D01'], 'title': 'Yönelme', 'continuation': 'Annesine döner.', 'ending': 'Tekrar çağrı olmadan biter.'},
+    {'behaviorIds': ['D01'], 'title': 'Oyun', 'continuation': 'Oyuna devam eder.', 'ending': 'Tekrar çağrı olmadan biter.'},
   ],
 })}\n ';
 
@@ -75,7 +77,7 @@ class _Server {
         expect(sent.url.path, '/api/generate-clip-plan');
         expect(body['request'], _request.toJson());
         final graph = body['graph'] as Map<String, dynamic>;
-        final plan = {'schemaVersion': '1.0', 'planId': body['planId'], 'scenarioId': graph['scenarioId'],
+        final plan = {'schemaVersion': '1.1', 'ageGroup': _request.ageGroup!.toJson(), 'planId': body['planId'], 'scenarioId': graph['scenarioId'],
           'authoringNote': 'İncelenmemiş taslak.', 'continuityNotes': 'Aynı çocuk, ortam, oyuncak ve kamera.',
           'visualSuggestions': 'Üretilmiş öneri: açık renk kıyafet.',
           'd01CallTiming': [{'clipId': 'clip-${graph['startSceneId']}', 'callEndS': 3}],
@@ -134,7 +136,8 @@ void main() {
   test('Yeni metadata bulunmayan v1 taslak okunur; ham ve editör ayrı kalır', () {
     final legacy = ScenarioWorkspaceDraft(inputType: 'scenario', scenarioJson: 'düzenlenmiş', graphJson: '',
       ageText: '', contextText: '', instructionsText: '', generationRaw: _raw('A'),
-      responseRequest: _request, responseScenarioId: 'legacy-id');
+      responseRequest: ScenarioGenerationRequest(behaviorId: 'D01', cardVersion: '0.2',
+        ageMonths: 31, sceneContext: _request.sceneContext), responseScenarioId: 'legacy-id');
     final json = jsonDecode(legacy.toJsonString()) as Map<String, dynamic>;
     for (final key in ['responseResult', 'editorResult', 'pendingResult']) { json.remove(key); }
     final restored = ScenarioWorkspaceDraft.fromJsonString(jsonEncode(json));

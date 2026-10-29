@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'behavior_cards.dart';
 import 'scenario_generation_request.dart';
 import 'scenario_generation_result.dart';
+import 'scenario_age_group.dart';
 
 /// Yalnız düzenlenebilir çalışma verisi. Graf, iş veya başarı durumu içermez.
 class ScenarioWorkspaceDraft {
@@ -10,6 +11,7 @@ class ScenarioWorkspaceDraft {
     required this.graphJson, required this.ageText, required this.contextText,
     required this.instructionsText, this.behaviorId, this.cardVersion,
     this.generationRaw, this.responseRequest, this.responseScenarioId,
+    this.ageGroup,
     this.editorRequest, this.editorScenarioId, this.demoRaw = '',
     this.responseResult, this.editorResult, this.pendingResult,
     this.demoDraft = false, this.demoEdited = false, this.generationEdited = false}) {
@@ -49,6 +51,8 @@ class ScenarioWorkspaceDraft {
   final String? behaviorId;
   final String? cardVersion;
   final String? generationRaw;
+  /// New age contract selected for future generation; absent on old drafts.
+  final ScenarioAgeGroup? ageGroup;
   final String? responseScenarioId;
   final String? editorScenarioId;
   final ScenarioGenerationRequest? responseRequest;
@@ -64,6 +68,7 @@ class ScenarioWorkspaceDraft {
     'ageText': ageText, 'contextText': contextText, 'instructionsText': instructionsText,
     'behaviorId': behaviorId, 'cardVersion': cardVersion,
     'generationRaw': generationRaw, 'responseRequest': _requestJson(responseRequest),
+    'ageGroup': ageGroup?.toJson(),
     'responseScenarioId': responseScenarioId, 'editorRequest': _requestJson(editorRequest),
     'editorScenarioId': editorScenarioId, 'generationEdited': generationEdited,
     'responseResult': responseResult?.toJson(), 'editorResult': editorResult?.toJson(),
@@ -96,6 +101,7 @@ class ScenarioWorkspaceDraft {
       graphJson: string('graphJson'), ageText: string('ageText'), contextText: string('contextText'),
       instructionsText: string('instructionsText'), behaviorId: optional('behaviorId'),
       cardVersion: optional('cardVersion'), generationRaw: optional('generationRaw'),
+      ageGroup: value['ageGroup'] == null ? null : ScenarioAgeGroup.fromJson(value['ageGroup']),
       responseRequest: _readRequest(value['responseRequest']), responseScenarioId: optional('responseScenarioId'),
       editorRequest: _readRequest(value['editorRequest']), editorScenarioId: optional('editorScenarioId'),
       generationEdited: flag('generationEdited'), demoRaw: string('demoRaw'),
@@ -112,7 +118,7 @@ Map<String, Object?>? _requestJson(ScenarioGenerationRequest? request) => reques
 
 ScenarioGenerationRequest? _readRequest(dynamic value) {
   if (value == null) return null;
-  if (value is Map<String,dynamic> && value['requestVersion'] == '2.0') {
+  if (value is Map<String,dynamic> && ['2.0', '3.0'].contains(value['requestVersion'])) {
     return ScenarioGenerationRequest.fromJson(value);
   }
   if (value is! Map<String, dynamic> || value['behaviorId'] is! String ||

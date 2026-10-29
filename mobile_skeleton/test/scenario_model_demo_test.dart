@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neuro_awareness_app/models/behavior_cards.dart';
 import 'package:neuro_awareness_app/models/scenario_input.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_request.dart';
+import 'package:neuro_awareness_app/models/scenario_age_group.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_import_screen.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_screen.dart';
 import 'package:neuro_awareness_app/services/scenario_graph_converter.dart';
@@ -115,6 +116,17 @@ void main() {
   tearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
   final example = jsonDecode(File(ScenarioGraphImportScreen.d01InputAssetPath).readAsStringSync()) as Map<String, dynamic>;
   final content = jsonEncode({'commonStart': example['commonStart'], 'alternatives': example['alternatives']});
+  String outputFor(ScenarioGenerationRequest request) {
+    if (request.ageGroup == null) return content;
+    final value = jsonDecode(content) as Map<String, dynamic>;
+    value['structure'] = 'branched';
+    final ids = request.behaviors.map((ref) => ref.behaviorId).toList();
+    value['commonBehaviorIds'] = ids;
+    value['alternatives'] = (value['alternatives'] as List).map((entry) => {
+      ...Map<String, dynamic>.from(entry as Map), 'behaviorIds': ids,
+    }).toList();
+    return jsonEncode(value);
+  }
   final request = ScenarioGenerationRequest(behaviorId: 'D02', cardVersion: '0.2', ageMonths: 24, sceneContext: '  Evde  ', additionalInstructions: 'Sade ortam.');
   String editor(WidgetTester tester) => tester.widget<TextField>(find.byKey(const ValueKey('scenario-import-json'))).controller!.text;
   Future<void> field(WidgetTester tester, String key, String value) async {
@@ -132,18 +144,23 @@ void main() {
     await tap(tester, 'open-import');
   }
   Future<void> appBarBack(WidgetTester tester) async { await tester.tap(find.byType(BackButton)); await tester.pumpAndSettle(); }
-  Future<void> studio(WidgetTester tester, ScenarioGenerationService service, {String behavior = 'D02', bool route = false}) async {
+  Future<void> studio(WidgetTester tester, ScenarioGenerationService service, {String behavior = 'D02', bool route = false,
+    _MemoryStore? store}) async {
     await tester.binding.setSurfaceSize(const Size(1100, 1000)); addTearDown(() => tester.binding.setSurfaceSize(null));
-    final screen = SyntheticVideoStudioScreen(initialOntologyCode: behavior, initialAgeMonths: 24,
-      generationService: service, scenarioDraftStore: _MemoryStore());
+    final screen = SyntheticVideoStudioScreen(initialOntologyCode: behavior,
+      generationService: service, scenarioDraftStore: store ?? _MemoryStore());
     await tester.pumpWidget(DefaultAssetBundle(bundle: _NoAssets(), child: MaterialApp(home: route
       ? Builder(builder: (context) => Scaffold(body: TextButton(key: const ValueKey('open-studio'),
         onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => screen)), child: const Text('Aç'))))
       : screen)));
     await tester.pumpAndSettle(); if (route) await tap(tester, 'open-studio'); await tap(tester, 'studio-engine-server');
   }
+  Future<void> selectAgeGroup(WidgetTester tester, String id) async {
+    final chip = find.byKey(ValueKey('scenario-age-group-$id'));
+    await tester.ensureVisible(chip); await tester.tap(chip); await tester.pump();
+  }
   Future<void> configure(WidgetTester tester) async {
-    await field(tester, 'scenario-request-age', '24'); await field(tester, 'scenario-request-context', '  Evde  ');
+    await selectAgeGroup(tester, '18_24'); await field(tester, 'scenario-request-context', '  Evde  ');
     await field(tester, 'scenario-request-instructions', 'Sade ortam.'); await tap(tester, 'scenario-request-validate');
   }
   Future<void> workspace(WidgetTester tester, String raw, {bool narrow = false}) async {
@@ -240,28 +257,87 @@ void main() {
       await tap(tester, 'scenario-request-rules');
       await configure(tester); await tap(tester,'studio-generate-scenario',settle:false);
       expect(service.requests.single.behaviorId,id); expect(service.requests.single.cardVersion,version);
-      expect(service.requests.single.ageMonths,24); expect(service.requests.single.sceneContext,'  Evde  ');
+      expect(service.requests.single.ageGroup,ScenarioAgeGroup.months18To24);
+      expect(service.requests.single.ageMonths,isNull); expect(service.requests.single.sceneContext,'  Evde  ');
       expect(service.requests.single.additionalInstructions,'Sade ortam.');
-      service.jobs.single.answer.complete(content); await tester.pumpAndSettle();
+      service.jobs.single.answer.complete(outputFor(service.requests.single)); await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('studio-continue-result')),findsOneWidget);
       await close(tester); expect(service.jobs.single.disposals,1);
     });
   }
-  for (final age in ['', '11', '37', '-1', '12.5', 'ay', '12', '36']) {
-    testWidgets('Stüdyo yaş doğrulaması $age; doğrulama model çağırmaz', (tester) async {
-      final service=_GenerationService(); await studio(tester,service); await field(tester,'scenario-request-context','Ev');
-      await field(tester,'scenario-request-age',age); await tap(tester,'scenario-request-validate');
-      expect(find.byKey(ValueKey(['12','36'].contains(age) ? 'scenario-request-summary':'scenario-request-error')),findsOneWidget);
-      expect(service.requests,isEmpty); await close(tester);
+  testWidgets('Yaş grubu seçilmeden üretim başlamaz', (tester) async {
+    final service = _GenerationService(); await studio(tester, service);
+    await field(tester, 'scenario-request-context', 'Ev');
+    await tap(tester, 'scenario-request-validate');
+    expect(find.byKey(const ValueKey('scenario-request-error')), findsOneWidget);
+    await tap(tester, 'studio-generate-scenario', settle: false);
+    expect(service.requests, isEmpty); await close(tester);
+  });
+  for (final group in ScenarioAgeGroup.values) {
+    testWidgets('${group.label} normal üretim isteği ve graf metadata\'sına aynen taşınır', (tester) async {
+      final service = _GenerationService(); await studio(tester, service);
+      await selectAgeGroup(tester, group.id);
+      await field(tester, 'scenario-request-context', 'Ev');
+      await tap(tester, 'scenario-request-validate');
+      await tap(tester, 'studio-generate-scenario', settle: false);
+      final request = service.requests.single;
+      expect(request.ageGroup, group); expect(request.ageMonths, isNull);
+      expect(request.toJson()['ageGroup'], group.toJson());
+      service.jobs.single.answer.complete(outputFor(request)); await tester.pumpAndSettle();
+      await tap(tester, 'studio-continue-result'); await tap(tester, 'scenario-accept-result');
+      final input = ScenarioInput.fromJsonString(editor(tester));
+      expect(input.ageGroup, group); expect(input.ageMonths, isNull);
+      await close(tester);
     });
   }
-  for (final name in ['age','context','instructions']) {
+  for (final age in [12, 17, 18, 23, 24, 36]) {
+    testWidgets('Eski $age ay taslağı açılır ve yeni istekte doğru gruba eşlenir; kayıtlı ay değişmez', (tester) async {
+      final store = _MemoryStore()..value = ScenarioWorkspaceDraft(inputType: 'scenario',
+        scenarioJson: '', graphJson: '', ageText: '$age', contextText: '', instructionsText: '');
+      final service = _GenerationService(); await studio(tester, service, store: store);
+      final expected = ScenarioAgeGroup.fromLegacyMonths(age)!;
+      expect(tester.widget<ChoiceChip>(find.byKey(ValueKey('scenario-age-group-${expected.id}'))).selected, isTrue);
+      await field(tester, 'scenario-request-context', 'Eski taslaktan devam.');
+      await tap(tester, 'scenario-request-validate');
+      await tap(tester, 'studio-generate-scenario', settle: false);
+      expect(service.requests.single.ageGroup, expected);
+      expect(service.requests.single.ageMonths, isNull);
+      expect(store.value!.ageText, '$age');
+      await close(tester);
+    });
+  }
+  for (final ageText in ['', '11', '37', '18.5', 'unknown']) {
+    testWidgets('Eksik/geçersiz eski yaş "$ageText" seçim üretmez; kullanıcı yaş grubunu seçebilir', (tester) async {
+      final store = _MemoryStore()..value = ScenarioWorkspaceDraft(inputType: 'scenario',
+        scenarioJson: '', graphJson: '', ageText: ageText, contextText: '', instructionsText: '');
+      final service = _GenerationService(); await studio(tester, service, store: store);
+      expect(find.byKey(const ValueKey('scenario-age-group-12_18')), findsOneWidget);
+      expect(tester.widget<ChoiceChip>(find.byKey(const ValueKey('scenario-age-group-12_18'))).selected, isFalse);
+      await field(tester, 'scenario-request-context', 'Ortam');
+      await tap(tester, 'studio-generate-scenario', settle: false);
+      expect(service.requests, isEmpty);
+      expect(store.value!.ageText, ageText);
+      await selectAgeGroup(tester, '12_18');
+      await tap(tester, 'studio-generate-scenario', settle: false);
+      expect(service.requests.single.ageGroup, ScenarioAgeGroup.months12To18);
+      expect(store.value!.ageText, ageText);
+      await close(tester);
+    });
+  }
+  for (final name in ['age-group','context','instructions']) {
     testWidgets('Yalnız $name değişmiş form F04 ile korunur; temizlenince boş çıkış serbesttir', (tester) async {
-      await studio(tester,_GenerationService(),route:true); final value=name=='age'?'25':'Taslak';
-      await field(tester,'scenario-request-$name',value); await appBarBack(tester); await tap(tester,'studio-exit-stay');
-      expect(tester.widget<TextField>(find.byKey(ValueKey('scenario-request-$name'))).controller!.text,value);
-      await field(tester,'scenario-request-$name',''); await appBarBack(tester);
-      expect(find.byType(SyntheticVideoStudioScreen),findsNothing); await close(tester);
+      await studio(tester,_GenerationService(),route:true);
+      if (name == 'age-group') {
+        await selectAgeGroup(tester, '24_36'); await appBarBack(tester); await tap(tester,'studio-exit-stay');
+        expect(tester.widget<ChoiceChip>(find.byKey(const ValueKey('scenario-age-group-24_36'))).selected, isTrue);
+      } else {
+        const value='Taslak'; await field(tester,'scenario-request-$name',value);
+        await appBarBack(tester); await tap(tester,'studio-exit-stay');
+        expect(tester.widget<TextField>(find.byKey(ValueKey('scenario-request-$name'))).controller!.text,value);
+        await field(tester,'scenario-request-$name',''); await appBarBack(tester);
+        expect(find.byType(SyntheticVideoStudioScreen),findsNothing);
+      }
+      await close(tester);
     });
   }
   testWidgets('Özet düzenlemede geçersizleşir; tür/admin değişimi formu ve kaynağı korur', (tester) async {
@@ -286,7 +362,7 @@ void main() {
     final point=tester.getCenter(button);await tester.tapAt(point);await tester.tapAt(point);
     await tester.pump();await tester.pump(const Duration(milliseconds:300));expect(service.jobs,hasLength(1));
     expect(tester.widget<TextField>(find.byKey(const ValueKey('scenario-request-context'))).readOnly,isTrue);
-    final raw=' \n$content\n ';service.jobs.single.answer.complete(raw);await tester.pumpAndSettle();
+    final raw=' \n${outputFor(service.requests.single)}\n ';service.jobs.single.answer.complete(raw);await tester.pumpAndSettle();
     await tap(tester,'studio-result-details');await tap(tester,'studio-copy-result-raw');expect(copied,raw);
     await tester.tap(find.byTooltip('Sunucu ham cevabını kopyala')); await tester.pumpAndSettle(); expect(copied,raw);
     await tap(tester,'studio-continue-result');expect(editor(tester),isEmpty);await tap(tester,'scenario-accept-result');
@@ -314,16 +390,16 @@ void main() {
       final job=service.jobs.single..localCancelOnly=localOnly..failCancel=!localOnly..completeOnDispose=false;
       await tap(tester,'studio-cancel-generation');expect(job.cancellations,1);expect(job.disposals,1);
       expect(find.textContaining(localOnly?'iptali doğrulanmadı':'İptal isteği başarısız'),findsWidgets);
-      job.answer.complete(content);await tester.pumpAndSettle();
+      job.answer.complete(outputFor(service.requests.single));await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('studio-continue-result')),findsNothing);await close(tester);
     });
   }
   testWidgets('Geç eski cevap yeni sonucu ve kimliğini ezmez', (tester) async {
     final service=_GenerationService();await studio(tester,service);await configure(tester);await tap(tester,'studio-generate-scenario',settle:false);
     final old=service.jobs.single..completeOnDispose=false;await tap(tester,'studio-cancel-generation');
-    await tap(tester,'studio-generate-scenario',settle:false);service.jobs.last.answer.complete(content);await tester.pumpAndSettle();
+    await tap(tester,'studio-generate-scenario',settle:false);service.jobs.last.answer.complete(outputFor(service.requests.last));await tester.pumpAndSettle();
     final summary=tester.widget<Text>(find.byKey(const ValueKey('studio-result-summary'))).data;
-    old.answer.complete(content);await tester.pumpAndSettle();
+    old.answer.complete(outputFor(service.requests.first));await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.byKey(const ValueKey('studio-result-summary'))).data,summary);
     expect(service.jobs.map((job)=>job.disposals),[1,1]);await close(tester);
   });
@@ -339,7 +415,7 @@ void main() {
     expect(tester.widget<TextField>(find.byKey(const ValueKey('scenario-request-context'))).controller!.text,'  Evde  ');
     await tap(tester,'studio-cancel-generation',settle:false);expect(job.disposals,1);
     await appBarBack(tester);await tap(tester,'studio-exit-confirm');
-    job.answer.complete(content);await tester.pumpAndSettle();expect(job.cancellations,1);expect(job.disposals,1);
+    job.answer.complete(outputFor(service.requests.single));await tester.pumpAndSettle();expect(job.cancellations,1);expect(job.disposals,1);
     expect(find.byType(SyntheticVideoStudioScreen),findsNothing);await close(tester);
   });
   testWidgets('Graf görüntüleme ham cevap, düzenlenmiş kaynak, JSON ve aynı kimliği korur', (tester) async {

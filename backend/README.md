@@ -1,22 +1,21 @@
-# Güncel üretim sözleşmesi — 24 Ekim 2026
+# Güncel üretim sözleşmesi — 28 Ekim 2026
 
 Tekrarlanabilir ilk uzak kurulum dosyaları ve işletim adımları için
 [`SUNUCU_KURULUM.md`](SUNUCU_KURULUM.md) belgesine bakın. Bu dosyalar hazırlıktır;
 sunucu, DNS veya sertifika henüz kurulmuş değildir.
 
-Stüdyo tek formu normal üretime ve A/B/C’ye taşır. Eski tek kartlı istekler
-korunur. Çoklu/üretim hedefli istek `requestVersion:2.0`, bütün kartların
-`behaviors:[{behaviorId,cardVersion}]` referansları ve isteğe bağlı `production`
-alanını taşır. Yaş 12–36 tam ay, ortam zorunlu, ek yönerge isteğe bağlıdır.
+Stüdyo tek formu normal üretime ve A/B/C’ye taşır. Eski tek kartlı ve `requestVersion:2.0` çoklu istekler tam ay metadata’sıyla geriye uyumludur. Yeni üretim `requestVersion:3.0` ile bütün kartların `behaviors:[{behaviorId,cardVersion}]` referanslarını, `ageGroup:{contractVersion:"1.0",id}` alanını ve isteğe bağlı `production` ayarını taşır. Yaş grubu kimlikleri yalnız `12_18`, `18_24`, `24_36` olabilir; yeni istek `ageMonths` alanını kabul etmez. Ortam zorunlu, ek yönerge isteğe bağlıdır.
 `production` structure=branched/linear26, targetDurationS, maxClipDurationS≤8
 ve doğrusal düzende targetSceneCount=26 içerir. Bunlar hedeflerdir, video ölçümü değil.
 
-Etkin protokol **scenario-input-narrative-v3**:
+Yaş grubu sözleşmesi aralıkları 12≤ay<18, 18≤ay<24 ve 24≤ay≤36 olarak tanımlar. Eski ay değerleri kayıtlarda aynen korunur; yalnız eski taslaktan yeni istek hazırlanırken eşlenebilir. Geçersiz/eksik yaşa varsayılan atanmaz. İstem grubu aralık olarak iletir, temsilî tek ay uydurmaz. Grup seçimi yaşa göre içerik/klinik desteğinin doğrulandığı anlamına gelmez.
+
+Etkin istek sözleşmesi `requestVersion:3.0`; anlatı protokolü **scenario-input-narrative-v4**:
 - Alternatifli çıktı commonStart/commonBehaviorIds, structure=branched ve
   alternatives[{title,continuation,ending,behaviorIds}] kullanır.
 - linear26 çıktısı commonStart genel anlatı, alternatives=[], linearScenes
   içinde tam 26 title/description/behaviorIds içerir. Kendiliğinden dal eklenmez.
-- Eski tek kartlı v1 isteğin commonStart/alternatives biçimi çalışır.
+- Eski tek kartlı v1 ve requestVersion 2.0 istekleri eski ay metadata’sıyla geriye uyumlu kalır; yeni grup sözleşmesine dönüştürülmez.
 - Aynı isteğin normal ve A/B/C üretimi aynı narrativeSchemaFor/validateNarrative,
   SCENARIO_INPUT_MODEL ve temperature=0.2/topP=0.95/maxOutputTokens=16384 kullanır.
   Yalnız kaynak miktarı değişir. İstek/şema/kaynak/ayarlar protokol hash’ine bağlıdır;
@@ -24,8 +23,7 @@ Etkin protokol **scenario-input-narrative-v3**:
 
 `loadCard` tek kanonik dosyadan seçilen bütün kartları bir kez yükler. Kaynak ve
 ölçüm metadata’sı bütün referansları taşır; embedding veya ikinci katalog yoktur.
-Anlatı/graf 1.1’de sahneler behaviorIds taşır. Klipler bu ilişkiyi sceneId üzerinden
-korur. `/api/generate-clip-plan` 1.0 ve 1.1 grafı doğrular; ilgili D01 yollarının
+Yaş gruplu anlatı/graf 1.2 sürümlü ageGroup ve sahnelerde behaviorIds taşır. Klip planı 1.1 ageGroup değerini aynen taşıyıp grafla eşleşmelidir. Eski graf 1.0/1.1 ve plan 1.0 ageMonths değerleriyle açılmaya devam eder. Klipler davranış ilişkisini sceneId üzerinden korur. `/api/generate-clip-plan` eski ve yeni grafı doğrular; ilgili D01 yollarının
 pilot penceresini kontrol eder, başka kartı klinik eşikle değerlendirmez.
 
 Mobilde gerçek sonuç seçimi yeni çağrı yapmaz; düzenleme/graf sonrası klip planı

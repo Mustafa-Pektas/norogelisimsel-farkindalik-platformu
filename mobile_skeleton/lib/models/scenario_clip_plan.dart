@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'scenario_graph.dart';
+import 'scenario_age_group.dart';
 import 'behavior_cards.dart';
 
 /// Üretim hedefidir; süre veya eylem gerçekleşmiş video kanıtı değildir.
@@ -120,17 +121,21 @@ class ScenarioClipPlan {
     required this.authoringNote,
     required this.continuityNotes,
     this.visualSuggestions,
+    this.ageGroup,
     List<D01PlannedCall>? d01CallTiming,
     required List<PlannedClip> clips,
   }) : d01CallTiming = d01CallTiming == null ? null : List.unmodifiable(d01CallTiming),
        clips = List.unmodifiable(clips) {
-    if (schemaVersion != currentSchemaVersion) {
+    if (schemaVersion != currentSchemaVersion && schemaVersion != ageGroupSchemaVersion) {
       throw FormatException(
         'Desteklenmeyen klip planı şema sürümü: $schemaVersion.',
       );
     }
     _text(planId, 'Plan kimliği');
     _text(scenarioId, 'Senaryo kimliği');
+    if ((schemaVersion == ageGroupSchemaVersion) != (ageGroup != null)) {
+      throw const FormatException('Klip planı yaş grubu şema sürümüyle uyuşmuyor.');
+    }
     _text(authoringNote, 'Taslak notu');
     _text(continuityNotes, 'Süreklilik notları');
     if (visualSuggestions != null) {
@@ -181,6 +186,7 @@ class ScenarioClipPlan {
       authoringNote: _string(json, 'authoringNote'),
       continuityNotes: _string(json, 'continuityNotes'),
       visualSuggestions: json['visualSuggestions'] == null ? null : _string(json, 'visualSuggestions'),
+      ageGroup: json['ageGroup'] == null ? null : ScenarioAgeGroup.fromJson(json['ageGroup']),
       clips: [
         for (var i = 0; i < raw.length; i++)
           PlannedClip.fromJson(_object(raw[i], 'clips[$i]')),
@@ -199,12 +205,14 @@ class ScenarioClipPlan {
   }
 
   static const currentSchemaVersion = '1.0';
+  static const ageGroupSchemaVersion = '1.1';
   final String schemaVersion;
   final String planId;
   final String scenarioId;
   final String authoringNote;
   final String continuityNotes;
   final String? visualSuggestions;
+  final ScenarioAgeGroup? ageGroup;
   final List<PlannedClip> clips;
   final List<D01PlannedCall>? d01CallTiming;
 
@@ -216,6 +224,11 @@ class ScenarioClipPlan {
   void validateAgainst(ScenarioGraph graph) {
     if (scenarioId != graph.scenarioId) {
       throw FormatException('Klip planı başka senaryoya ait: $scenarioId.');
+    }
+    if (graph.ageGroup != ageGroup ||
+        (graph.ageGroup == null && schemaVersion != currentSchemaVersion) ||
+        (graph.ageGroup != null && schemaVersion != ageGroupSchemaVersion)) {
+      throw const FormatException('Klip planının yaş grubu grafla uyuşmuyor.');
     }
     final sceneIds = graph.scenes.map((scene) => scene.id).toSet();
     for (final clip in clips) {
@@ -329,6 +342,7 @@ class ScenarioClipPlan {
     'schemaVersion': schemaVersion,
     'planId': planId,
     'scenarioId': scenarioId,
+    if (ageGroup != null) 'ageGroup': ageGroup!.toJson(),
     'authoringNote': authoringNote,
     'continuityNotes': continuityNotes,
     if (visualSuggestions != null) 'visualSuggestions': visualSuggestions,

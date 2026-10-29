@@ -1,4 +1,5 @@
 const { InputError, validateRequest, requestBehaviors, hasBehavior } = require('./scenario_input_generation');
+const { validateAgeGroup } = require('./scenario_age_group');
 const text = value => typeof value === 'string' && value.trim().length > 0;
 function check(condition, message) { if (!condition) throw new InputError(message); }
 function keys(value, allowed) {
@@ -10,17 +11,23 @@ function validatePlanRequest(input) {
   const request = validateRequest(input.request);
   check(text(input.planId) && /^generated-[A-Za-z0-9_-]+$/.test(input.planId), 'Yeni plan kimliği gerekli.');
   const g = input.graph;
-  check(keys(g, ['schemaVersion', 'scenarioId', 'title', 'language', 'ageMonths', 'behaviorId',
+  check(keys(g, ['schemaVersion', 'scenarioId', 'title', 'language', 'ageMonths', 'ageGroup', 'behaviorId',
     'cardVersion', 'behaviors', 'startSceneId', 'scenes', 'transitions', 'endSceneIds', 'authoringNote']), 'Graf nesnesi gerekli.');
-  check(['1.0','1.1'].includes(g.schemaVersion) && ['scenarioId', 'title', 'language', 'startSceneId'].every(k => text(g[k])) &&
+  check(['1.0','1.1','1.2'].includes(g.schemaVersion) && ['scenarioId', 'title', 'language', 'startSceneId'].every(k => text(g[k])) &&
     (g.authoringNote == null || text(g.authoringNote)), 'Graf metadata alanları geçersiz.');
   const refs = requestBehaviors(request);
   const graphRefs = g.behaviors || [{ behaviorId: g.behaviorId, cardVersion: g.cardVersion }];
-  check(g.behaviorId === refs[0].behaviorId && g.cardVersion === refs[0].cardVersion && g.ageMonths === request.ageMonths &&
+  const ageMatches = request.ageGroup
+    ? g.schemaVersion === '1.2' && !Object.hasOwn(g, 'ageMonths') &&
+      JSON.stringify(validateAgeGroup(g.ageGroup)) === JSON.stringify(request.ageGroup)
+    : g.ageGroup == null && g.ageMonths === request.ageMonths;
+  check(g.behaviorId === refs[0].behaviorId && g.cardVersion === refs[0].cardVersion && ageMatches &&
     Array.isArray(graphRefs) && graphRefs.length === refs.length && graphRefs.every((ref, i) =>
       keys(ref, ['behaviorId','cardVersion']) && ref.behaviorId === refs[i].behaviorId && ref.cardVersion === refs[i].cardVersion) &&
-    (g.schemaVersion !== '1.1' || Array.isArray(g.behaviors)) &&
-    (request.requestVersion !== '2.0' || g.schemaVersion === '1.1'), 'Graf ile üretim isteği uyuşmuyor.');
+    (g.schemaVersion === '1.0' || Array.isArray(g.behaviors)) &&
+    (request.requestVersion === '3.0' ? g.schemaVersion === '1.2' :
+      request.requestVersion === '2.0' ? g.schemaVersion === '1.1' : g.schemaVersion !== '1.2'),
+    'Graf ile üretim isteği uyuşmuyor.');
   check(Array.isArray(g.scenes) && g.scenes.length > 0 && Array.isArray(g.transitions) &&
     Array.isArray(g.endSceneIds) && g.endSceneIds.length > 0, 'Graf sahne/geçiş/bitiş listeleri gerekli.');
   const ids = new Set();
@@ -28,11 +35,11 @@ function validatePlanRequest(input) {
     check(keys(scene, ['id', 'description', 'title', 'summary', 'behaviorIds']) && text(scene.id) && text(scene.description) &&
       ['title', 'summary'].every(k => scene[k] == null || text(scene[k])) && !ids.has(scene.id), 'Sahne kimliği/metni geçersiz veya tekrarlı.');
     ids.add(scene.id);
-    if (g.schemaVersion === '1.1') check(Array.isArray(scene.behaviorIds) && scene.behaviorIds.length > 0 &&
+    if (g.schemaVersion !== '1.0') check(Array.isArray(scene.behaviorIds) && scene.behaviorIds.length > 0 &&
       new Set(scene.behaviorIds).size === scene.behaviorIds.length &&
       scene.behaviorIds.every(id => refs.some(ref => ref.behaviorId === id)), 'Sahne/davranış ilişkisi geçersiz.');
   }
-  if (g.schemaVersion === '1.1') check(refs.every(ref => g.scenes.some(s => s.behaviorIds.includes(ref.behaviorId))),
+  if (g.schemaVersion !== '1.0') check(refs.every(ref => g.scenes.some(s => s.behaviorIds.includes(ref.behaviorId))),
     'Graf bütün seçilen davranışları kapsamıyor.');
   check(ids.has(g.startSceneId) && new Set(g.endSceneIds).size === g.endSceneIds.length &&
     g.endSceneIds.every(id => ids.has(id)), 'Başlangıç/bitiş referansları geçersiz.');
@@ -73,14 +80,19 @@ function requiredD01ObservationSeconds(card) {
   return Number(matches[0][1]);
 }
 function planSchemaFor(input) {
-  if (!hasBehavior(input.request, 'D01')) return planSchema;
-  return { ...planSchema, properties: { ...planSchema.properties,
+  const ageGroup = input.request.ageGroup;
+  const properties = ageGroup ? { ...planSchema.properties,
+    ageGroup: { type: 'object', properties: { contractVersion: string, id: string }, required: ['contractVersion', 'id'] },
+  } : planSchema.properties;
+  const required = ageGroup ? [...planSchema.required, 'ageGroup'] : planSchema.required;
+  if (!hasBehavior(input.request, 'D01')) return { ...planSchema, properties, required };
+  return { ...planSchema, properties: { ...properties,
     d01CallTiming: { type: 'array', description: 'Her benzersiz çağrı klibi için tek kayıt; dallar aynı çağrı klibini paylaşıyorsa kaydı tekrarlama.', items: {
       type: 'object', description: 'Aynı klipteki tek çağrının planlanan bitişi.', properties: {
         clipId: { ...string, description: 'Graf sahnesinde çağrının yer aldığı klibin benzersiz kimliği.' },
         callEndS: { type: 'number', description: 'Çağrının bu klip başlangıcından itibaren planlanan bitiş saniyesi.' },
       }, required: ['clipId', 'callEndS'] } },
-  }, required: [...planSchema.required, 'd01CallTiming'] };
+  }, required: [...required, 'd01CallTiming'] };
 }
 function validateD01Observation(plan, input, card) {
   const required = requiredD01ObservationSeconds(card);
@@ -131,6 +143,9 @@ function validateD01Observation(plan, input, card) {
 }
 function buildPlanPrompts(input, card) {
   const required = hasBehavior(input.request, 'D01') ? requiredD01ObservationSeconds(card) : null;
+  const planVersion = input.request.ageGroup ? '1.1' : '1.0';
+  const ageGroupMetadata = input.request.ageGroup
+    ? `Age-group contract metadata must match the graph exactly: ${JSON.stringify(input.request.ageGroup)}. Do not invent a representative month.` : '';
   const d02 = hasBehavior(input.request, 'D02') ? `
 D02 NESNE VE HEDEF SÜREKLİLİĞİ:
 D02 ile ilişkili sahne ve kliplerde iki sabit nesneyi birbirinden ayırt edilebilir kimlik ve görünür konumlarıyla belirt; hangi nesnenin işaret edilen hedef olduğunu açıkça yaz.
@@ -182,7 +197,7 @@ Her sahneyi en az bir kliple kapsa; sahne içinde orderInScene 1'den başlayıp 
 Her klip 0 < targetDurationS <= ${input.request.production?.maxClipDurationS || 8} saniye; toplam senaryo 8 saniye değildir. Eylemler süreye sığsın.
 İstenen üretim düzeni/süre HEDEFLERİ: ${JSON.stringify(input.request.production || null)}. Bunlar gerçek video ölçümü değildir.
 Graf sahnelerinin behaviorIds ilişkilerini sceneId üzerinden kliplere taşı; hiçbir seçilen kartı atlama.
-schemaVersion 1.0; planId ve scenarioId istektekilerle aynı. Klip kimlikleri benzersiz olsun.
+schemaVersion ${planVersion}; planId ve scenarioId istektekilerle aynı. Klip kimlikleri benzersiz olsun. ${ageGroupMetadata}
 Yaş, isim/karakter, ortam ve olaylar verilen istek ve graf metninden gelsin; istenmedikçe sabit yaş veya 26 sahne kullanma.
 Kaynakta bulunmayan görsel ayrıntıları visualSuggestions alanında 'Üretilmiş görsel öneri' olarak açıkça belirt;
 continuityNotes ve ilgili klip alanlarında aynı öneriyi tutarlı taşı, doğrulanmış istek bilgisi gibi sunma.
@@ -213,7 +228,11 @@ function validatePlan(raw, input, card) {
   let plan;
   try { plan = JSON.parse(raw); } catch (_) { throw new InputError('Klip planı geçerli JSON değil.', 502); }
   check(keys(plan, Object.keys(planSchemaFor(input).properties)), 'Plan alanları geçersiz.');
-  check(plan.schemaVersion === '1.0' && plan.planId === input.planId && plan.scenarioId === input.graph.scenarioId,
+  check(plan.schemaVersion === (input.request.ageGroup ? '1.1' : '1.0') && plan.planId === input.planId &&
+    plan.scenarioId === input.graph.scenarioId &&
+    (input.request.ageGroup
+      ? JSON.stringify(validateAgeGroup(plan.ageGroup)) === JSON.stringify(input.request.ageGroup)
+      : !Object.hasOwn(plan, 'ageGroup')),
     'Plan/istek/graf referansları uyuşmuyor.');
   for (const k of ['authoringNote', 'continuityNotes', 'visualSuggestions']) check(text(plan[k]), `Plan alanı eksik: ${k}.`);
   check(Array.isArray(plan.clips) && plan.clips.length > 0, 'Plan klipleri eksik.');

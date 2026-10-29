@@ -277,7 +277,7 @@ class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
                 children: [
                   Text('Davranışlar: ${widget.request.cards.map((card) => '${card.id} — ${card.title} (kart ${card.cardVersion})').join('; ')}',
                     key: const ValueKey('comparison-request-behaviors'), softWrap: true),
-                  Text('Yaş: ${widget.request.ageMonths} ay', key: const ValueKey('comparison-request-age')),
+                  Text('Yaş grubu: ${widget.request.ageDescription}', key: const ValueKey('comparison-request-age')),
                   Text('Senaryo düzeni: ${widget.request.linear ? '26 sahnelik doğrusal anlatı' : 'Alternatifli anlatı'}',
                     key: const ValueKey('comparison-request-structure'), softWrap: true),
                   Text('Ortam: ${widget.request.sceneContext}', softWrap: true),

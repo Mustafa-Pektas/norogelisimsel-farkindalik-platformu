@@ -9,7 +9,9 @@ class ClipPlanGenerationRequest {
     graph.validate();
     if (!RegExp(r'^generated-[A-Za-z0-9_-]+$').hasMatch(planId) ||
         graph.behaviorId != request.behaviorId || graph.cardVersion != request.cardVersion ||
-        graph.ageMonths != request.ageMonths || (request.extended && graph.schemaVersion != '1.1') ||
+        graph.ageMonths != request.ageMonths || graph.ageGroup != request.ageGroup ||
+        (request.ageGroup != null && graph.schemaVersion != ScenarioGraph.ageGroupSchemaVersion) ||
+        (request.ageGroup == null && request.extended && graph.schemaVersion != '1.1') ||
         jsonEncode(graph.behaviors.map((ref) => ref.toJson()).toList()) !=
           jsonEncode(request.behaviors.map((ref) => ref.toJson()).toList())) {
       throw const FormatException('Graf ile doğrulanmış üretim isteği uyuşmuyor.');

@@ -13,6 +13,7 @@ import '../services/http_scenario_generation_service.dart';
 import 'clip_production_plan_screen.dart';
 import '../models/scenario_input.dart';
 import '../models/scenario_generation_request.dart';
+import '../models/scenario_age_group.dart';
 import '../models/scenario_generation_result.dart';
 import '../widgets/scenario_narrative_cards.dart';
 import '../models/scenario_workspace_draft.dart';
@@ -118,6 +119,8 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
     behaviorId: _requestCard?.id, cardVersion: _requestCard?.cardVersion,
     ageText: _requestAge.text, contextText: _requestContext.text,
     instructionsText: _requestInstructions.text, generationRaw: _generationRaw,
+    ageGroup: _editorRequest?.ageGroup ?? _responseRequest?.ageGroup ??
+        ScenarioAgeGroup.fromLegacyMonths(int.tryParse(_requestAge.text.trim())),
     responseRequest: _responseRequest, responseScenarioId: _responseScenarioId,
     editorRequest: _editorRequest, editorScenarioId: _editorScenarioId,
     generationEdited: _generationEdited, demoDraft: _demoDraft, demoEdited: _demoEdited,
@@ -343,7 +346,7 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
         _responseRequest = result.request; _editorRequest = result.request; _requestDraft = result.request;
         _responseScenarioId = result.scenarioId; _editorScenarioId = result.scenarioId;
         _requestCard = result.request.card;
-        _requestAge.text = result.request.ageMonths.toString();
+        _requestAge.text = result.request.ageGroup?.label ?? result.request.ageMonths?.toString() ?? '';
         _requestContext.text = result.request.sceneContext;
         _requestInstructions.text = result.request.additionalInstructions ?? '';
         _generationEdited = false; _demoDraft = false; _demoEdited = false;
@@ -623,6 +626,7 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
     final graph = _validated;
     if (request == null || graph == null || graph.behaviorId != request.behaviorId ||
         graph.cardVersion != request.cardVersion || graph.ageMonths != request.ageMonths ||
+        graph.ageGroup != request.ageGroup ||
         jsonEncode(graph.behaviors.map((ref) => ref.toJson()).toList()) != jsonEncode(request.behaviors.map((ref) => ref.toJson()).toList()) ||
         (_editorResult != null && graph.scenarioId != _editorResult!.scenarioId)) {
       return null;

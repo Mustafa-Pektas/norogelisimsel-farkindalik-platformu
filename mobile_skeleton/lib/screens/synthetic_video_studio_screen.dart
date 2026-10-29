@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../models/scenarios_data.dart';
 import '../models/behavior_cards.dart';
 import '../models/scenario_generation_request.dart';
+import '../models/scenario_age_group.dart';
 import '../models/scenario_behavior_ref.dart';
 import '../models/scenario_input.dart';
 import '../widgets/scenario_narrative_cards.dart';
@@ -297,7 +298,8 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
   final TextEditingController _teamAccessKeyController = TextEditingController();
   ScenarioGenerationJob? _activeNarrativeJob;
   final _closedNarrativeJobs = Expando<bool>();
-  final _productionAge = TextEditingController();
+  ScenarioAgeGroup? _selectedProductionAgeGroup;
+  bool _productionAgeTouched = false;
   final _productionContext = TextEditingController();
   final _productionInstructions = TextEditingController();
   ScenarioGenerationRequest? _productionRequest;
@@ -312,18 +314,16 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     final initial = widget.initialOntologyCode == null ? {'D01', 'D02', 'D03'} : {widget.initialOntologyCode!};
     return (_isGenerating && _selectedEngine == 'server') || _normalResult != null || _normalErrorRaw != null ||
       _productionContext.text.isNotEmpty || _productionInstructions.text.isNotEmpty ||
-      (_productionAge.text.isNotEmpty && _productionAge.text != (widget.initialAgeMonths ?? 18).toString()) ||
+      _selectedProductionAgeGroup != null ||
       _productionGoals || _productionStructure != 'branched' ||
       _selectedOntologies.length != initial.length || !initial.every(_selectedOntologies.contains);
   }
   String get _currentProductionSignature => jsonEncode([
-    _selectedOntologies.toList(), _productionAge.text, _productionContext.text, _productionInstructions.text,
+    _selectedOntologies.toList(), _selectedProductionAgeGroup?.toJson(), _productionContext.text, _productionInstructions.text,
     _productionStructure, _productionGoals, if (_productionGoals || _productionStructure == 'linear26') ...[_selectedTotalSec, _selectedDuration]]);
   String? get _productionAgeError {
-    final value = _productionAge.text.trim();
-    if (value.isEmpty && !_productionAttempted) return null;
-    final age = RegExp(r'^[0-9]+$').hasMatch(value) ? int.tryParse(value) : null;
-    return age == null || age < 12 || age > 36 ? '12–36 arasında tam ay girin.' : null;
+    if (_selectedProductionAgeGroup != null || !_productionAttempted) return null;
+    return 'Üretime devam etmek için bir yaş grubu seçin.';
   }
   String? get _productionContextError => _productionAttempted && _productionContext.text.trim().isEmpty
     ? 'Ortamı ve sahneyi kısaca yazın.' : null;
@@ -340,14 +340,13 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       }
       final cards = BehaviorCards.all.where((card) => _selectedOntologies.contains(card.id)).toList();
       if (cards.length != _selectedOntologies.length) throw const FormatException('Güncel D01–D10 kartlarını seçin.');
-      final ageText = _productionAge.text.trim();
-      final age = RegExp(r'^[0-9]+$').hasMatch(ageText) ? int.tryParse(ageText) : null;
-      if (age == null || age < 12 || age > 36) throw const FormatException('12–36 arasında tam ay girin.');
+      final ageGroup = _selectedProductionAgeGroup;
+      if (ageGroup == null) throw const FormatException('Üretime devam etmek için bir yaş grubu seçin.');
       if (_productionContext.text.trim().isEmpty) throw const FormatException('Ortamı ve sahneyi kısaca yazın.');
       final request = ScenarioGenerationRequest(behaviorId: cards.first.id,
         cardVersion: cards.first.cardVersion, behaviors: [for (final card in cards)
           ScenarioBehaviorRef(behaviorId: card.id, cardVersion: card.cardVersion)],
-        ageMonths: age, sceneContext: _productionContext.text,
+        ageGroup: ageGroup, sceneContext: _productionContext.text,
         additionalInstructions: _productionInstructions.text.trim().isEmpty ? null : _productionInstructions.text,
         production: _productionGoals || _productionStructure == 'linear26' ? ScenarioProductionSettings(
           structure: _productionStructure, targetDurationS: _selectedTotalSec, maxClipDurationS: _selectedDuration) : null);
@@ -470,7 +469,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
         Text(_productionError!, key: const ValueKey('scenario-request-error')),
       if (_productionRequest != null && _productionSignature == _currentProductionSignature)
         Text('${_productionRequest!.cards.map((card) => card.title).join(' / ')} · '
-          '${_productionRequest!.ageMonths} ay\n${_productionRequest!.sceneContext}',
+          '${_productionRequest!.ageDescription}\n${_productionRequest!.sceneContext}',
           key: const ValueKey('scenario-request-summary')),
     ],
   );
@@ -610,9 +609,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     }
     if (widget.initialAgeMonths != null) {
       _selectedAge = widget.initialAgeMonths!;
+      _selectedProductionAgeGroup = ScenarioAgeGroup.fromLegacyMonths(widget.initialAgeMonths!);
     }
-    _productionAge.text = _selectedAge.toString();
-    for (final controller in [_productionAge, _productionContext, _productionInstructions]) {
+    _restoreProductionAgeGroupFromDraft();
+    for (final controller in [_productionContext, _productionInstructions]) {
       controller.addListener(() {
         if (mounted) setState(() { _productionRequest = null; _productionSignature = null; _productionError = null; });
       });
@@ -627,6 +627,23 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     });
   }
 
+  Future<void> _restoreProductionAgeGroupFromDraft() async {
+    try {
+      final draft = await (widget.scenarioDraftStore ?? const ScenarioDraftStore()).load();
+      if (!mounted || _productionAgeTouched || _selectedProductionAgeGroup != null || draft == null) return;
+      final legacyAge = int.tryParse(draft.ageText.trim());
+      final group = draft.ageGroup ?? ScenarioAgeGroup.fromLegacyMonths(legacyAge);
+      if (group == null) return;
+      setState(() {
+        _selectedProductionAgeGroup = group;
+        _productionRequest = null;
+        _productionSignature = null;
+      });
+    } catch (_) {
+      // Eski/bozuk taslak üretimi engellemez; yaş grubu kullanıcıdan istenir.
+    }
+  }
+
   @override
   void didUpdateWidget(covariant SyntheticVideoStudioScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -637,7 +654,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     }
     if (widget.initialAgeMonths != null && widget.initialAgeMonths != oldWidget.initialAgeMonths) {
       _selectedAge = widget.initialAgeMonths!;
-      _productionAge.text = _selectedAge.toString();
+      _selectedProductionAgeGroup = ScenarioAgeGroup.fromLegacyMonths(widget.initialAgeMonths!);
       shouldRegenerate = true;
     }
     // Yalnız yerel şablon otomatik yenilenebilir; sunucu/model çağrısı
@@ -656,7 +673,6 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       unawaited(_closeNarrativeJob(activeJob, cancel: true));
     }
     _teamAccessKeyController.dispose();
-    _productionAge.dispose();
     _productionContext.dispose();
     _productionInstructions.dispose();
     super.dispose();
@@ -1944,13 +1960,13 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Row(
+              Row(
                 children: [
-                  Icon(Icons.child_care_rounded, size: 18, color: Color(0xFF0F172A)),
-                  SizedBox(width: 6),
+                  const Icon(Icons.child_care_rounded, size: 18, color: Color(0xFF0F172A)),
+                  const SizedBox(width: 6),
                   Expanded(child: Text(
-                    'Çocuğun Yaşı',
-                    style: TextStyle(fontSize: 13.5, color: Color(0xFF1E293B), fontWeight: FontWeight.bold),
+                    _selectedEngine == 'server' ? 'Yaş grubu' : 'Çocuğun yaşı',
+                    style: const TextStyle(fontSize: 13.5, color: Color(0xFF1E293B), fontWeight: FontWeight.bold),
                   )),
                 ],
               ),
@@ -1961,7 +1977,9 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  _selectedEngine == 'server' ? '12–36 ay' : '$_selectedAge Ay',
+                  _selectedEngine == 'server'
+                    ? (_selectedProductionAgeGroup?.label ?? 'Grup seçilmedi')
+                    : '$_selectedAge Ay',
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11.5),
                 ),
               ),
@@ -1969,10 +1987,24 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
           ),
           if (_selectedEngine == 'server') ...[
             const SizedBox(height: 16),
-            TextField(key: const ValueKey('scenario-request-age'), controller: _productionAge,
-              readOnly: _isGenerating, keyboardType: const TextInputType.numberWithOptions(),
-              decoration: const InputDecoration(labelText: 'Yaş (ay)', floatingLabelBehavior: FloatingLabelBehavior.always,
-                hintText: '12–36', border: OutlineInputBorder())),
+            const Text('Yaş grubu (zorunlu)', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Wrap(key: const ValueKey('scenario-request-age'), spacing: 8, runSpacing: 6,
+              children: [for (final group in ScenarioAgeGroup.values)
+                ChoiceChip(
+                  key: ValueKey('scenario-age-group-${group.id}'),
+                  label: Text(group.label),
+                  selected: _selectedProductionAgeGroup == group,
+                  onSelected: _isGenerating ? null : (_) => setState(() {
+                    _productionAgeTouched = true;
+                    _selectedProductionAgeGroup = group;
+                    _productionRequest = null;
+                    _productionSignature = null;
+                    _productionError = null;
+                  }),
+                ),
+              ],
+            ),
             if (_productionAgeError != null) Padding(padding: const EdgeInsets.only(top: 6),
               child: Text(_productionAgeError!, key: const ValueKey('scenario-request-error'),
                 style: TextStyle(color: Theme.of(context).colorScheme.error))),
@@ -1986,7 +2018,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
             inactiveColor: const Color(0xFFE2E8F0),
             label: '$_selectedAge Ay',
             onChanged: _isGenerating ? null : (val) {
-              setState(() { _selectedAge = val.round(); _productionAge.text = _selectedAge.toString(); });
+              setState(() { _selectedAge = val.round(); });
             },
           ),
           const SizedBox(height: 10),

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_request.dart';
+import 'package:neuro_awareness_app/models/scenario_age_group.dart';
 import 'package:neuro_awareness_app/models/scenario_generation_result.dart';
 import 'package:neuro_awareness_app/services/http_scenario_generation_service.dart';
 import 'package:neuro_awareness_app/services/scenario_generation_service.dart';
@@ -126,6 +127,29 @@ void main() {
     await job.dispose();
     expect(client.sends, 1);
     expect(client.closes, 1);
+  });
+
+  test('HTTP v3: seçilen yaş grubu aynen taşınır; temsilî ay gönderilmez', () async {
+    final groupedRequest = ScenarioGenerationRequest(
+      behaviorId: 'D02', cardVersion: '0.2', ageGroup: ScenarioAgeGroup.fromId('18_24'),
+      sceneContext: 'Evde iki oyuncak', additionalInstructions: 'Sabit kamera',
+    );
+    final groupedRaw = jsonEncode({
+      'structure': 'branched', 'commonStart': 'Ortak başlangıç', 'commonBehaviorIds': ['D02'],
+      'alternatives': [{'title': 'Devam', 'continuation': 'Devam', 'ending': 'Bitiş', 'behaviorIds': ['D02']}],
+    });
+    final client = _Http();
+    final job = service(client).start(groupedRequest);
+    final answer = expectLater(job.response, completion(groupedRaw));
+    final sent = (await client.started.future) as http.Request;
+    final body = jsonDecode(sent.body) as Map<String, dynamic>;
+    expect(body, groupedRequest.toJson());
+    expect(body['requestVersion'], '3.0');
+    expect(body['ageGroup'], {'contractVersion': '1.0', 'id': '18_24'});
+    expect(body, isNot(contains('ageMonths')));
+    client.reply.complete(response({...envelope(), 'request': groupedRequest.toJson(), 'rawResponse': groupedRaw}));
+    await answer;
+    await job.dispose();
   });
 
   for (final mode in ['bad-json', 'bad-content', 'metadata', 'protocol', 'http', 'transport']) {
