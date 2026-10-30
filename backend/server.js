@@ -147,10 +147,11 @@ const RISK_PROFILES = {
 
 // Sabit görünüm: model yazmaz, kod her prompt'un başına ekler
 const CHARACTER =
-  'Cinematic 35mm film still, locked-off stationary tripod at 45cm low child-eye level, f/2.8 aperture, soft 5500K diffused morning natural daylight. ' +
-  'A photorealistic 24-month-old toddler with short brown hair, wearing a solid powder-blue crewneck cotton t-shirt and charcoal knit joggers, sitting barefoot on a Scandinavian light ash wooden floor with a navy-and-cream geometric wool rug. ' +
-  'In the background, an adult female clinician in a beige knit sweater is seated quietly observing. ' +
-  'Anatomically accurate hands with five distinct fingers, stable physics, no morphing, 4K photorealistic documentary realism.';
+'CLINICAL PEDIATRIC MEDICAL TRAINING: STANDARDIZED DEVELOPMENTAL SCREENING AND PEDIATRIC RESEARCH. FULLY CLOTHED CHILD AND CLINICIAN. RAW UNEDITED LAB RECORDING. ' +
+  'Cinematic 35mm film still, locked stationary camera viewpoint at 55cm child-eye level with a subtle 15-degree gentle downward angle looking down at the play rug, f/8 deep depth of field with sharp focus throughout the entire playroom, soft 5500K diffused morning natural daylight. ' +
+  'A photorealistic toddler boy named Ali, fully clothed in a soft pastel green cotton t-shirt, light grey cotton shorts, and soft grey socks, seated cross-legged on a geometric wool rug right next to four colorful wooden stacking blocks (yellow, blue, red, green) and a small open-top square natural pine wooden toy box. ' +
+  'In the background diagonally at 1.5m, an adult female child specialist in a cream knit cardigan and casual light trousers is seated comfortably cross-legged quietly observing, hands in lap, lips gently sealed shut. ' +
+  'Anatomically accurate hands with five distinct fingers, stable solid object physics, no object spawning, 4K photorealistic documentary realism.';
 
 const scenarioSchema = {
   type: SchemaType.OBJECT,
@@ -256,10 +257,19 @@ function finalize(s) {
 
 // Veo'ya yapıştırılacak hazır prompt
 function buildVeoPrompt(sc, name = 'the child') {
-  const dlg = sc.dialogue
-    ? ` ${sc.speaker === 'ADULT' ? 'The adult clinician' : 'The toddler'} says: "${sc.dialogue}"`
-    : '';
-  return `${CHARACTER} ${sc.videoPrompt}${dlg} Static medium shot at the child's eye level, natural light, realistic documentary style. No subtitles, no text overlay, 4K photorealistic, anatomically correct hands, solid object physics, no morphing.`;
+const header = 'CLINICAL PEDIATRIC MEDICAL TRAINING: STANDARDIZED DEVELOPMENTAL SCREENING AND PEDIATRIC RESEARCH. FULLY CLOTHED CHILD AND CLINICIAN. RAW UNEDITED LAB RECORDING.';
+  const cameraLock = 'Consistent with the reference video clip, seamless continuation from the exact previous frame: 35mm film still aesthetics, locked stationary camera viewpoint at 55cm child-eye level with a subtle 15-degree gentle downward angle looking down at the play rug, f/8 deep depth of field with sharp focus throughout the entire playroom, soft 5500K diffused morning natural daylight.';
+  const foreground = 'In the well-lit foreground, the toddler boy Ali, fully clothed in his soft pastel green cotton t-shirt, grey shorts, and light grey socks, remains seated cross-legged on the geometric wool rug.';
+
+  const adultMotion = sc.dialogue
+    ? `At second 2, the female specialist in the background briefly utters ONLY the single word "${sc.dialogue}", then immediately closes her mouth and remains completely motionless and silent with lips sealed shut.`
+    : `In the background at 1.5 meters, the female specialist in cream knit cardigan sits cross-legged on the floor, observing quietly with hands resting in her lap, lips closed with zero movement and zero spoken words.`;
+
+  const audio = sc.dialogue
+    ? `Audio: only the single quiet spoken word "${sc.dialogue}" at second 2, subtle natural room tone, complete silence otherwise.`
+    : `Audio: 100% silent, completely mute, subtle quiet room tone, zero vocal sounds, pure silence.`;
+
+  return `${header} ${cameraLock} ${foreground} ${sc.videoPrompt} ${adultMotion} The Scandinavian playroom, light ash wooden floor, geometric wool rug, and all toys remain completely stationary, realistic, and solid. ${audio}`;
 }
 
 async function generateOnce(genAI, modelName, prompts) {

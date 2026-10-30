@@ -76,7 +76,27 @@ function createPilotJobs(env, { runner = spawn, profiles: suppliedProfiles, now 
   function status(id) {
     cleanup();
     const j = jobs.get(id);
-    return j ? { jobId: id, status: j.status, code: j.code || null, profileId: j.profileId || null, interruptRequested: Boolean(j.cancelCode) } : null;
+if (!j) return null;
+    let processedFrames = null;
+    let totalFrames = null;
+    try {
+      const stateFile = path.join(dirOf(id), 'run', 'state.json');
+      if (fs.existsSync(stateFile)) {
+        const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+        if (Number.isInteger(state.processed_frames)) processedFrames = state.processed_frames;
+        const total = state.video_metadata?.declared_frame_count ?? state.video_metadata?.frame_count;
+        if (Number.isInteger(total)) totalFrames = total;
+      }
+    } catch {}
+    return {
+      jobId: id,
+      status: j.status,
+      code: j.code || null,
+      profileId: j.profileId || null,
+      interruptRequested: Boolean(j.cancelCode),
+      ...(processedFrames !== null ? { processedFrames } : {}),
+      ...(totalFrames !== null ? { totalFrames } : {})
+    };
   }
   function finish(job, state, code) {
     if (TERMINAL.has(job.status)) return;

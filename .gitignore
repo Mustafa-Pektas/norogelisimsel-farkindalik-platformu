@@ -83,3 +83,7 @@ incele/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Temporary scratch & large test videos
+scratch/
+vidyo.webm
