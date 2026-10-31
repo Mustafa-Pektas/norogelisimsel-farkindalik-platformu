@@ -98,6 +98,27 @@ Bu yol Gemini `/api/analyze-video` değildir. Varsayılan kapalıdır. Yalnız h
 
 ## Yerel yapılandırma
 
+### Açık CPU thread denemesi
+
+`PILOT_D01_CPU_THREADS` verilmezse eski protokoldeki4 intra-op thread kullanılır. Açık değer yalnız `1`, `2` veya `4` olabilir; boş/hatalı değer backend başlangıcında hata verir. Backend bunu yalnız CLI `--cpu-threads` argümanına taşır; mobil istek bu ayarı belirleyemez. Inter-op davranışı, model, ROI, filtre/eşikler ve timeout değişmez. `parameters/pilot_v1.json` yeniden yazılmaz.
+
+Sunucuda güncel CLI ve backend dosyaları sağlandıktan sonra, çalışan analiz tamamlanmış/kapanmış olmalı. Mevcut backend oturumunu kullanıcının kendi başlatma yöntemiyle yeniden açarken yalnız o sürece ayar verilir (burada çalıştırılmadı):
+
+```bash
+cd /opt/norogelisim/app/backend
+PILOT_D01_CPU_THREADS=2 node server.js
+```
+
+Mevcut diğer ortam/anahtar/yol/timeout ayarlarını koruyun; ikinci backend başlatmayın. Bu komut kalıcı `.env` veya sistem ayarı yazmaz. Dönüşte aynı yöntemle kendi backend'inizi yeniden başlatın:
+
+```bash
+env -u PILOT_D01_CPU_THREADS node server.js
+```
+
+Bu dönüş komutu değişkenin gerçek `.env` içinde tanımlanmadığı süreçlik deneme içindir. Kalıcı dosyada önceden tanım varsa varsayılanı kullanmak için o tanımın kaldırılması gerekir; açık eski davranış için `PILOT_D01_CPU_THREADS=4 node server.js` kullanılabilir. Buradaki görev gerçek `.env` okumadı/değiştirmedi.
+
+`job.json.requestedCpuThreads` backend seçimini; CLI `settings.json.execution` seçimi ve kaynağını, `state.json.execution` ve tamamlanmış `result.json.execution` seçilen/gerçek etkin intra-op sayılarını kaydeder. Gerçek etkin inter-op/intra-op ayrıca `runtime_environment` içindedir. Runtime sayısı seçime uymuyorsa CLI hata verir. Replay'de runtime yüklenmediği için etkin değer null kalır. Operatör kayıtlarıdır; mobil güvenli sonuç projeksiyonuna eklenmez. Bu dosyaların birlikte sunucuya aktarımı ve2-thread tam koşusu henüz yapılmadı.
+
 Mevcut bağımlılıklar Express/multer ve Node standart kütüphaneleri yeterlidir; paket eklenmedi. Sunucu ortamında `PILOT_D01_ENABLED=true`, `TEAM_ACCESS_KEY` ve aşağıdaki **mutlak** yollar gerekir:
 
 - `PILOT_D01_PYTHON`: mevcut uygun Python/venv yürütülebiliri.

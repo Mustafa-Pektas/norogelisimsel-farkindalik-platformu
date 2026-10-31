@@ -23,6 +23,10 @@ function alive(pid) {
 function createPilotJobs(env, { runner = spawn, profiles: suppliedProfiles, now = Date.now,
   timers = { setTimeout, clearTimeout } } = {}) {
   const timing = backendTiming(env);
+  const cpuThreads = env.PILOT_D01_CPU_THREADS;
+  if (cpuThreads !== undefined && !['1', '2', '4'].includes(cpuThreads)) {
+    throw new Error('PILOT_D01_CPU_THREADS must be 1, 2 or 4, or omitted');
+  }
   const required = ['PILOT_D01_PYTHON', 'PILOT_D01_WEIGHTS', 'PILOT_D01_OFFICIAL_SOURCE', 'PILOT_D01_JOBS_DIR'];
   for (const key of required) if (!env[key] || !path.isAbsolute(env[key])) throw new Error(`${key} requires an absolute server path`);
   for (const key of required.slice(0, 3)) if (!fs.existsSync(env[key])) throw new Error(`${key} is unavailable`);
@@ -181,6 +185,8 @@ if (!j) return null;
     write(path.join(dir, 'roi.json'), profile.roi);
     const args = ['-X', 'utf8', '-B', cli, '--video', video, '--weights', env.PILOT_D01_WEIGHTS,
       '--roi', path.join(dir, 'roi.json'), '--protocol', protocol, '--official-source', env.PILOT_D01_OFFICIAL_SOURCE, '--output-dir', path.join(dir, 'run')];
+    if (cpuThreads !== undefined) args.push('--cpu-threads', cpuThreads);
+    job.requestedCpuThreads = cpuThreads === undefined ? 4 : Number(cpuThreads);
     if (Object.keys(job.manual).length) {
       write(path.join(dir, 'manual.json'), { video_path: video, video_sha256: digest, candidate_status: 'manual_candidate_unreviewed',
         marks: Object.fromEntries(Object.entries(job.manual).map(([k, t]) => [k, { media_time_ms: Math.round(t * 1000), time_source: 'manual_user_input', candidate_status: 'unreviewed' }])) });

@@ -197,6 +197,9 @@ void main() {
       await tester.pump(const Duration(seconds: 30));
       expect(task.polls, 1);
       expect(find.textContaining('Bağlantı zaman aşımına'), findsOneWidget);
+      expect(find.textContaining(pilotTestId), findsOneWidget);
+      expect(find.textContaining('sunucudaki iş devam ediyor olabilir.'), findsWidgets);
+      expect(find.text('Pilot işi kesildi.'), findsNothing);
       task.readStatus = () async =>
           D01PilotStatus.fromJson(pilotStatusJson('completed'));
       await tap(tester, 'pilot-resume');
@@ -296,10 +299,28 @@ void main() {
       await mount(tester, api);
       await tap(tester, 'pilot-start');
       expect(find.text(D01PilotException(code).message), findsOneWidget);
+      if (code == 'analysis_timeout') {
+        expect(find.text('Sunucu süre sınırına ulaştı; analiz tamamlanmadı.'), findsOneWidget);
+        expect(find.text('Pilot işi kesildi.'), findsNothing);
+      }
       expect(find.textContaining('Pilot tamamlandı'), findsNothing);
       await close(tester);
     });
   }
+
+  testWidgets('Busy upload keeps message and never automatically uploads again', (tester) async {
+    final task = ControlledPilotTask()
+      ..onSubmit = () async => throw const D01PilotException('pilot_busy');
+    final api = ControlledPilotApi()..makeTask = () => task;
+    await mount(tester, api);
+    await tap(tester, 'pilot-start');
+    expect(find.textContaining('Sunucuda başka bir analiz devam ediyor'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 30));
+    expect(task.submits, 1);
+    expect(task.polls, 0);
+    expect(task.closes, 1);
+    await close(tester);
+  });
 
   testWidgets(
     'Missing/out-of-range intervals disabled; opening a new candidate also disables seek',

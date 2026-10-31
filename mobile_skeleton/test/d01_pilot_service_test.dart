@@ -41,6 +41,19 @@ void main() {
   Matcher error(String code) =>
       isA<D01PilotException>().having((e) => e.code, 'code', code);
 
+  test('HTTP 429 without a JSON code is pilot capacity, without retry', () async {
+    var requests = 0;
+    final api = HttpD01PilotApi(clientFactory: () => MockClient((r) async {
+      requests++;
+      return http.Response('busy', 429);
+    }));
+    final task = api.create(video: video, address: 'http://localhost', accessKey: 'test');
+    await expectLater(task.submit(), throwsA(error('pilot_busy')));
+    expect(requests, 1);
+    expect(task.jobId, isNull);
+    task.close();
+  });
+
   test('Multipart -> job -> result: same Bearer, no manual fields; independent address and no stored key', () async {
     SharedPreferences.setMockInitialValues({
       'custom_server_base_url': 'https://scenario.example',

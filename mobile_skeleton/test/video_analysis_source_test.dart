@@ -137,6 +137,30 @@ void main() {
     }
   }
 
+  testWidgets('Video Analysis opens experimental pilot without a new player or upload', (tester) async {
+    final api = ControlledPilotApi();
+    await mount(tester, (_) async => null, pilotApi: api);
+    final players = platform.sources.length;
+    final entry = find.byKey(const ValueKey('open-d01-pilot-analysis'));
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    final screen = tester.widget<VideoAnalysisScreen>(find.byType(VideoAnalysisScreen).last);
+    expect(screen.experimentalD01, isTrue);
+    expect(find.textContaining('Yalnız iki denetlenmiş D01'), findsOneWidget);
+    expect(platform.sources.length, players);
+    expect(api.tasks, isEmpty);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('open-d01-pilot-analysis')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    for (var id = 0; id < platform.sources.length; id++) {
+      expect(platform.calls.where((call) => call == 'dispose:$id'), hasLength(1));
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   Future<void> pickFromGallery(WidgetTester tester, String label,
       {bool checkSourceLayout = false}) async {
     final button = find.byKey(const ValueKey('video-source-button'));

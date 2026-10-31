@@ -115,6 +115,9 @@ class _HttpPilotTask implements D01PilotTask {
           if (response.statusCode == 401) {
             throw const D01PilotException('unauthorized');
           }
+          if (response.statusCode == 429) {
+            throw const D01PilotException('pilot_busy');
+          }
           String? code;
           try {
             code = pilotMap(jsonDecode(utf8.decode(bytes)))['code'] as String?;

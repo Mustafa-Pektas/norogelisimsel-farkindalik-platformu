@@ -30,6 +30,12 @@ def append(stream,data):
 def finite_time(value):
     return isinstance(value,(float,int)) and not isinstance(value,bool) and math.isfinite(value) and value>=0
 
+def cpu_threads(protocol, override=None):
+    value=protocol['cpu_threads'] if override is None else override
+    if type(value) is not int or value not in (1,2,4):
+        raise ValueError('CPU threads must be an integer: 1, 2 or 4')
+    return value
+
 def crop_roi(image,roi):
     from PIL import Image
     x,y,w,h=(roi[k] for k in ('x','y','width','height'))
@@ -177,6 +183,11 @@ def run(args,info_reader=video_info,runtime_factory=None):
     checkpoint()
     try:
         protocol,motion,settling,config_paths=load_protocol(args.protocol.resolve())
+        override=getattr(args,'cpu_threads',None)
+        selected_threads=cpu_threads(protocol,override)
+        execution=dict(requested_intraop_threads=selected_threads,
+            source='protocol' if override is None else 'explicit_cli_override',effective_intraop_threads=None)
+        checkpoint(execution=execution)
         roi=json.loads(args.roi.read_text(encoding='utf-8'))
         if roi.get('human_supplied') is not True:raise ValueError('Explicit human-supplied ROI declaration required')
         if bool(args.recorded_raw)!=bool(args.recorded_report):raise ValueError('Recorded raw and its report must be supplied together')
@@ -195,7 +206,8 @@ def run(args,info_reader=video_info,runtime_factory=None):
         from PIL import Image
         crop_roi(Image.new('RGB',(info['width'],info['height'])),roi)
         atomic(out/'settings.json',dict(protocol=protocol,motion=motion,settling=settling,roi=roi,video=info,
-            inputs_sha256=protected,human_roi_not_tracking=True,manual_times_not_given_to_detection=True))
+            inputs_sha256=protected,human_roi_not_tracking=True,manual_times_not_given_to_detection=True,
+            execution=dict(execution)))
         checkpoint(stage='raw',video_metadata=info)
         if args.recorded_raw:
             original=json.loads(args.recorded_report.read_text(encoding='utf-8'))
@@ -214,10 +226,13 @@ def run(args,info_reader=video_info,runtime_factory=None):
             if runtime_factory is None:
                 from official_runtime import OfficialRuntime
                 runtime_factory=OfficialRuntime
-            load_start=time.perf_counter();runtime=runtime_factory(args.official_source,args.weights,protocol['cpu_threads'])
+            load_start=time.perf_counter();runtime=runtime_factory(args.official_source,args.weights,selected_threads)
             metrics.add('runtime_initialization_s',time.perf_counter()-load_start)
             if getattr(runtime,'timings',{}).get('model_load_s') is not None:metrics.add('model_load_s',runtime.timings['model_load_s'])
             state['runtime_environment']=getattr(runtime,'environment',None) or environment(device='not_measured_controlled_runtime')
+            execution['effective_intraop_threads']=state['runtime_environment'].get('torch_threads')
+            if execution['effective_intraop_threads'] is not None and execution['effective_intraop_threads']!=selected_threads:
+                raise ValueError('Effective CPU thread count differs from requested count')
             state['model_loaded']=True;atomic(details/'runtime_checks.json',runtime.checks)
             (out/'inputs').mkdir();rows=live_rows(args.video,info,roi,runtime,out)
         raw=[];raw_start=time.perf_counter()
@@ -264,6 +279,7 @@ def run(args,info_reader=video_info,runtime_factory=None):
         atomic(details/'performance.json',dict(runtime_environment=state['runtime_environment'],measurements=metrics.snapshot(),resource_sample=metrics.sample(),
             snapshot_scope='Before main result publication; final measurements are in state.json; final checkpoint excludes its own write time.'))
         pilot.update(schema_version='d01-pilot-result-1.0',protocol_version=protocol['protocol_version'],run_mode=state['mode'],
+            execution=execution,
             runtime_environment=state['runtime_environment'],measurement_details='details/performance.json',final_measurements_file='state.json',
             run_state_file='state.json',require_completed_run_state=True,model_inference_performed=not bool(args.recorded_raw),
             user_roi=dict(setting=roi,source='human_supplied_not_automatic_tracking'),
@@ -294,6 +310,7 @@ def main():
     for name in ('video','weights','roi','protocol','output-dir'):parser.add_argument('--'+name,type=Path,required=True)
     for name in ('official-source','manual','recorded-raw','recorded-report'):parser.add_argument('--'+name,type=Path)
     parser.add_argument('--user-review',type=Path,action='append',help='Optional separate user observation; read only after detection is fixed')
+    parser.add_argument('--cpu-threads',type=int,choices=(1,2,4),help='Explicit intra-op override; omitted uses unchanged protocol default')
     args=parser.parse_args();run(args);print(str(args.output_dir.resolve()/'result.json'))
 
 if __name__=='__main__':main()

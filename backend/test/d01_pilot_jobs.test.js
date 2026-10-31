@@ -30,10 +30,11 @@ function multipart(bytes, fields = {}) {
   return [Buffer.concat(parts), `multipart/form-data; boundary=${boundary}`];
 }
 function fixture(t, mode = 'deployment', extra = {}) {
+  const { envOverrides = {}, ...pilotOptions } = extra;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'd01-job-test-')); const fake = path.join(root, 'python.fixture'); fs.writeFileSync(fake, 'not executable');
   const bytes = Buffer.from('controlled fake video, never decoded'); const profiles = [{ id: 'controlled-only', sha256: hash(bytes), roi: { human_supplied: true } }];
   const env = { BACKEND_MODE: mode, TEAM_ACCESS_KEY: key, PILOT_D01_ENABLED: 'true', PILOT_D01_PYTHON: fake,
-    PILOT_D01_WEIGHTS: fake, PILOT_D01_OFFICIAL_SOURCE: root, PILOT_D01_JOBS_DIR: path.join(root, 'jobs') };
+    PILOT_D01_WEIGHTS: fake, PILOT_D01_OFFICIAL_SOURCE: root, PILOT_D01_JOBS_DIR: path.join(root, 'jobs'), ...envOverrides };
   const children = []; let clock = Date.now();
   function runner(executable, args, options) {
     const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.signals = [];
@@ -57,7 +58,7 @@ function fixture(t, mode = 'deployment', extra = {}) {
     };
     children.push(child); return child;
   }
-  const app = createApp({ env, pilotD01: { runner, profiles, now: () => clock, ...extra }, generate: async () => { throw new Error('no provider'); } });
+  const app = createApp({ env, pilotD01: { runner, profiles, now: () => clock, ...pilotOptions }, generate: async () => { throw new Error('no provider'); } });
   t.after(() => { if (children.length) children.at(-1).emit('close', 1); app.locals.pilotD01.close(); fs.rmSync(root, { recursive: true }); });
   return { app, env, root, bytes, children, profiles, runner, advance(ms) { clock += ms; }, upload(fields, data = bytes, auth = key) { return request(app, 'POST', '/api/pilot-d01/jobs', ...multipart(data, fields), auth); } };
 }
@@ -66,11 +67,21 @@ test('Upload -> 202 job -> status/result; no model/provider, sanitized main resu
   assert.equal(f.children.length, 1); assert.equal(f.children[0].options.shell, false);
   assert.equal(f.children[0].options.env.TEAM_ACCESS_KEY, undefined); assert.equal(f.children[0].options.env.GEMINI_API_KEY, undefined);
   assert.equal(f.children[0].args.includes('--manual'), false); assert.equal(f.children[0].args.includes('--recorded-raw'), false);
+  assert.equal(f.children[0].args.includes('--cpu-threads'), false);
   assert.equal((await request(f.app, 'GET', `/api/pilot-d01/jobs/${id}/result`)).status, 409);
   f.children[0].finish(); const result = await request(f.app, 'GET', `/api/pilot-d01/jobs/${id}/result`);
   assert.equal(result.status, 200); assert.equal(result.body.algorithmicTarget, 'not_determined');
   assert.equal(JSON.stringify(result).includes('private'), false); assert.equal(JSON.stringify(result).includes('secretFixture'), false);
   assert.equal((await request(f.app, 'GET', `/api/pilot-d01/jobs/${id}`)).body.status, 'completed');
+});
+test('Explicit CPU thread choice reaches CLI; invalid configuration fails before job creation', async t => {
+  const f = fixture(t, 'deployment', { envOverrides: { PILOT_D01_CPU_THREADS: '2' } });
+  assert.equal((await f.upload()).status, 202);
+  const args = f.children[0].args;
+  assert.equal(args[args.indexOf('--cpu-threads') + 1], '2');
+  for (const value of ['', '0', '3', '2.0', ' 2', 'invalid']) {
+    assert.throws(() => createPilotJobs({ ...f.env, PILOT_D01_CPU_THREADS: value }), /PILOT_D01_CPU_THREADS/);
+  }
 });
 test('Unsupported video hash never starts runner and releases slot', async t => {
   const f = fixture(t); assert.equal((await f.upload({}, Buffer.from('unknown'))).status, 422); assert.equal(f.children.length, 0);

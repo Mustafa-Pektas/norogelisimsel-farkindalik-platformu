@@ -1,5 +1,37 @@
 # Güncel ürün akışı — 28 Ekim 2026
 
+## CPU tanılama sonucu ve açık thread seçimi — 31 Ekim 2026
+
+**Kullanıcı sunucuda doğruladı:**0/36/72 karelerinde ısınma hariç ortalama inference4 thread11.2710,1 thread4.5161,2 thread3.7885 sn/kare.2/4 thread matrisleri önceki kayıtla birebir aynı;1 thread en büyük eleman farkı1.1921e-7. Sıra4→1→2, tek tekrar: kök neden çözülmüş veya2 thread kesin en iyi sayılmaz.
+
+CLI `--cpu-threads` ve backend `PILOT_D01_CPU_THREADS` ile açık1/2/4 intra-op seçimi eklendi; ayar yoksa değişmeyen protokolün4 değeri kullanılır. Seçilen/etkin thread sayıları CLI execution/runtime kayıtlarında ayrıdır; geçersiz seçim açık hatadır. Model/ROI/smoothing/eşik/kare/timeout değişmedi; sunucu güncellenmedi veya çıkarım yapılmadı. **Bu tur kontrollü22 Python ve15 backend testi geçti**; model/sunucu performans denemesi değildir.2-thread etkinleştirme ve eski ayara dönüş: `backend/D01_PILOT.md` içindeki açık CPU thread denemesi.
+
+## Ortak ilk 98 kare karşılaştırması ve CPU tanılama hazırlığı — 31 Ekim 2026
+
+**Kullanıcı sunucu kayıtlarından doğruladı:** üç koşunun ortak ilk98 karesinde RGB/tensör hash'leri ve rotation_matrix değerleri birebir aynı; Python/Torch sürümleri, CPU cihazı ve etkin intra/inter-op thread sayıları4/4 aynı. Başarılı koşuda örnekler arası wall174.16 / CPU606.49 sn, ortalama forward1.742 sn/kare; ilk timeout'ta758.96 /1764.68 sn ve7.4518 sn/kare; ikinci timeout'ta856.82 /1893.33 sn ve8.3812 sn/kare. CPU süreleri tüm süreç thread'lerinin toplamıdır; wall ile toplanmaz. Bu karşılaştırma yavaşlığın kök nedenini kanıtlamaz.
+
+`research/d01/cpu_diagnostic.py` ayrı deney için hazırlandı; bu tur çıkarım yapılmadı. Önce yalnız CPU/affinity/cgroup raporu; sonra kullanıcı açıkça çalıştırırsa mevcut kayıtlı0/36/72 karelerinin hash denetimi, resmî normalizasyon ve aynı ağırlık/runtime ile ayrı süreçlerde intra-op4/1/2, sabit inter-op4 karşılaştırması. Her koşulda bir ısınma + üç ölçüm;180 sn toplam sınır ve5 sn kendi alt sürecini kapatma payı; kısmi JSONL saklanır. Matris elemanı toleransı işlem öncesi1e-6 olarak belirlendi. Canlı backend/protokol değişmedi. CPU kotası/affinity bilinmeden uygun thread ayarı seçilmedi; çalışma sırası ve mevcut sunucu yükü karşılaştırmayı etkileyebilir.
+
+## D01 pilot girişi ve iş takibi — 31 Ekim 2026
+
+**Sonraki kullanıcı doğrulaması:** normal Windows PowerShell'de dört dosyalık mobil pilot test grubunda **63 test geçti**, `flutter analyze` temiz çıktı. Bu sonuçlar kullanıcı tarafından bildirildi; aşağıdaki önceki komutun sonuç vermemesi kaydını günceller. Telefon üzerinden uzun analizin güvenilir tamamlanması ayrıca incelenecek; test başarısı bu gerçek kullanımın kanıtı değildir.
+
+Güncel erişim **Video Analizi → Deneysel D01 baş hareketi analizi**; Simülasyon ve Eğitim'deki eski pilot girişi kaldırıldı. Aynı pilot ekranı, video önizleme/aynı-controller kontrolleri ve aday zamanına duraklatarak gitme davranışı kullanılır. Ekip anahtarı pilot oturumunda elle girilir, diske yazılmaz. Yalnız iki denetlenmiş video sınırı sürer. HTTP429 açık meşgul mesajıdır; otomatik yükleme/tekrar yoktur. Bilinen işte bağlantı/durum hatası sunucu işinin durduğu şeklinde gösterilmez; iş kimliği ve yeniden yüklemeden aynı işi takip etme seçeneği korunur. Sunucunun timeout, başarısızlık, kesilme ve tamamlanma durumları ayrıdır. Önceki mobil hatanın kök nedeni bilinmiyor; bu düzenleme o nedenin kanıtı değildir.
+
+Kontrollü giriş/429/takibe dönüş testleri güncellendi. Bu tur hedefli Flutter test komutu çıktı üretmeden bekledi ve yalnız o komut iptal edildi; test başarısı veya statik analiz sonucu alınmadı. Gerçek API/model/sunucu işlemi yapılmadı. Önceki kullanıcı test sonuçları tarihsel kayıt olarak korunur.
+
+## Sunucu D01 işleri ve Linux bellek ölçümü — 31 Ekim 2026
+
+Bu kayıt, önceki Linux metrik notundaki “gerçek sunucuda doğrulanmadı” durumunu kullanıcı terminalinde doğrulanan ölçüm açısından günceller. **Bu bilgiler kullanıcı tarafından sunucuda çalıştırılıp bildirildi; bu oturumda sunucuya bağlanılmadı veya iş çalıştırılmadı.**
+
+- **Sunucu çalışma biçimi:** Backend Docker içinde değil, `root` kullanıcısıyla doğrudan Node üzerinden `/opt/norogelisim/app/backend` dizininde çalışıyor. Sunucunun Git HEAD'i `456dec0`; backend canlı sayaç dosyasında yerel değişiklik ve izlenmeyen `compose.http.yaml` var. `pilot_metrics.py` ile testi `41fc83f` commit'inden yalnız çalışma ağacına alınmış; sunucu deposu bütünüyle güncellenmemiş. Bu sunucu Git durumu yerel çalışma ağacının durumu değildir.
+- **Tamamlanan eski iş:** `50705765-908e-4ae3-b32c-9edf65bf9a44`: 168 geçerli kare, toplam **321.082 sn**, forward **291.112 sn**. Bu eski kayıtta RSS ve tepe RSS ölçülememişti.
+- **Bellek ölçümünü içeren kesilmiş iş:** `dafa8b04-3a8e-4be9-bc37-21b31598d08e`: `interrupted/analysis_timeout`, 108 geçerli kare, **898.711 sn**, forward **824.103 sn**. Linux süreç ölçümü son örnekte RSS **601,227,264 bayt**, süreç tepe RSS **618,962,944 bayt** bildirdi. Bu, tamamlanmış analiz sonucu değildir.
+- **Sonraki ayrı iş:** `a6b46ff8-0b9f-4544-a083-c8677970872d`: `interrupted/analysis_timeout`, 98 kare, **899.3 sn**. Ara örnekte bellek ölçümü çalışıyordu; son RSS/tepe değeri alınmadı. İş tamamlanmadı.
+- **Mobil takip belirsizliği:** Kullanıcı, mobil ekranda ikinci işin hemen durmuş gibi göründüğünü; buna karşın sunucu işinin sürdüğünü doğruladı. Mobilde hata gösterildi, fakat bu bildirime göre hatanın nedeni belirlenmedi. UI takibi ile sunucu işinin ömrü aynı kabul edilmemeli.
+- **Açık neden:** Yavaşlamanın veya mobildeki hata görünümünün kök nedeni belirlenmedi. Ölçülen süreler tek başına HTTP, CPU kapasitesi veya başka bir sebebi kanıtlamaz.
+- **Sonraki görev:** D01 pilot panelini Video Analizi bölümüne taşımak; iş takibi, `pilot_busy` yanıtı ve hata sunumunu incelemek. RAG geliştirmesi diğer ekip üyesinin sorumluluğunda; bu akışa dahil değil.
+
 ## Linux pilot süreç belleği ölçümü — 31 Ekim 2026
 
 Kullanıcı, sunucudaki tamamlanmış D01 işinde 168 geçerli/0 geçersiz kare, toplam 321.082 sn ve forward 291.112 sn bildirdi; o kayıtta `working_set_bytes` ve `os_peak_working_set_bytes` mevcut yöntemle ölçülemedi ve null kaldı. `research/d01/pilot_metrics.py` Linux'ta `/proc/self/status` içindeki yalnız Python sürecinin `VmRSS` anlık RSS ve `VmHWM` tepe RSS alanlarını okur; `kB` değerlerini 1024 ile çarparak bayt saklar. Windows ölçüm yolu korunmuştur. Dosya veya alan okunamazsa değer null ve `memory_status` açıklayıcıdır; sistem RAM'i ya da sıfır varsayılanı kullanılmaz. Eski sunucu kaydı değiştirilmedi; yeni Linux ölçüm yolu gerçek sunucu işinde henüz doğrulanmadı. **Kontrollü `test_pilot_metrics.py`: 6/6 geçti**; gerçek Linux sunucu ölçümü değildir.

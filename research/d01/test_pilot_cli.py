@@ -63,6 +63,39 @@ class PilotCliTests(unittest.TestCase):
         self.assertGreaterEqual(state['measurements']['timings_s']['state_checkpoint_write_s'],0)
         self.assertGreaterEqual(state['measurements']['timings_s']['report_files_write_s'],0)
         self.assertTrue((out/'details/performance.json').is_file())
+        self.assertEqual(r['execution']['requested_intraop_threads'],4)
+        self.assertIsNone(r['execution']['effective_intraop_threads'])
+
+    def test_explicit_threads_validation_preserves_protocol(self):
+        protocol=json.loads(self.protocol.read_text())
+        self.assertEqual(p.cpu_threads(protocol),4)
+        self.assertEqual(p.cpu_threads(protocol,2),2)
+        for value in (0,-1,3,8,True,2.0,'2',''):
+            with self.subTest(value=value),self.assertRaises(ValueError):p.cpu_threads(protocol,value)
+        self.assertEqual(protocol['cpu_threads'],4)
+
+    def test_two_threads_reach_runtime_and_record_actual_threads(self):
+        self.args.cpu_threads=2
+        self.args.recorded_raw=None;self.args.recorded_report=None
+        self.args.official_source=self.root/'official'
+        source=self.args.official_source/'sixdrepnet360';source.mkdir(parents=True)
+        protocol=json.loads(self.protocol.read_text())
+        for name in protocol['official_source_sha256']:
+            file=source/name;file.write_text('# controlled fixture')
+            protocol['official_source_sha256'][name]=p.sha(file)
+        self.protocol.write_text(json.dumps(protocol))
+        called=[]
+        class FakeRuntime:
+            def __init__(self,source,weights,threads):
+                called.append(threads);self.checks={}
+                self.environment={'torch_threads':threads,'torch_interop_threads':4}
+        with patch.object(p,'live_rows',lambda *args:iter(self.rows)):
+            result=p.run(self.args,info_reader=self.info,runtime_factory=FakeRuntime)
+        self.assertEqual(called,[2])
+        state=json.loads((self.args.output_dir/'state.json').read_text())
+        self.assertEqual(result['execution'],state['execution'])
+        self.assertEqual(state['execution']['effective_intraop_threads'],2)
+        self.assertEqual(json.loads((self.args.output_dir/'settings.json').read_text())['protocol']['cpu_threads'],4)
 
     def test_call_only_manual_is_posthoc_missing_movement_remains_unknown(self):
         self.make_rows(40,movement=True)

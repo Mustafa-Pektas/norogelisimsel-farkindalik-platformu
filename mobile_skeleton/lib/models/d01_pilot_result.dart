@@ -5,7 +5,7 @@ class D01PilotException implements Exception {
   String get message => switch (code) {
     'unauthorized' => 'Ekip erişim anahtarı eksik veya geçersiz.',
     'pilot_busy' =>
-      'Sunucuda başka bir pilot analiz çalışıyor. Kuyruk oluşturulmadı.',
+      'Sunucuda başka bir analiz devam ediyor. Yeni yükleme yapılmadı.',
     'unsupported_video' => 'Bu video desteklenmiyor. Yalnız iki denetlenmiş D01 videosu kabul edilir.',
     'video_too_large' ||
     'request_too_large' => 'Video 25 MiB yükleme sınırını aşıyor.',

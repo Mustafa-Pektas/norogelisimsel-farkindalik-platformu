@@ -11,7 +11,6 @@ import 'package:neuro_awareness_app/screens/scenario_graph_import_screen.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_screen.dart';
 import 'package:neuro_awareness_app/screens/synthetic_video_studio_screen.dart';
 import 'package:neuro_awareness_app/services/http_scenario_generation_service.dart';
-import 'package:neuro_awareness_app/screens/video_analysis_screen.dart';
 // Mevcut platform test sınırı; cihaz/model dizini açılmaz.
 // ignore: depend_on_referenced_packages
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -105,14 +104,9 @@ void main() {
     expect(tester.takeException(), isNull);
   }
 
-  testWidgets('Experimental D01 entry opens existing video screen without upload or default player', (tester) async {
+  testWidgets('Studio no longer contains the D01 analysis entry', (tester) async {
     final bundle = await mount(tester);
-    final entry = find.byKey(const ValueKey('open-d01-pilot-analysis'));
-    await tester.ensureVisible(entry); await tester.tap(entry); await tester.pumpAndSettle();
-    final screen = tester.widget<VideoAnalysisScreen>(find.byType(VideoAnalysisScreen));
-    expect(screen.experimentalD01, isTrue);
-    expect(find.text('Deneysel D01 baş hareketi analizi'), findsOneWidget);
-    expect(find.textContaining('Yalnız iki denetlenmiş'), findsOneWidget);
+    expect(find.byKey(const ValueKey('open-d01-pilot-analysis')), findsNothing);
     expect(serverRequests, 0);
     expect(bundle.reads, isEmpty);
     await close(tester);

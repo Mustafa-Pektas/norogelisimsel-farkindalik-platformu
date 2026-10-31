@@ -700,6 +700,24 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> with WidgetsB
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
+            if (!widget.experimentalD01)
+              Card(
+                child: ListTile(
+                  key: const ValueKey('open-d01-pilot-analysis'),
+                  leading: const Icon(Icons.science_outlined),
+                  title: const Text('Deneysel D01 baş hareketi analizi'),
+                  subtitle: const Text('Ekip aracı · Yalnız iki denetlenmiş video desteklenir.'),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => VideoAnalysisScreen(
+                      experimentalD01: true,
+                      pilotApi: widget.pilotApi,
+                      pickVideo: widget.pickVideo,
+                      initialPilotAccessKey: widget.initialPilotAccessKey,
+                    ),
+                  )),
+                ),
+              ),
+
             if (!_isCustomVideo && !widget.experimentalD01)
               Container(
                 key: const ValueKey('video-analysis-example-notice'),

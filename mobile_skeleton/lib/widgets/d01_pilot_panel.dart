@@ -181,7 +181,9 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
       } else if (status.terminal) {
         setState(() {
           _status = status;
-          _stage = status.status == 'interrupted' ? 'cancelled' : 'error';
+          _stage = status.code == 'analysis_timeout'
+              ? 'timeout'
+              : status.status == 'interrupted' ? 'cancelled' : 'failed';
           _message = status.code == 'cancelled_locally'
               ? null
               : D01PilotException(status.code ?? status.status).message;
@@ -200,7 +202,7 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
           !_cancelling) {
         setState(() {
           _stage = 'error';
-          _message = _error(e);
+          _message = '${_error(e)} Sunucudaki işin durduğu doğrulanmadı.';
         });
       }
     } finally {
@@ -331,7 +333,11 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
           'completed' =>
             'Pilot tamamlandı; bu bir davranış doğruluğu onayı değildir.',
           'cancelled' => 'Pilot işi kesildi.',
-          'error' => 'İşlem veya bağlantı hatası.',
+          'timeout' => 'Sunucu süre sınırına ulaştı; analiz tamamlanmadı.',
+          'failed' => 'Sunucu pilot analizi tamamlayamadı.',
+          'error' => active && _task?.jobId != null
+              ? 'İş takibi kesildi; sunucudaki iş devam ediyor olabilir.'
+              : 'Pilot isteği başlatılamadı.',
           _ =>
             ready
                 ? 'Video hazır. Analizi açıkça başlatabilirsiniz.'
