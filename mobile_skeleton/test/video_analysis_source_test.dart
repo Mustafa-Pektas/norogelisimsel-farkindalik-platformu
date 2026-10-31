@@ -23,6 +23,7 @@ class _VideoPlatform extends VideoPlayerPlatform {
   final calls = <String>[];
   bool holdInitialize = false;
   bool failInitialize = false;
+  bool failSeek = false;
   bool holdCreate = false;
   final createGates = <int, Completer<void>>{};
 
@@ -86,6 +87,8 @@ class _VideoPlatform extends VideoPlayerPlatform {
   Future<void> pause(int playerId) async { calls.add('pause:$playerId'); }
   @override
   Future<void> seekTo(int playerId, Duration position) async {
+    calls.add('seek:$playerId:${position.inMilliseconds}');
+    if (failSeek) throw PlatformException(code: 'CONTROLLED_SEEK_FAILURE');
     positions[playerId] = position;
   }
   @override
@@ -301,12 +304,21 @@ void main() {
     await controller.play(); await tester.pump();
     await startPilot(tester);
     final candidate = find.byKey(const ValueKey('pilot-raw-candidate_001'));
-    await tester.ensureVisible(candidate); await tester.tap(candidate); await tester.pumpAndSettle();
+    await tester.ensureVisible(candidate);
+    expect(find.byType(FloatingVideoControls).hitTestable(), findsNothing,
+        reason: 'Sonuç adayı seçilmeden önce önizleme ekran dışında olmalı.');
+    await tester.tap(candidate); await tester.pumpAndSettle();
+    expect(find.byType(FloatingVideoControls).hitTestable(), findsOneWidget);
+    expect(find.byTooltip('5 sn Geri').hitTestable(), findsOneWidget);
+    expect(find.byTooltip('5 sn İleri').hitTestable(), findsOneWidget);
+    expect(find.text('00:01 / 02:00').hitTestable(), findsOneWidget);
+    expect(find.byType(FullscreenVideoScreen), findsNothing);
     expect(controls(tester).controller, same(controller));
     expect(controller.value.position, const Duration(milliseconds: 1500));
     expect(controller.value.isPlaying, isFalse);
     expect(platform.calls.where((x) => x == 'play:0'), hasLength(1));
     expect(task.submits, 1);
+    expect(platform.sources, hasLength(1));
     await controller.play();
     try {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
@@ -325,6 +337,37 @@ void main() {
     expect(controller.value.position, const Duration(milliseconds: 1500));
     await checkFullscreen(tester, expectedTitle: 'second.mp4');
     expect(find.byKey(const ValueKey('pilot-raw-candidate_001')), findsOneWidget);
+    await close(tester);
+  });
+
+  testWidgets('Failed pilot seek reports error without scrolling to preview', (tester) async {
+    final api = ControlledPilotApi();
+    final task = ControlledPilotTask()
+      ..readStatus = () async => D01PilotStatus.fromJson(pilotStatusJson('completed'));
+    api.makeTask = () => task;
+    await mount(tester, (_) async => XFile('second.mp4'), pilot: true, pilotApi: api);
+    await pickFromGallery(tester, 'Video seç');
+    final controller = controls(tester).controller;
+    await startPilot(tester);
+    final candidate = find.byKey(const ValueKey('pilot-raw-candidate_001'));
+    await tester.ensureVisible(candidate);
+    expect(find.byType(FloatingVideoControls).hitTestable(), findsNothing);
+    platform.failSeek = true;
+    expect(tester.widget<ListTile>(candidate).enabled, isTrue);
+    expect(candidate.hitTestable(), findsOneWidget);
+    expect(find.text('Video açıldı.'), findsOneWidget,
+        reason: 'Seek hatası önceki başarı bildiriminin arkasında beklememeli.');
+    final beforeSeek = platform.calls.length;
+    await tester.tap(candidate);
+    await tester.pumpAndSettle();
+    expect(platform.calls.skip(beforeSeek), ['pause:0', 'seek:0:1500']);
+    expect(find.text('Aday zamanına gidilemedi. Yeniden deneyin.'), findsOneWidget);
+    expect(find.text('Video açıldı.'), findsNothing);
+    expect(find.byType(FloatingVideoControls).hitTestable(), findsNothing);
+    expect(controls(tester).controller, same(controller));
+    expect(controller.value.isPlaying, isFalse);
+    expect(platform.sources, hasLength(1));
+    expect(find.byType(FullscreenVideoScreen), findsNothing);
     await close(tester);
   });
 

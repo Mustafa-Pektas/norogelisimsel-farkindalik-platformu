@@ -46,6 +46,8 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> with WidgetsB
   // Kontrol Çubuğu Otomatik Gizleme & Akıllı Konumlandırma
   bool _showControls = true;
   Timer? _controlsTimer;
+  final _previewKey = GlobalKey();
+  int _pilotSeekRequest = 0;
 
   // Özel Video Yükleme Durumu
   bool _isCustomVideo = false;
@@ -629,19 +631,42 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> with WidgetsB
   }
 
   Future<void> _seekPilot(VideoPlayerController? expected, Duration target) async {
+    final request = ++_pilotSeekRequest;
+    final selection = _selectionRequest;
     final controller = _controller;
     if (_openingVideo || controller == null || !identical(controller, expected) || !controller.value.isInitialized ||
         target < Duration.zero || target >= controller.value.duration) {
       return;
     }
-    await controller.pause();
-    if (!mounted || !identical(controller, _controller) || _openingVideo) return;
-    await controller.seekTo(target);
-    if (mounted && identical(controller, _controller)) setState(() => _showControls = true);
+    bool current() => mounted && request == _pilotSeekRequest && selection == _selectionRequest &&
+        identical(controller, _controller) && !_openingVideo && ModalRoute.of(context)?.isCurrent != false;
+    try {
+      await controller.pause();
+      if (!current()) return;
+      await controller.seekTo(target);
+      if (!current()) return;
+      _controlsTimer?.cancel();
+      setState(() => _showControls = true);
+      final previewContext = _previewKey.currentContext;
+      if (previewContext != null && previewContext.mounted) {
+        await Scrollable.ensureVisible(previewContext,
+          duration: const Duration(milliseconds: 250), curve: Curves.easeOutCubic,
+          alignment: 0,
+        );
+      }
+    } catch (_) {
+      if (!mounted || !current()) return;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.removeCurrentSnackBar();
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Aday zamanına gidilemedi. Yeniden deneyin.'),
+      ));
+    }
   }
 
   @override
   void dispose() {
+    ++_pilotSeekRequest;
     WidgetsBinding.instance.removeObserver(this);
     ++_selectionRequest;
     ++_analysisRequest;
@@ -734,6 +759,7 @@ class _VideoAnalysisScreenState extends State<VideoAnalysisScreen> with WidgetsB
 
             // VİDEO EKRANI & YÜZEN KONTROLLER
             Container(
+              key: _previewKey,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [

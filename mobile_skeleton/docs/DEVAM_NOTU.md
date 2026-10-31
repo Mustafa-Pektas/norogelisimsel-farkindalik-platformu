@@ -1,5 +1,21 @@
 # Güncel ürün akışı — 28 Ekim 2026
 
+## Pilot adayından video önizlemeye dönüş
+
+**Sonraki kullanıcı doğrulaması:** normal PowerShell'de hedefli başarısız-seek testi ve `video_analysis_source_test.dart` içindeki24 test geçti. Statik analiz yalnız iki `use_build_context_synchronously` uyarısı bildirdi. Bu tur kaydırma için kullanılan `previewContext.mounted` ve hata mesajı için doğrudan `State.mounted` kontrolleri eklendi; mevcut istek/controller/video/dispose kontrolleri korundu. Kullanıcının24 test sonucu bu son mounted düzeltmesinden öncedir. Son düzeltme için test ve analiz komutları bu ortamda çıktı üretmeden bekledi; yalnız kendi iki komutum iptal edildi, yeni test/analiz sonucu alınmadı. Bu komutlar tekrar başlatılmadı; normal PowerShell doğrulaması bekleniyor.
+
+Doğrulama: hedefli Flutter test komutu çıktı üretmeden bekledi ve yalnız bu komut iptal edildi; test sonucu alınamadı. Dart formatter dosyaları sözdizimsel olarak okuyabildi (dosyalara format yazılmadı); hedefli diff kontrolü temiz. Normal PowerShell'de `flutter test --no-pub test/video_analysis_source_test.dart` çalıştırılmalı. Bu tur gerçek API/model/sunucu işlemi yapılmadı.
+
+**Kullanıcı güncel APK'da doğruladı:** `6102c45c-84d8-422b-befe-e7c9e04f5eeb` işi168 geçerli/0 geçersiz kareyle tamamlandı. Adaya dokununca zaman değişiyordu, fakat üstte ekran dışında kalan oynatıcı görünmüyordu. Başarılı duraklatma/seek sonrasında aynı önizlemeye250 ms kaydırma ve kontrolleri görünür tutma eklendi; yeni video/controller veya otomatik oynatma/tam ekran yok. Geçersiz hedefte ve başarısız seek'te kaydırma yapılmaz; seek hatası kısa mesajla gösterilir. Bekleyen işlem ekran/video değişiminde güncel istek ve controller kimliğiyle denetlenir. Kontrollü widget testine aşağıdaki adaydan önizleme/zaman kontrollerine dönüş ve başarısız seek kontrolleri eklendi. Bu değişiklik henüz cihazda doğrulanmadı.
+
+## Telefonda aynı işi yeniden takip ederek tamamlanma — kullanıcı doğrulaması
+
+Kullanıcı sunucu ve telefon üzerinden `0b23e359-6404-4808-88f8-f2e6cb0f12bc` işini doğruladı: backend ve CLI **completed**, **168 geçerli / 0 geçersiz kare**; toplam **578.028 sn**, forward **536.339 sn**. Etkin CPU intra-op **2**, inter-op **4**. Son süreç RSS **602,320,896 bayt**, tepe RSS **618,958,848 bayt**. Bu bilgiler kullanıcı tarafından bildirildi; bu belge güncellemesinde yeni koşu veya sunucu işlemi yapılmadı.
+
+Telefonda bağlantı hatası oluştu; **Aynı işi yeniden takip et** ile yeniden yükleme yerine aynı işe bağlanılıp sonuç alındı. Ekrandaki ham/EMA aday zamanları önceki başarılı sonuçla aynıydı. Bu koşuda tüm dönüş matrislerinin eşitliği ayrıca kontrol edilmedi; aday zamanlarının eşleşmesi matris eşitliği olarak yorumlanmaz.
+
+Sunucuya yalnız `backend/d01_pilot_jobs.js` ve `research/d01/pilot_cli.py`, `3073332` commit'inden alındı; önceki Linux metrik düzeltmesi korunuyor. Systemd drop-in üzerinden `PILOT_D01_CPU_THREADS=2` etkin. Tam sunucu Git güncellemesi yapılmadı. **Performans değişkenliğinin kök nedeni çözülmüş sayılmıyor**; bu tamamlanmış koşu tek başına süre garantisi veya genel performans üstünlüğü kanıtı değildir. Önceki kayıtlar tarihsel olarak korunur.
+
 ## CPU tanılama sonucu ve açık thread seçimi — 31 Ekim 2026
 
 **Kullanıcı sunucuda doğruladı:**0/36/72 karelerinde ısınma hariç ortalama inference4 thread11.2710,1 thread4.5161,2 thread3.7885 sn/kare.2/4 thread matrisleri önceki kayıtla birebir aynı;1 thread en büyük eleman farkı1.1921e-7. Sıra4→1→2, tek tekrar: kök neden çözülmüş veya2 thread kesin en iyi sayılmaz.
