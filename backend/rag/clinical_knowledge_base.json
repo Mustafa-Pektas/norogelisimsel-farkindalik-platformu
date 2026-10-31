@@ -1,35 +1,153 @@
 {
-  "version": "0.2",
-  "sourceDoc": "Davranis_Kartlari_v02.md",
-  "scopeNotice": "Bu bilgi tabanı eğitim/simülasyon amaçlıdır; klinik ölçek, tanı aracı veya onaylanmış tıbbi puanlama sistemi değildir.",
+  "sourceDoc": "Davranis_Kartlari.md & RAG_KAYNAK_VE_KLINIK_DAYANAKLAR.md",
+  "scopeNotice": "Bu bilgi tabanı eğitim, araştırma, simülasyon ve yapay zeka video analizi kural doğrulama parametrelerini içerir; klinik tanı aracı, tıbbi cihaz veya onaylanmış tanısal puanlama sistemi değildir. Sayısal saniye eşikleri, video tabanlı analiz ve simülasyon için uzman tanımlı, kalibrasyon bekleyen operasyonel simülasyon parametreleridir.",
   "cinematicLock": "Cinematic 35mm film still, locked-off stationary tripod at 45cm low child-eye level, f/2.8 aperture, soft 5500K diffused morning natural daylight. A photorealistic toddler sitting barefoot on a light ash wooden floor with a navy-and-cream geometric wool rug, playing with a small solid red wooden toy car. In the background, an adult female clinician in a beige knit sweater is seated quietly. Anatomically accurate hands with five distinct fingers, stable physics, no morphing, 4K photorealistic documentary realism.",
+  "phaseDistribution": {
+    "TABAN": {
+      "sceneCount": 6,
+      "durationSec": 48,
+      "desc": "Çocuk ortamda kırmızı araba ile kendi halinde oynar, yetişkin sessizce gözlemler."
+    },
+    "UYARAN": {
+      "sceneCount": 11,
+      "durationSec": 88,
+      "desc": "Yetişkin kurala uygun olarak uyaranı verir; çocuğun yönelme, gecikme veya tepkisizliği gerçekleşir."
+    },
+    "KAPANIS": {
+      "sceneCount": 9,
+      "durationSec": 72,
+      "desc": "Tepkinin tamamlanması, ortak dikkat kurulması veya kendi oyununa dönme anı."
+    }
+  },
+  "clinicalReferences": [
+    {
+      "id": "REF-01",
+      "name": "ADOS-2 (Autism Diagnostic Observation Schedule - 2nd Edition)",
+      "authors": "Lord, C., Rutter, M., DiLavore, P.C., Risi, S., Gotham, K., Bishop, S. (2012)",
+      "role": "Klinisyen doğrudan yarı-yapılandırılmış gözlem değerlendirmesi. Modül 1 maddeleri: B6 (İsme Yanıt), B11 (Ortak Dikkate Tepki), B7/A7 (İsteme/İşaret), C1/C2 (İşlevsel/Hayali Oyun), B9 (Gösterme), B2 (Sosyal Gülümseme). Not: 12–30 ay için Toddler Modülü, 31+ ay için Modül 1 kullanılır; madde kodları modüle göre farklılaşabilir."
+    },
+    {
+      "id": "REF-02",
+      "name": "STAT (Screening Tool for Autism in Toddlers and Young Children)",
+      "authors": "Stone, W.L., Coonrod, E.E., Ousley, O.Y. (2000); Stone, W.L., Coonrod, E.E., Turner, L.M., Pozdol, S.L. (2004)",
+      "role": "24–36 ay için tasarlanmış klinisyen etkileşimli erken tarama aracı (24 ay altında, ≥14 ay, keşfedici kullanım). 4 alan: Oyun (Görev 1-2), İsteme (Görev 3-4), Dikkat Yönlendirme (Görev 5-8), Motor Taklit (Görev 9-12). (Not: İsme tepki görevi STAT kapsamında yer almaz; 24-36 ay aralığı STAT'ın standart klinik tarama penceresiyle tam örtüşmektedir)."
+    },
+    {
+      "id": "REF-03",
+      "name": "AOSI (Autism Observational Scale for Infants)",
+      "authors": "Bryson, S.E., Zwaigenbaum, L., McDermott, C. et al. (2008)",
+      "role": "12–18 ay bebeklerde sese yönelme, görsel takip ve erken atipik davranış gözlem ölçeği."
+    },
+    {
+      "id": "REF-04",
+      "name": "Bayley-4 (Bayley Scales of Infant and Toddler Development - 4th Edition)",
+      "authors": "Bayley, N., Aylward, G.P. (2019)",
+      "role": "Bilişsel, alıcı dil ve ince motor gelişim basamakları ve gelişim normları."
+    },
+    {
+      "id": "REF-05",
+      "name": "M-CHAT-R/F (Modified Checklist for Autism in Toddlers with Follow-Up)",
+      "authors": "Robins, D.L., Fein, D., Barton, M.L. (2009; Pediatrics 2014 validasyonu)",
+      "role": "16–30 ay erken otizm risk taraması. İlgili ebeveyn bildirim maddeleri: M1 (İşarete bakma), M3 (Mış gibi oyun), M6 (İşaretle isteme), M9 (Gösterme), M10 (İsme tepki), M11 (Gülümseme), M15 (Taklit), M18 (Sözel komut / yakın karşılık)."
+    },
+    {
+      "id": "REF-06",
+      "name": "Mundy Erken Sosyal İletişim Ölçeği (ESCS) & Ortak Dikkat Modeli",
+      "authors": "Mundy, P., Delgado, C., Block, J., Venezia, M. et al. (2003, 2007)",
+      "role": "RJA (Ortak dikkate tepki verme - D02) ve IJA (Ortak dikkat başlatma / gösterme - D05) teorik modeli."
+    },
+    {
+      "id": "REF-07",
+      "name": "Denver II Gelişimsel Tarama Testi & Türk Standardizasyonu",
+      "authors": "Frankenburg, W.K. et al. (1992); Yalaz, K., Anlar, B. (Hacettepe Türk Standardizasyonu)",
+      "role": "Türk çocuklarında kişisel-sosyal, dil ve ince motor basamaklarının persentil normları."
+    },
+    {
+      "id": "REF-08",
+      "name": "M-CHAT Türkiye Uygulama ve Uyarlama Çalışması",
+      "authors": "Kara, B., Mukaddes, N.M., Altınkaya, İ., Güntepe, D., Gökçay, G., Özmen, M. (2014). Autism, 18(3), 331–338",
+      "role": "Türkiye'de sağlam çocuk polikliniğinde orijinal M-CHAT ile erken otizm taraması çalışması."
+    },
+    {
+      "id": "REF-09",
+      "name": "DSM-5-TR (Diagnostic and Statistical Manual of Mental Disorders)",
+      "authors": "American Psychiatric Association (APA, 2022)",
+      "role": "OSB Tanı Kriterleri: A1 (Sosyal-duygusal karşılıklılık), A2 (Sözel olmayan iletişim), A3 (İlişki ve oyun), Eşlik eden dil belirleyicisi."
+    },
+    {
+      "id": "REF-10",
+      "name": "CDC Developmental Milestones (Learn the Signs. Act Early.)",
+      "authors": "CDC & American Academy of Pediatrics (AAP, 2022 kılavuzu)",
+      "role": "12, 15, 18, 24 ve 30 ay çocuk gelişim basamakları ve takip göstergeleri."
+    },
+    {
+      "id": "REF-11",
+      "name": "Leslie Zihin Kuramı ve Mış Gibi Yapma Modeli",
+      "authors": "Leslie, A.M. (1987). Psychological Review, 94(4), 412–426",
+      "role": "D04 sembolik mış gibi oyununun bilişsel ayrıştırma mekanizması."
+    },
+    {
+      "id": "REF-12",
+      "name": "Tomasello İletişimsel Niyet Teorisi",
+      "authors": "Tomasello, M. (1995). Joint attention as social cognition. In C. Moore & P. J. Dunham (Eds.), Joint Attention, pp. 103–130. Lawrence Erlbaum",
+      "role": "D05 nesne gösterme ve deklaratif ortak dikkat başlatma kuramı."
+    },
+    {
+      "id": "REF-13",
+      "name": "Rogers & Pennington Sosyal Taklit Modeli",
+      "authors": "Rogers, S.J., Pennington, B.F. (1991). Development and Psychopathology, 3(2), 137–162",
+      "role": "D06 erken motor taklit ve sosyal karşılıklılık gelişim modeli."
+    },
+    {
+      "id": "REF-14",
+      "name": "Gesell Gelişimsel İnce Motor Normları",
+      "authors": "Gesell, A. (1940). The First Five Years of Life. Harper & Brothers",
+      "role": "D10 kendiliğinden karalama ve erken kalem tutuş basamakları."
+    }
+  ],
   "ageBands": {
     "12-18": {
       "label": "12–18 Ay",
-      "focus": "Basit isme yönelme, sese oryantasyon ve temel nesne keşfi",
+      "focus": "Basit isme yönelme, sese oryantasyon, ilkel motor taklit ve nesne keşfi",
       "typicalMaxDelaySec": 2.0,
       "atypicalMinDelaySec": 3.0,
-      "pilotWindowSec": 10
+      "pilotWindowSec": 10,
+      "primaryReferences": [
+        "REF-01 (ADOS-2)",
+        "REF-03 (AOSI)",
+        "REF-04 (Bayley-4)",
+        "REF-10 (CDC)"
+      ]
     },
     "18-24": {
       "label": "18–24 Ay",
-      "focus": "İsme yönelme, doğrudan göz teması ve işaretle ortak dikkat",
+      "focus": "İsme yönelme, doğrudan göz teması, izole işaret parmağıyla ortak dikkat ve nesne gösterme",
       "typicalMaxDelaySec": 1.8,
       "atypicalMinDelaySec": 2.5,
-      "pilotWindowSec": 10
+      "pilotWindowSec": 10,
+      "primaryReferences": [
+        "REF-01 (ADOS-2)",
+        "REF-05 (M-CHAT-R/F)",
+        "REF-06 (Mundy ESCS)",
+        "REF-08 (M-CHAT TR)"
+      ]
     },
     "24-36": {
       "label": "24–36 Ay",
-      "focus": "Sözel/jestsel karşılık, sembolik oyun ve paylaşımlı iletişim",
+      "focus": "Çok basamaklı sembolik oyun (mış gibi yapma), jestsiz sözel yönerge ve paylaşımlı iletişim döngüsü",
       "typicalMaxDelaySec": 1.5,
       "atypicalMinDelaySec": 2.5,
-      "pilotWindowSec": 10
+      "pilotWindowSec": 10,
+      "primaryReferences": [
+        "REF-01 (ADOS-2)",
+        "REF-02 (STAT)",
+        "REF-04 (Bayley-4)",
+        "REF-09 (DSM-5-TR)"
+      ]
     }
   },
-  "phaseDistribution": {
-    "TABAN": { "sceneCount": 6, "durationSec": 48, "desc": "Çocuk ortamda kırmızı araba ile kendi halinde oynar, yetişkin sessizce gözlemler." },
-    "UYARAN": { "sceneCount": 11, "durationSec": 88, "desc": "Yetişkin klinik kurala uygun olarak uyaranı verir; çocuğun yönelme, gecikme veya tepkisizliği gerçekleşir." },
-    "KAPANIS": { "sceneCount": 9, "durationSec": 72, "desc": "Tepkinin tamamlanması, ortak dikkat kurulması veya kendi oyununa dönme anı." }
+  "legacyAliases": {
+    "24-32": "24-36"
   },
   "cards": [
     {
@@ -38,17 +156,44 @@
       "summary": "İsmi söylendikten sonra yetişkine verilen yanıtı gözlemleme.",
       "purpose": "İsim çağrısından sonra yetişkine yönelmeyi veya ona yönelik sesli yanıtı gözlemek.",
       "preparation": "Çocuğun başı, çağrı öncesi ve sonrası görünür olsun; çağrı duyulsun ve yetişkinin konumu bilinsin.",
-      "instruction": "Çocuk oyuncağıyla ilgilenirken yetişkin, çocuğun adını bir kez doğal sesle söyler. Dokunmaz, el sallamaz veya eşzamanlı başka yönerge vermez.",
+      "instruction": "Çocuk oyuncağıyla ilgilenirken yetişkin, çocuğun adını doğal ses tonuyla söyler (12–18 ay grubunda ilk çağrıya yanıt alınamazsa 5 sn sonra 2. çağrı yapılabilir; 18–36 ayda tek çağrı esastır). Dokunmaz, el sallamaz veya eşzamanlı başka komut vermez.",
       "pilotWindowSeconds": 10,
+      "hasLatencyThreshold": true,
       "validityCriteria": "Çağrı duyulur; çağıran kişinin konumu bilinir; çocuk çağrıdan önce zaten ona yönelmiş değildir. Çağrı öncesi ve sonrası kesintisiz görünür.",
-      "typicalCriteria": "Çağrı sonrasında yetişkine belirgin baş yönelmesi veya açıkça yetişkine yönelik sesli/sözel yanıt görülür. Baş yönelmesi 0.5-2.0 sn arasındadır.",
-      "atypicalCriteria": "Geçerli çağrıdan sonra 3+ saniye boyunca veya pencere bitene kadar yetişkine başını çevirmez, oyuncağa odaklanmayı sürdürür.",
       "invalidityConditions": [
         "Ses yoktur veya anlaşılmazdır",
         "Çocuk zaten çağrıdan önce yetişkine dönüktür",
         "Çağrıyla aynı anda yetişkin çocuğa dokunmuştur veya el sallamıştır",
         "Kritik çağrı anı kesilmiştir"
-      ]
+      ],
+      "clinicalSources": [
+        "REF-01: ADOS-2 Modül 1 Madde B6 (Response to Name)",
+        "REF-03: AOSI (Auditory Orientation / Sese Oryantasyon)",
+        "REF-05: M-CHAT-R/F Madde 10"
+      ],
+      "goldStandardMapping": {
+        "scale": "ADOS-2 Modül 1",
+        "itemCode": "B6",
+        "domain": "Sosyal Etkileşim"
+      },
+      "dsm5Criteria": "Kriter A1 (Sosyal-duygusal karşılıklılık eksikliği)",
+      "byAgeBand": {
+        "12-18": {
+          "typicalCriteria": "En fazla 2 isim çağrısı sonrasında son çağrıdan itibaren 2.0 saniye içinde başını veya bakışını çağıran yetişkine belirgin biçimde çevirir.",
+          "atypicalCriteria": "2 çağrıya rağmen son çağrıdan itibaren 3.0+ saniye boyunca veya pencere bitene kadar yetişkine başını çevirmez, oyuncağa odaklanmayı sürdürür (tünel bakışı).",
+          "borderlineCriteria": "İlk çağrıda tepki vermez; ikinci çağrıda 2.0–3.0 saniye arasında gecikmeli veya kararsız bir yönelme gösterir."
+        },
+        "18-24": {
+          "typicalCriteria": "Tek doğal isim çağrısında 1.8 saniye içinde doğrudan yetişkinin gözlerine yönelir ve göz teması kurar.",
+          "atypicalCriteria": "Geçerli çağrıdan sonra 2.5+ saniye boyunca başını çevirmez veya göz teması kurmaksızın oyuncağa kilitli kalır.",
+          "borderlineCriteria": "1.8–2.5 saniye arasında gecikmeli yönelir veya başını çevirir ancak göz temasını sürdürmeden hemen oyuncağa döner."
+        },
+        "24-36": {
+          "typicalCriteria": "Tek çağrıda 1.5 saniye içinde baş yönelmesiyle birlikte sözel/jestsel karşılık verir ('efendim', tebessüm, vücutla dönme).",
+          "atypicalCriteria": "2.5+ saniye boyunca çağrıyı tamamen duymazdan gelir, hiçbir yönelme veya karşılık göstermez.",
+          "borderlineCriteria": "1.5–2.5 saniye arasında gecikmeyle yönelir fakat sözel veya jestsel bir karşılık eklemez."
+        }
+      }
     },
     {
       "id": "D02",
@@ -58,14 +203,42 @@
       "preparation": "İki sabit nesne, yetişkinin eli ve çocuğun yüzü/başı aynı kayıtta seçilsin. Çocuk başlangıçta hedefe bakmıyor olsun.",
       "instruction": "İki sabit nesne görünür. Çocuk başka yere bakarken yetişkin bunlardan birini işaret eder ve 'Bak' der; hedefin adını söylemez.",
       "pilotWindowSeconds": 10,
+      "hasLatencyThreshold": true,
       "validityCriteria": "Yetişkinin eli, hedef ve çocuğun yüzü/başı aynı kayıtta seçilir. Çocuk başlangıçta hedefe bakmıyordur; hedef kendiliğinden ses çıkarmaz.",
-      "typicalCriteria": "İşaret sonrasında çocuk doğru hedefe belirgin biçimde yönelir. Hedefteki nesneye bakar.",
-      "atypicalCriteria": "Geçerli fırsatta hedefe yönelme görülmez; yalnızca yetişkinin parmağına bakar veya ilgisiz kalır.",
       "invalidityConditions": [
         "Hedef kadraj dışıdır",
         "Çocuk zaten hedefe bakmaktadır",
         "Hedef hareketle veya sesle kendi başına dikkat çekmiştir"
-      ]
+      ],
+      "clinicalSources": [
+        "REF-01: ADOS-2 Modül 1 Madde B11 (Response to Joint Attention)",
+        "REF-02: STAT Görev 5–8 (Directing Attention)",
+        "REF-06: Mundy Ortak Dikkat Modeli (RJA)",
+        "REF-05: M-CHAT-R/F Madde 1"
+      ],
+      "goldStandardMapping": {
+        "scale": "ADOS-2 Modül 1",
+        "itemCode": "B11",
+        "domain": "Ortak Dikkat"
+      },
+      "dsm5Criteria": "Kriter A2 (Sözel olmayan iletişimsel davranışlarda kısıtlılık - bakış yönelimi ve jest takibi)",
+      "byAgeBand": {
+        "12-18": {
+          "typicalCriteria": "Yetişkinin işaretinden sonra 2.0 saniye içinde 1–2 metre mesafedeki nesneye parmak hattı boyunca yönelir.",
+          "atypicalCriteria": "3.0+ saniye boyunca hedefe yönelmez; yalnızca yetişkinin parmağına bakar veya tamamen ilgisiz kalır.",
+          "borderlineCriteria": "2.0–3.0 saniye arasında gecikmeyle hedefe bakar veya parmağa baktıktan sonra tereddütle hedefe geçer."
+        },
+        "18-24": {
+          "typicalCriteria": "1.8 saniye içinde 3+ metre mesafedeki işaret edilen hedefe doğru yönelir; parmağın ucuna takılıp kalmaz.",
+          "atypicalCriteria": "2.5+ saniye boyunca hedefe bakmaz; yalnızca parmağa odaklanır veya uyarana kayıtsız kalır.",
+          "borderlineCriteria": "1.8–2.5 saniye arasında hedefe yönelir ancak bakışını hedefe tam sabitleyemez."
+        },
+        "24-36": {
+          "typicalCriteria": "1.5 saniye içinde hedefe bakar ve ardından yetişkine dönerek 3 noktalı ortak dikkat döngüsünü tamamlar (Yetişkin -> Nesne -> Yetişkin).",
+          "atypicalCriteria": "2.5+ saniye boyunca hedefe bakmaz veya hedefe baksa bile yetişkinle hiçbir bakış koordinasyonu kurmaz.",
+          "borderlineCriteria": "1.5–2.5 saniye arasında hedefe bakar fakat yetişkine geri dönüp ortak dikkat döngüsünü kapatmaz."
+        }
+      }
     },
     {
       "id": "D03",
@@ -75,14 +248,42 @@
       "preparation": "Çocuğun ilgilendiği güvenli oyuncak görünür fakat doğrudan erişilemez yerde olsun; yetişkin erişilebilir olsun.",
       "instruction": "Güvenli oyuncak görünür fakat doğrudan erişilemez konumdadır. Çocuğun oyuncağa ilgisi gözlenir; yetişkin bekler. 'İşaret et' yönergesi verilmez.",
       "pilotWindowSeconds": 20,
+      "hasLatencyThreshold": false,
       "validityCriteria": "El/parmak, hedef ve yetişkin görünür; nesneye ilgi ve isteme fırsatı vardır.",
-      "typicalCriteria": "Hedefe yönelik açık işaret parmağı hareketi vardır; yetişkine bakar veya ses çıkararak oyuncağı ister.",
-      "atypicalCriteria": "İşaret parmağını kullanmaz; yetişkinin elini bir araç gibi tutup nesneye uzatır (hand-leading) veya öfkelenir.",
       "invalidityConditions": [
         "Nesne zaten erişilebilirdir",
         "Çocuk nesneyle hiç ilgilenmemektedir",
         "Yetişkin çocuğun elini fiziksel olarak yönlendirmiştir"
-      ]
+      ],
+      "clinicalSources": [
+        "REF-01: ADOS-2 Modül 1 Madde B7 (Requesting) & Madde A7 (Pointing)",
+        "REF-02: STAT Görev 3–4 (Requesting)",
+        "REF-05: M-CHAT-R/F Madde 6",
+        "REF-04: Bayley-4 İletişim Basamakları"
+      ],
+      "goldStandardMapping": {
+        "scale": "ADOS-2 Modül 1",
+        "itemCode": "B7/A7",
+        "domain": "İletişimsel İsteme"
+      },
+      "dsm5Criteria": "Kriter A2 (İletişimsel jestlerin atipik kullanımı)",
+      "byAgeBand": {
+        "12-18": {
+          "typicalCriteria": "Erişilemeyen oyuncağa tüm elle uzanma jesti yapar veya izole işaret parmağı başlangıcı sergiler; yetişkine bakar veya ses çıkarır.",
+          "atypicalCriteria": "İstek belirtmez, öfke nöbetine girer veya yetişkinin elini cansız bir alet gibi tutup nesneye uzatır (hand-leading).",
+          "borderlineCriteria": "Nesneye doğru uzanır ancak yetişkinle hiç göz teması kurmadan tek başına nesneye erişmeye çalışır."
+        },
+        "18-24": {
+          "typicalCriteria": "İzole işaret parmağı ile oyuncağı gösterir; yetişkin ile nesne arasında bakış koordinasyonu kurarak talebini iletir.",
+          "atypicalCriteria": "İşaret parmağını kullanmaz; yetişkinin elini cansız bir araç gibi tutup nesneye çeker (hand-leading / el aletleştirme).",
+          "borderlineCriteria": "İşaret parmağı yerine tüm eliyle gösterir veya işaret ederken yetişkinle bakış koordinasyonu kurmakta gecikir."
+        },
+        "24-36": {
+          "typicalCriteria": "İzole işaret parmağıyla hedefe yönelir, yetişkine bakarak kelime veya ses ile talebini açıkça pekiştirir ('ver', 'araba').",
+          "atypicalCriteria": "Hand-leading yapar veya öfkelenir; işaret parmağını iletişimsel amaçla kullanmaz.",
+          "borderlineCriteria": "İşaret parmağıyla gösterir fakat sözel ifade eklemez, göz temasını çok kısa tutar."
+        }
+      }
     },
     {
       "id": "D04",
@@ -92,14 +293,43 @@
       "preparation": "Oyuncak bebek ve boş oyuncak fincan çocuğun erişiminde olsun; el, fincan ve bebeğin yüzü görünsün.",
       "instruction": "Oyuncak bebek ve boş fincan sunulur. Yetişkin hareketi önceden göstermez, 'bebeğe içir' demez.",
       "pilotWindowSeconds": 20,
+      "hasLatencyThreshold": false,
       "validityCriteria": "Çocuğun oyuncaklara erişimi vardır; el, fincan ve bebeğin yüzü kesintisiz görünür.",
-      "typicalCriteria": "Çocuk boş fincanı bebeğin ağzına götürüp içirme eylemini canlandırır (sembolik mış gibi yapma).",
-      "atypicalCriteria": "Sembolik oyun görülmez; fincanı sadece sertçe yere vurur, fırlatır veya tekerlek gibi döndürür.",
       "invalidityConditions": [
         "Yetişkin eylemi hemen önce modellemiştir",
         "Yetişkin doğrudan sözel komut vermiştir",
         "Kritik oyuncaklar kadraj dışındadır"
-      ]
+      ],
+      "clinicalSources": [
+        "REF-01: ADOS-2 Modül 1 Madde C1 (Functional Play) & Madde C2 (Imagination/Creativity)",
+        "REF-02: STAT Görev 1–2 (Play)",
+        "REF-05: M-CHAT-R/F Madde 3",
+        "REF-11: Leslie Zihin Kuramı ve Mış Gibi Yapma Modeli (1987)",
+        "REF-09: DSM-5-TR Kriter A3"
+      ],
+      "goldStandardMapping": {
+        "scale": "ADOS-2 Modül 1",
+        "itemCode": "C1/C2",
+        "domain": "Oyun"
+      },
+      "dsm5Criteria": "Kriter A3 (Gelişim düzeyine uygun hayali oyun oynamada güçlük)",
+      "byAgeBand": {
+        "12-18": {
+          "typicalCriteria": "Boş fincanı kendi ağzına götürerek temel işlevsel kullanım gösterir.",
+          "atypicalCriteria": "Fincanı yalnızca sertçe yere vurur, ağzına sokup çiğner veya tekerlek gibi döndürür; amaca uygun tutmaz.",
+          "borderlineCriteria": "Fincanı ağzına götürür gibi yapar ancak eylemi tamamlamadan fırlatır."
+        },
+        "18-24": {
+          "typicalCriteria": "Boş fincanı oyuncak bebeğin ağzına götürerek bebeğe içiriyormuş gibi yapar (başka nesneye yönelik sembolik oyun).",
+          "atypicalCriteria": "Bebeğe yönelik hiçbir mış gibi eylem göstermez; fincanı fırlatır veya stereotipik vurur.",
+          "borderlineCriteria": "Fincanı bebeğe yaklaştırır fakat içirme hareketini canlandırmadan bırakır."
+        },
+        "24-36": {
+          "typicalCriteria": "Çok basamaklı sembolik oyun dizisi sergiler (bebeğe içirir, ardından yatırır veya tabağı kaşıkla karıştırır).",
+          "atypicalCriteria": "Sembolik oyun hiç görülmez; oyuncakları sadece fırlatır veya döndürür.",
+          "borderlineCriteria": "Tek basamaklı içirme yapar fakat ikinci bir sembolik basamağa geçemez."
+        }
+      }
     },
     {
       "id": "D05",
@@ -109,14 +339,42 @@
       "preparation": "Çocuğun oyuncağı elinde olsun; yetişkin yakın ve erişilebilir olsun.",
       "instruction": "Çocuk oyuncakla oynarken yetişkin yakınındadır. 'Bana göster' demez; yardım gerektiren kutu kullanılmaz.",
       "pilotWindowSeconds": 20,
+      "hasLatencyThreshold": false,
       "validityCriteria": "Nesne çocuğun elindedir; yetişkinin konumu bilinir; teslim veya yardım talebi yoktur.",
-      "typicalCriteria": "Çocuk nesneyi yetişkinin yüz hizasına kaldırarak gösterir; sosyal ilgiyi paylaşma amacı açıktır.",
-      "atypicalCriteria": "Nesneyi yetişkine yöneltip göstermez; tamamen kendi iç dünyasında nesneye odaklı kalır.",
       "invalidityConditions": [
         "Yetişkin nesneyi sözel olarak istemiştir",
         "Çocuğun nesneyi tutuşu görünmez",
         "Nesne bozuktur ve yardım amaçlı uzatılmıştır"
-      ]
+      ],
+      "clinicalSources": [
+        "REF-01: ADOS-2 Modül 1 Madde B9 (Showing)",
+        "REF-06: Mundy ESCS IJA Modeli",
+        "REF-05: M-CHAT-R/F Madde 9",
+        "REF-12: Tomasello İletişimsel Niyet Teorisi (1995)"
+      ],
+      "goldStandardMapping": {
+        "scale": "ADOS-2 Modül 1",
+        "itemCode": "B9",
+        "domain": "Sosyal Etkileşim"
+      },
+      "dsm5Criteria": "Kriter A1 (Sosyal ilgiyi ve zevkleri kendiliğinden paylaşma eksikliği)",
+      "byAgeBand": {
+        "12-18": {
+          "typicalCriteria": "Elindeki oyuncağı yetişkine doğru uzatarak gösterme inisiyatifi sergiler.",
+          "atypicalCriteria": "Oyuncağı yetişkine yöneltip göstermez; tamamen kendi içine kapanık şekilde nesneye odaklı kalır.",
+          "borderlineCriteria": "Oyuncağı kaldırır ancak yetişkinin yüzüne bakmadan sadece havada tutar."
+        },
+        "18-24": {
+          "typicalCriteria": "Oyuncağı yetişkinin göz hizasına doğru kaldırır, gülümseyerek doğrudan göz teması kurar.",
+          "atypicalCriteria": "Nesneyi yetişkine yöneltmez; nesneyi paylaşma amacı gütmeden tek başına oynar.",
+          "borderlineCriteria": "Oyuncağı yetişkine doğru uzatır ancak tebessüm veya göz teması eklemez."
+        },
+        "24-36": {
+          "typicalCriteria": "Oyuncağı gösterirken eşzamanlı sözel paylaşım ('bak', 'araba') ve ortak sevinç ifadesi sergiler.",
+          "atypicalCriteria": "Nesneyi hiçbir biçimde göstermez, yetişkinin ilgisini nesneye çekme davranışı sergilemez.",
+          "borderlineCriteria": "Gösterme eylemini yapar ancak sözel ifade veya duygulanım paylaşımı zayıftır."
+        }
+      }
     },
     {
       "id": "D06",
@@ -126,14 +384,41 @@
       "preparation": "Çocuk başlangıçta el çırpmıyor olsun; her iki kişinin elleri görünsün.",
       "instruction": "Çocuk hareketsizken yetişkin iki kez belirgin biçimde el çırpar, sonra ellerini kucağına koyup bekler.",
       "pilotWindowSeconds": 10,
+      "hasLatencyThreshold": false,
       "validityCriteria": "Çocuk modeli görebilir; iki kişinin elleri kadrajdadır; fiziksel yardım yoktur.",
-      "typicalCriteria": "Modelden sonra çocuk ellerini birbirine yaklaştırarak el çırpma hareketini üretir.",
-      "atypicalCriteria": "Model sunulduktan sonra el çırpmaz; ellerini kucağında tutar veya ilgisiz motor hareketler yapar.",
       "invalidityConditions": [
         "Çocuk modelden önce zaten el çırpmaktadır",
         "Yetişkin çocuğun ellerini tutarak çırpmıştır",
         "Model sunumu kamerada görünmemiştir"
-      ]
+      ],
+      "clinicalSources": [
+        "REF-02: STAT Görev 9–12 (Motor Imitation)",
+        "REF-05: M-CHAT-R/F Madde 15",
+        "REF-13: Rogers & Pennington Erken Taklit Modeli (1991)"
+      ],
+      "goldStandardMapping": {
+        "scale": "STAT",
+        "itemCode": "Görev 9-12",
+        "domain": "Motor Taklit"
+      },
+      "dsm5Criteria": "Gelişimsel Taklit Becerisi (Doğrudan DSM tanı kriteri değildir, sosyal karşılıklılıkla dolaylı ilişkilidir)",
+      "byAgeBand": {
+        "12-18": {
+          "typicalCriteria": "Model sunulduktan sonra ellerini birbirine yaklaştırarak alkış veya el sallama hareketini taklit eder.",
+          "atypicalCriteria": "Model sunulduktan sonra ellerini hareketsiz tutar veya ilgisiz motor hareketlere dalar.",
+          "borderlineCriteria": "Ellerini yaklaştırır fakat tam el çırpma hareketini tamamlayamaz."
+        },
+        "18-24": {
+          "typicalCriteria": "Model sunulduktan sonra belirgin biçimde el çırpma hareketini üretir ve yetişkine bakar.",
+          "atypicalCriteria": "El çırpmaz; ellerini kucağında tutar veya stereotipik parmak hareketleri yapar.",
+          "borderlineCriteria": "Hareketi taklit eder ancak yetişkinle hiç göz kontağı kurmaz."
+        },
+        "24-36": {
+          "typicalCriteria": "Model hareketini gecikmesiz taklit eder; ardından gülümseyerek ortak etkileşim kurar.",
+          "atypicalCriteria": "Taklit davranışı göstermez; modeli tamamen görmezden gelir.",
+          "borderlineCriteria": "Taklit eder fakat hareket zayıf ve tereddütlüdür."
+        }
+      }
     },
     {
       "id": "D07",
@@ -143,14 +428,41 @@
       "preparation": "Her iki yüz seçilsin. Çocuk yetişkinin yüzüne yönelmiş ve henüz gülümsemiyor olsun.",
       "instruction": "Çocuk yetişkine bakarken yetişkin sıcak ve doğal biçimde gülümser. Gıdıklama veya komik ses kullanılmaz.",
       "pilotWindowSeconds": 10,
+      "hasLatencyThreshold": true,
       "validityCriteria": "Her iki yüz net seçilir; çocuk yetişkini görebilir; çocuk başlangıçta nötrdür.",
-      "typicalCriteria": "Yetişkinin tebessümünden sonra çocukta belirgin bir karşılık gülümsemesi ve göz teması başlar.",
-      "atypicalCriteria": "Yetişkinin gülümsemesine rağmen yüz ifadesi tamamen donuk kalır, tebessümle karşılık vermez.",
       "invalidityConditions": [
         "Çocuk yetişkine bakmamaktadır",
-        "Çocuk çağrıdan önce zaten gülümsemektedir",
+        "Çocuk yetişkinin tebessümünden önce zaten gülümsemektedir veya gülmektedir",
         "Eşzamanlı gıdıklama veya fiziksel temas yapılmıştır"
-      ]
+      ],
+      "clinicalSources": [
+        "REF-01: ADOS-2 Modül 1 Madde B2 (Responsive Social Smile)",
+        "REF-05: M-CHAT-R/F Madde 11",
+        "REF-03: AOSI (Social Affect & Engagement)"
+      ],
+      "goldStandardMapping": {
+        "scale": "ADOS-2 Modül 1",
+        "itemCode": "B2",
+        "domain": "Sosyal Etkileşim"
+      },
+      "dsm5Criteria": "Kriter A1 (Sosyal-duygusal karşılıklılık ve pozitif duygulanım paylaşımı eksikliği)",
+      "byAgeBand": {
+        "12-18": {
+          "typicalCriteria": "Yetişkinin gülümsemesine 2.0 saniye içinde sıcak bir tebessümle karşılık verir.",
+          "atypicalCriteria": "3.0+ saniye boyunca veya pencere boyunca yüz ifadesi tamamen donuk kalır, tebessümle karşılık vermez.",
+          "borderlineCriteria": "2.0–3.0 saniye arasında gecikmeli veya çok silik/kısa bir gülümseme gösterir."
+        },
+        "18-24": {
+          "typicalCriteria": "1.8 saniye içinde gülümsemeyle karşılık verir, göz temasını uzatır ve pozitif sesler çıkarır.",
+          "atypicalCriteria": "2.5+ saniye boyunca yetişkine baksa bile yüz ifadesi ifadesiz/düz kalır.",
+          "borderlineCriteria": "1.8–2.5 saniye arasında tebessüm eder fakat göz temasını derhal keser."
+        },
+        "24-36": {
+          "typicalCriteria": "1.5 saniye içinde canlı bir tebessümle karşılık verir ve sosyal etkileşim boyunca duygulanımını senkronize eder.",
+          "atypicalCriteria": "2.5+ saniye boyunca tebessüm etmez; sosyal gülümseme karşılığı tamamen yoksun kalır.",
+          "borderlineCriteria": "1.5–2.5 saniye arasında tebessüm eder fakat duygulanım paylaşımı sınırlıdır."
+        }
+      }
     },
     {
       "id": "D08",
@@ -160,14 +472,41 @@
       "preparation": "Araba çocuğun erişiminde olsun; yönerge duyulsun ve yetişkine teslim mümkün olsun.",
       "instruction": "Araba çocuğun önündeyken yetişkin 'Arabayı bana ver' der. Eliyle işaret etmez, elini uzatmaz.",
       "pilotWindowSeconds": 10,
+      "hasLatencyThreshold": true,
       "validityCriteria": "Yönerge duyulur; doğru nesne erişilebilirdir; çocuk teslim hareketini önceden başlatmamıştır.",
-      "typicalCriteria": "Sözel komuttan sonra arabayı alır ve yetişkine uzatarak teslim eder.",
-      "atypicalCriteria": "Komutu duyduğu halde arabayı vermez, yönergeyi duymamış gibi araba ile oynamaya devam eder.",
       "invalidityConditions": [
         "Yetişkin işaret parmağıyla arabayı göstermiştir",
         "Yetişkin elini açık şekilde uzatıp jest desteği vermiştir",
         "Ses anlaşılmazdır"
-      ]
+      ],
+      "clinicalSources": [
+        "REF-04: Bayley-4 Alıcı Dil Alt Testi (Receptive Communication)",
+        "REF-07: Denver II Dil Gelişim Basamakları",
+        "REF-05: M-CHAT-R/F Madde 18 (Sözel yönergeyi anlama / ebeveyn bildiriminde yakın karşılık)"
+      ],
+      "goldStandardMapping": {
+        "scale": "Bayley-4",
+        "itemCode": "Alıcı Dil",
+        "domain": "Dil Gelişimi"
+      },
+      "dsm5Criteria": "DSM-5-TR Eşlik Eden Dil Bozukluğu Belirleyicisi ve İletişimsel Karşılıklılık (A1)",
+      "byAgeBand": {
+        "12-18": {
+          "typicalCriteria": "Yönerge duyulduktan sonra 2.0 saniye içinde arabaya yönelir veya arabayı yetişkine uzatma hamlesi yapar.",
+          "atypicalCriteria": "3.0+ saniye boyunca yönergeyi duymazdan gelir; hiçbir yönelme göstermez.",
+          "borderlineCriteria": "2.0–3.0 saniye arasında arabaya bakar fakat teslim hareketini tamamlayamaz."
+        },
+        "18-24": {
+          "typicalCriteria": "1.8 saniye içinde arabayı kavrar ve jest desteği olmaksızın yetişkine uzatarak teslim eder.",
+          "atypicalCriteria": "2.5+ saniye boyunca arabayı vermez, yönergeyi duymamış gibi araba ile oynamayı sürdürür.",
+          "borderlineCriteria": "1.8–2.5 saniye arasında arabayı eline alır ancak teslim etmekte tereddüt eder."
+        },
+        "24-36": {
+          "typicalCriteria": "1.5 saniye içinde arabayı alır ve sözel komuta tam uyumla yetişkine teslim eder.",
+          "atypicalCriteria": "2.5+ saniye boyunca yönergeyi tamamen görmezden gelir.",
+          "borderlineCriteria": "1.5–2.5 saniye arasında teslim eder fakat komutun hemen ardından duraksar."
+        }
+      }
     },
     {
       "id": "D09",
@@ -177,14 +516,41 @@
       "preparation": "Büyük ahşap blok ve geniş ağızlı alçak kutu sabit yüzeyde olsun.",
       "instruction": "Blok ve kutu sunulur. Yetişkin hareketi önceden göstermez ve 'kutunun içine koy' demez.",
       "pilotWindowSeconds": 20,
+      "hasLatencyThreshold": false,
       "validityCriteria": "Çocuk nesneye ve kutuya erişebilir; el, blok ve kutu ağzı seçilir.",
-      "typicalCriteria": "Çocuk bloğu eliyle kaldırıp kutunun içine kontrollü bir şekilde bırakır.",
-      "atypicalCriteria": "Bloğu kutuya koymaz; kutunun dışına fırlatır, bloğu sadece masaya vurur veya tekerlek gibi döndürür.",
       "invalidityConditions": [
         "Yetişkin bloğu kutuya koymayı önceden göstermiştir",
         "Yetişkin doğrudan 'kutuya koy' yönergesi vermiştir",
         "Kutu erişilemez durumdadır"
-      ]
+      ],
+      "clinicalSources": [
+        "REF-04: Bayley-4 Bilişsel ve İnce Motor Alt Testleri",
+        "REF-07: Denver II Küp/Kutu Basamakları",
+        "REF-10: CDC 12, 15, 18, 24 ve 30 Ay Gelişim Göstergeleri"
+      ],
+      "goldStandardMapping": {
+        "scale": "Bayley-4",
+        "itemCode": "Bilişsel / İnce Motor",
+        "domain": "İlişkisel Manipülasyon"
+      },
+      "dsm5Criteria": "Gelişimsel Bilişsel / İnce Motor Görev (Doğrudan DSM tanı kriteri değildir)",
+      "byAgeBand": {
+        "12-18": {
+          "typicalCriteria": "Bloğu eliyle kaldırıp kutunun içine rastgele veya kontrollü olarak bırakır.",
+          "atypicalCriteria": "Bloğu kutuya koymaz; kutunun dışına fırlatır veya yalnızca ağzına götürür.",
+          "borderlineCriteria": "Bloğu kutunun kenarına vurur fakat içine bırakamaz."
+        },
+        "18-24": {
+          "typicalCriteria": "Bloğu kontrollü bir şekilde kutu ağzına taşır ve içine bırakır.",
+          "atypicalCriteria": "Bloğu kutuya koymaz; bloğu sertçe masaya vurur veya tekerlek gibi döndürür.",
+          "borderlineCriteria": "Bloğu kutu kenarında bırakır veya kutunun içine düşürmekte zorlanır."
+        },
+        "24-36": {
+          "typicalCriteria": "Bloğu amaca uygun yerleştirir, kutunun kapağını kapatır veya sıralı olarak içine dizer.",
+          "atypicalCriteria": "Kutuya yerleştirme davranışı göstermez; stereotipik tekrarlarla bloğu fırlatır.",
+          "borderlineCriteria": "Bloğu kutuya atar fakat sıralı veya amaca uygun yerleştirme yapmaz."
+        }
+      }
     },
     {
       "id": "D10",
@@ -194,14 +560,41 @@
       "preparation": "Sabit kâğıt ve kalın pastel boya erişilebilir olsun. El, boya ucu ve kâğıt görünsün.",
       "instruction": "Kâğıt ve pastel boya sunulur. Yetişkin çizim göstermez, elini yönlendirmez ve 'çiz' demez.",
       "pilotWindowSeconds": 20,
+      "hasLatencyThreshold": false,
       "validityCriteria": "Çocuk malzemeye erişebilir; el ve kâğıt görünürdür; kâğıt başlangıçta boştur.",
-      "typicalCriteria": "Pastel boyayı kâğıt üzerinde sürterek kendiliğinden görünür çizgiler oluşturur.",
-      "atypicalCriteria": "Kâğıda çizgi çekmez; boyayı sadece ağzına götürür, masaya vurur veya yere atar.",
       "invalidityConditions": [
         "Yetişkin çocuğun elini tutarak çizdirmiştir",
         "Yetişkin önceden kâğıda şekil çizip model olmuştur",
         "Kalem çalışmamaktadır"
-      ]
+      ],
+      "clinicalSources": [
+        "REF-04: Bayley-4 İnce Motor Alt Testi",
+        "REF-07: Denver II Karalama Basamakları (Yalaz & Anlar)",
+        "REF-14: Gesell Gelişimsel İnce Motor Normları (1940)"
+      ],
+      "goldStandardMapping": {
+        "scale": "Bayley-4",
+        "itemCode": "İnce Motor",
+        "domain": "Kendiliğinden Çizim İnisiyatifi"
+      },
+      "dsm5Criteria": "Gelişimsel İnce Motor İnisiyatif Görevi (Doğrudan DSM tanı kriteri değildir)",
+      "byAgeBand": {
+        "12-18": {
+          "typicalCriteria": "Pastel boyanın ucunu kâğıda sürterek kendiliğinden görünür rastlantısal çizgiler oluşturur.",
+          "atypicalCriteria": "Kâğıda çizgi çekmez; boyayı yalnızca ağzına götürür, masaya vurur veya yere atar.",
+          "borderlineCriteria": "Boyayı kâğıda dokundurur fakat çizgi oluşturacak sürtme hareketini yapamaz."
+        },
+        "18-24": {
+          "typicalCriteria": "Kâğıt üzerinde kendiliğinden dairesel veya çizgisel sürekli karalamalar üretir.",
+          "atypicalCriteria": "Kâğıda hiç çizgi bırakmaz; boyayı sadece ısırır veya fırlatır.",
+          "borderlineCriteria": "Kısa ve tek bir çizgi çeker, ardından kalemi bırakır veya amacından kopar."
+        },
+        "24-36": {
+          "typicalCriteria": "Kâğıt sınırları içinde kalarak sürekli, yönlü ve kontrollü karalamalar yapar.",
+          "atypicalCriteria": "Kalemi kâğıda sürmez; stereotipik olarak masaya vurur veya kâğıdı yırtar.",
+          "borderlineCriteria": "Karalama yapar fakat kâğıdın dışına taşırır veya çok kısa sürede ilgisini kaybeder."
+        }
+      }
     }
   ]
 }

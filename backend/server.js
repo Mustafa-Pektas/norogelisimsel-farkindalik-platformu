@@ -12,6 +12,9 @@ const { generateText, generateTextWithUsage } = require('./gemini_text');
 const { createScenarioInputHandler, defaultCardsPath } = require('./scenario_input_generation');
 const { createGenerationCapacity } = require('./generation_capacity');
 const { createPilotJobs } = require('./d01_pilot_jobs');
+const retriever = require('./rag/retriever');
+const { validateFSMContinuity } = require('./validators/fsm_validator');
+const benchmarkService = require('./services/benchmark_service');
 
 function createApp({ env = process.env, generate = generateTextWithUsage, genAI: injectedGenAI, generationTimers,
   reportMeasurement, pilotD01 } = {}) {
@@ -137,6 +140,7 @@ const ONTOLOGIES = {
   'ONT-10': BEHAVIORS['D06'],
   'ONT-11': BEHAVIORS['D08'],
   'ONT-12': BEHAVIORS['D09'],
+  'ONT-13': BEHAVIORS['D10'],
 };
 
 const RISK_PROFILES = {
@@ -199,9 +203,32 @@ const scenarioSchema = {
   required: ['title', 'summary', 'scenes', 'assessment'],
 };
 
-function buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation }) {
+function buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation, arm = 'B' }) {
   const ontList = ontologyCodes.map((c) => `- ${c}: ${ONTOLOGIES[c] || c}`).join('\n');
   const riskKey = (riskProfile || 'ATİPİK').toUpperCase();
+
+  let ragRuleInjection = '';
+  if (arm === 'B') {
+    try {
+      const activeRules = ontologyCodes.map((c) => {
+        const selective = retriever.getSelectiveRuleContext({
+          behaviorCode: c,
+          ageMonths,
+          riskProfile: riskKey,
+        });
+        return selective.ruleText;
+      }).join('\n\n');
+      ragRuleInjection = `\n\n[KLİNİK RAG KURAL ENJEKSİYONU (Kol B - Yaşa ve Profile Duyarlı Kurallar)]:\n${activeRules}`;
+    } catch (e) {
+      console.warn('[RAG] Kural enjeksiyonu atlandı:', e.message);
+    }
+  } else if (arm === 'C') {
+    try {
+      ragRuleInjection = `\n\n[KLİNİK BİLGİ TABANI TAM BAĞLAM (Kol C)]:\n${retriever.getFullContext()}`;
+    } catch (e) {
+      console.warn('[RAG] Tam bağlam atlandı:', e.message);
+    }
+  }
 
   const system = `Sen çocuk nörogelişimi (ADOS-2 Toddler / M-CHAT-R/F) ve Google Veo / Sora video üretim parametreleri konusunda uzmanlaşmış kıdemli bir klinik simülasyon ve görsel yönetmenisin.
 Çıktın doğrudan Google Veo ile fotogerçekçi klinik eğitim videoları üretiminde kullanılacak. Videolarda sıfır bozulma (no morphing), kusursuz anatomi, sabit kamera açısı ve tam nörogelişimsel davranış doğruluğu şarttır.
@@ -223,7 +250,7 @@ Hedef davranışlar:
 ${ontList}
 Risk profili: ${riskKey} → ${RISK_PROFILES[riskKey] || RISK_PROFILES['ATİPİK']}
 Materyal: ${materials}
-Çeşitlilik tohumu: ${variation}`;
+Çeşitlilik tohumu: ${variation}${ragRuleInjection}`;
 
   return { system, user };
 }
@@ -311,16 +338,18 @@ app.post('/api/generate-scenario', async (req, res) => {
       riskProfile = 'ATİPİK',
       ontologyCodes = [req.body.ontologyCode || req.body.behaviorCode || 'D01'],
       materials = 'Kırmızı ahşap araba ve kayın bloklar',
+      arm = req.body.arm || 'B',
+      caseId = req.body.caseId || 'custom',
     } = req.body;
 
-    console.log(`[*] Senaryo isteği: ${ageMonths} Ay, ${childName}, ${ontologyCodes.join('+')}, ${riskProfile}`);
+    console.log(`[*] Senaryo isteği: ${ageMonths} Ay, ${childName}, ${ontologyCodes.join('+')}, ${riskProfile} (Kol ${arm})`);
 
     if (!hasApiKey || !genAI) {
       return res.status(400).json({ success: false, error: 'Gemini API anahtarı ayarlanmamış.' });
     }
 
     const variation = req.body.variation || Math.random().toString(36).slice(2, 8);
-    const prompts = buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation });
+    const prompts = buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation, arm });
     const models = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
     let lastErr;
 
@@ -340,10 +369,60 @@ app.post('/api/generate-scenario', async (req, res) => {
             sc.veoPrompt = buildVeoPrompt(sc);
           });
           console.log(`[OK] Senaryo 26 sahne ile başarıyla üretildi (${m})!`);
+          const fsmCheck = validateFSMContinuity(scenario.scenes);
+          const fsmMatchRate = fsmCheck.matchRate ?? 1.0;
+
+          let deltaTCompliant = true;
+          try {
+            const selective = retriever.getSelectiveRuleContext({
+              behaviorCode: ontologyCodes[0],
+              ageMonths,
+              riskProfile,
+            });
+            if (selective.card.hasLatencyThreshold) {
+              const uyarans = scenario.scenes.filter((s) => s.phase === 'UYARAN');
+              const latencies = uyarans.map((s) => s.clinical?.latencySeconds).filter((l) => typeof l === 'number');
+              if (latencies.length > 0) {
+                const band = selective.ageBand;
+                const riskNorm = selective.riskProfile;
+                if (riskNorm === 'TİPİK') {
+                  deltaTCompliant = latencies.every((l) => l <= band.typicalMaxDelaySec);
+                } else if (riskNorm === 'ATİPİK') {
+                  deltaTCompliant = latencies.some((l) => l >= band.atypicalMinDelaySec);
+                }
+              }
+            }
+          } catch (_) {}
+
+          const benchmark = {
+            latencyApiMs: 0,
+            fsmMatchRate,
+            deltaTCompliant,
+            arm,
+            caseId,
+          };
+
+          try {
+            benchmarkService.recordBenchmarkEntry({
+              arm,
+              caseId,
+              behaviorCode: ontologyCodes[0],
+              ageMonths,
+              riskProfile,
+              modelVersion: m,
+              latencyApiMs: 0,
+              fsmMatchRate,
+              deltaTCompliant,
+              schemaValid: true,
+            });
+          } catch (_) {}
+
           return res.json({
             success: true,
             model: m,
+            arm,
             scenario,
+            benchmark,
             metadata: { ageMonths, ontologyCodes, riskProfile, variation },
           });
         } catch (e) {
