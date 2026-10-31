@@ -3,6 +3,7 @@ import ctypes as ct
 import importlib.metadata
 import os
 import platform
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -19,7 +20,7 @@ def environment(torch_module=None, device=None):
         torch_interop_threads=None if torch_module is None else torch_module.get_num_interop_threads(),device=device,
         torch_runtime_measured=torch_module is not None)
 
-def memory():
+def _windows_memory():
     try:
         from ctypes import wintypes as w
         class C(ct.Structure):
@@ -31,6 +32,46 @@ def memory():
         return dict(working_set_bytes=c.WorkingSetSize,os_peak_working_set_bytes=c.PeakWorkingSetSize,memory_status='measured_windows_process')
     except Exception:
         return dict(working_set_bytes=None,os_peak_working_set_bytes=None,memory_status='unavailable_with_current_method')
+
+def _linux_proc_memory(status_path='/proc/self/status'):
+    """Read this process's RSS and Linux VmHWM peak RSS; values are bytes."""
+    try:
+        with open(status_path,encoding='ascii') as stream:
+            lines=stream.readlines()
+    except (OSError,UnicodeError):
+        return dict(working_set_bytes=None,os_peak_working_set_bytes=None,
+            memory_status='unavailable_linux_proc_status_unreadable')
+
+    found={}
+    malformed=set()
+    for line in lines:
+        match=re.match(r'^\s*(VmRSS|VmHWM):\s*(.*?)\s*$',line)
+        if not match:
+            continue
+        key,value=match.groups()
+        if key in found or key in malformed:
+            malformed.add(key);found.pop(key,None);continue
+        amount=re.fullmatch(r'(\d+)\s+kB',value)
+        if amount is None:
+            malformed.add(key);continue
+        found[key]=int(amount.group(1))*1024
+
+    rss=found.get('VmRSS');peak=found.get('VmHWM')
+    if rss is not None and peak is not None:
+        status='measured_linux_proc_status'
+    else:
+        missing=sorted(({'VmRSS','VmHWM'}-set(found)) | malformed)
+        status='partial_linux_proc_status:'+','.join(missing)
+    return dict(working_set_bytes=rss,os_peak_working_set_bytes=peak,memory_status=status)
+
+def memory():
+    system=platform.system()
+    if system=='Windows':
+        return _windows_memory()
+    if system=='Linux':
+        return _linux_proc_memory()
+    return dict(working_set_bytes=None,os_peak_working_set_bytes=None,
+        memory_status='unavailable_unsupported_platform')
 
 class Metrics:
     def __init__(self, clock=time.perf_counter, cpu=time.process_time):

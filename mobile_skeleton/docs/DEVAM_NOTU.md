@@ -1,5 +1,9 @@
 # Güncel ürün akışı — 28 Ekim 2026
 
+## Linux pilot süreç belleği ölçümü — 31 Ekim 2026
+
+Kullanıcı, sunucudaki tamamlanmış D01 işinde 168 geçerli/0 geçersiz kare, toplam 321.082 sn ve forward 291.112 sn bildirdi; o kayıtta `working_set_bytes` ve `os_peak_working_set_bytes` mevcut yöntemle ölçülemedi ve null kaldı. `research/d01/pilot_metrics.py` Linux'ta `/proc/self/status` içindeki yalnız Python sürecinin `VmRSS` anlık RSS ve `VmHWM` tepe RSS alanlarını okur; `kB` değerlerini 1024 ile çarparak bayt saklar. Windows ölçüm yolu korunmuştur. Dosya veya alan okunamazsa değer null ve `memory_status` açıklayıcıdır; sistem RAM'i ya da sıfır varsayılanı kullanılmaz. Eski sunucu kaydı değiştirilmedi; yeni Linux ölçüm yolu gerçek sunucu işinde henüz doğrulanmadı. **Kontrollü `test_pilot_metrics.py`: 6/6 geçti**; gerçek Linux sunucu ölçümü değildir.
+
 ## Kullanıcı doğrulaması ve emülatör hazırlığı — 29 Ekim 2026
 
 **Kullanıcı normal Windows PowerShell'de bildirdi:** `video_analysis_source_test.dart` **22 test geçti**; dört dosyalık mobil pilot grubu **60 test geçti**; `flutter analyze --no-pub` **No issues found**.22 test60'ın içindedir, ayrı toplam gibi toplanmaz. Bu sonuçlar aşağıdaki önceki ortam engeli kaydını günceller; bu hazırlık görevinde yeniden çalıştırılmış testler değildir. Yaşam döngüsü testi geçerli inactive/hidden/paused sırasını ve resumed durumuna dönüşü kullanır; video kaynak penceresinin esnek başlığı ve dar ekran kontrol erişimi korunur. **Emülatörden gerçek mobil upload→pilot sonuç denemesi henüz yapılmadı.**
