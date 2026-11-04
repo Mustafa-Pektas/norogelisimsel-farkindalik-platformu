@@ -10,7 +10,7 @@ class ScenarioGenerationResult {
     Map<String, dynamic>? settings, Map<String, dynamic>? measurement,
     Map<String, dynamic>? behaviorSource})
       : settings = _copy(settings), measurement = _copy(measurement), behaviorSource = _copy(behaviorSource) {
-    if (scenarioId.trim().isEmpty || (arm != null && !['A', 'B', 'C'].contains(arm))) {
+    if (scenarioId.trim().isEmpty || (arm != null && !['A', 'B', 'C', 'D'].contains(arm))) {
       throw const FormatException('Üretim sonucu kimliği veya deney kolu geçersiz.');
     }
     if (outputContract != null && outputContract != contract &&

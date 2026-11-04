@@ -209,3 +209,14 @@ test('Karşılaştırma timeout geç cevabı uygulamaz; ortak slot sağlayıcı 
   assert.equal(res.bodies.length, 1); assert.equal(records.length, 1);
   assert.equal((await call(handler, body)).statusCode, 200); assert.equal(calls, 2);
 });
+
+test('Arm D Karşılaştırma: Yeni Klinik JSON RAG seçici kural enjeksiyonu ve protokol doğrulaması', async () => {
+  const card = await loadCard(request);
+  const previewD = prepareComparison({ request, arm: 'D', action: 'preview' }, card, 'controlled');
+  assert.equal(previewD.arm, 'D');
+  assert.ok(previewD.sourceMode.includes('Yeni Klinik JSON RAG'));
+  assert.ok(previewD.system.includes('D01'));
+  assert.ok(previewD.system.includes('İsme tepki') || previewD.system.includes('İsme Tepki'));
+  assert.ok(previewD.protocolId && /^[a-f0-9]{64}$/.test(previewD.protocolId));
+  assert.equal(previewD.outputContract, 'scenario-input-narrative-v4');
+});

@@ -36,7 +36,7 @@ class _Trial {
 }
 
 class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
-  static const _validSelections = {'ALL', 'A', 'B', 'C'};
+  static const _validSelections = {'ALL', 'A', 'B', 'C', 'D'};
   late String _selection;
   final _previews = <String, Map<String, dynamic>>{};
   final _trials = <_Trial>[];
@@ -53,7 +53,7 @@ class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
   void initState() {
     super.initState();
     if (!_validSelections.contains(widget.initialSelection)) {
-      throw ArgumentError.value(widget.initialSelection, 'initialSelection', 'ALL, A, B veya C olmalıdır.');
+      throw ArgumentError.value(widget.initialSelection, 'initialSelection', 'ALL, A, B, C veya D olmalıdır.');
     }
     _selection = widget.initialSelection;
     _accessKey.text = widget.service.resolveAccessKey?.call() ?? '';
@@ -61,7 +61,7 @@ class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
 
   HttpScenarioGenerationService get _sessionService =>
       widget.service.withAccessKey(() => _accessKey.text.trim());
-  List<String> get _arms => _selection == 'ALL' ? ['A', 'B', 'C'] : [_selection];
+  List<String> get _arms => _selection == 'ALL' ? ['A', 'B', 'C', 'D'] : [_selection];
   bool get _ready => _arms.every(_previews.containsKey) &&
     _arms.map((a) => _previews[a]!['protocolId']).toSet().length == 1;
 
@@ -127,8 +127,13 @@ class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
         } catch (error) {
           if (!mounted || epoch != _epoch) return;
           setState(() {
-            trial.status = 'Hata';
-            trial.error = error is ScenarioGenerationFailure ? error.message : 'Karşılaştırma isteği tamamlanamadı.';
+            final msg = error is ScenarioGenerationFailure ? error.message : 'Karşılaştırma isteği tamamlanamadı.';
+            final isOverloaded = msg.contains('503') || msg.toLowerCase().contains('yoğunluk') || msg.toLowerCase().contains('high demand');
+            trial.status = isOverloaded ? 'Aşırı Yoğunluk (503)' : 'Hata';
+            trial.error = msg;
+            if (isOverloaded) {
+              _notice = 'Google Gemini sunucularında geçici aşırı yoğunluk yaşanıyor (HTTP 503). Lütfen birkaç saniye bekleyip tekrar deneyin.';
+            }
             if (error is ScenarioGenerationFailure) {
               trial.raw = error.rawResponse; trial.measurement = error.measurement;
             }
@@ -241,7 +246,7 @@ class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
       child: SizedBox(width: 960, height: MediaQuery.sizeOf(context).height * 0.85,
       child: SingleChildScrollView(
       child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Text('Deneysel karşılaştırma — A / B / C', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text('Deneysel karşılaştırma — A / B / C / D', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const Text('Aynı form ve tek anlatı sözleşmesi: ortak başlangıç ve alternatif devam/bitişler. '
@@ -299,7 +304,8 @@ class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
                   Text('A — Ek kart metni yok; ortak görev ve güvenlik talimatları ile seçili davranış adları korunur.'),
                   Text('B — Seçilen bütün davranış kartlarının metni ve ortak kart kuralları eklenir.'),
                   Text('C — Kanonik davranış kartı dosyasının tüm içeriği eklenir.'),
-                  Text('Üç kol aynı istek, görev, anlatı sözleşmesi, model ve ayarları kullanır; yalnız kaynak bağlamı miktarı değişir.'),
+                  Text('D — Seçici Klinik JSON RAG kural bağlamı eklenir.'),
+                  Text('Dört kol aynı istek, görev, anlatı sözleşmesi, model ve ayarları kullanır; yalnız kaynak bağlamı miktarı değişir.'),
                 ],
               ),
             ),
@@ -308,10 +314,11 @@ class _ScenarioComparisonDialogState extends State<ScenarioComparisonDialog> {
           DropdownButtonFormField<String>(key: const ValueKey('comparison-arms'), initialValue: _selection,
             isExpanded: true, itemHeight: null,
             decoration: const InputDecoration(labelText: 'Çalıştırılacak kollar'),
-            items: const [DropdownMenuItem(value: 'ALL', child: Text('A → B → C')),
-              DropdownMenuItem(value: 'A', child: Text('A — Temel istem')),
-              DropdownMenuItem(value: 'B', child: Text('B — Seçili kaynak')),
-              DropdownMenuItem(value: 'C', child: Text('C — Geniş bağlam'))],
+            items: const [DropdownMenuItem(value: 'ALL', child: Text('A → B → C → D')),
+              DropdownMenuItem(value: 'A', child: Text('A — Temel istem (Saf)')),
+              DropdownMenuItem(value: 'B', child: Text('B — Seçili Markdown Kartı')),
+              DropdownMenuItem(value: 'C', child: Text('C — Tüm Markdown Kitaplığı')),
+              DropdownMenuItem(value: 'D', child: Text('D — Yeni Klinik JSON RAG'))],
             onChanged: _busy ? null : (value) => setState(() { _selection = value!; })),
           Text('Başlatılırsa ${_arms.join(' → ')}: en fazla ${_arms.length} sağlayıcı çağrısı; sırayla, tekrar yok. Kota/ücret kullanabilir.',
             key: const ValueKey('comparison-call-count')),

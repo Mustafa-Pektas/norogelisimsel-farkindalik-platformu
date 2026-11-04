@@ -1,4 +1,4 @@
-const dns = require('dns');
+﻿const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 
 const express = require('express');
@@ -203,12 +203,53 @@ const scenarioSchema = {
   required: ['title', 'summary', 'scenes', 'assessment'],
 };
 
-function buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation, arm = 'B' }) {
+let markdownCardsCache = null;
+function getMarkdownCards() {
+  if (!markdownCardsCache) {
+    const raw = fs.readFileSync(defaultCardsPath, 'utf8');
+    const headings = [...raw.matchAll(/^## \d+\. (.+) — (D\d{2})\r?$/gm)];
+    const cards = {};
+    headings.forEach((h, i) => {
+      const code = h[2];
+      const section = raw.slice(h.index, headings[i + 1]?.index ?? raw.length);
+      cards[code] = section;
+    });
+    const commonRules = headings.length ? raw.slice(0, headings[0].index) : '';
+    markdownCardsCache = { fullText: raw, commonRules, cards };
+  }
+  return markdownCardsCache;
+}
+
+function buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation, arm = 'D' }) {
   const ontList = ontologyCodes.map((c) => `- ${c}: ${ONTOLOGIES[c] || c}`).join('\n');
   const riskKey = (riskProfile || 'ATİPİK').toUpperCase();
 
   let ragRuleInjection = '';
-  if (arm === 'B') {
+  if (arm === 'A') {
+    // Kol A: Ek davranış kartı olmadan yalın baseline model üretimi
+    ragRuleInjection = '';
+  } else if (arm === 'B') {
+    // Kol B: Seçilen tek markdown davranış kartı ile üretim (Davranis_Kartlari_v02.md)
+    try {
+      const md = getMarkdownCards();
+      const cardSections = ontologyCodes.map((c) => {
+        const normalized = ONT_MAP[c] || c;
+        return md.cards[normalized] || md.cards[c] || '';
+      }).filter(Boolean).join('\n\n');
+      ragRuleInjection = `\n\n[SEÇİLEN MARKDOWN DAVRANIŞ KARTI (Kol B)]:\n${md.commonRules}\n${cardSections}`;
+    } catch (e) {
+      console.warn('[Kol B] Markdown kart yükleme hatası:', e.message);
+    }
+  } else if (arm === 'C') {
+    // Kol C: Bütün markdown davranış kartları kullanılarak üretim (Full text)
+    try {
+      const md = getMarkdownCards();
+      ragRuleInjection = `\n\n[BÜTÜN MARKDOWN DAVRANIŞ KARTLARI (Kol C)]:\n${md.fullText}`;
+    } catch (e) {
+      console.warn('[Kol C] Markdown tüm kartlar yükleme hatası:', e.message);
+    }
+  } else if (arm === 'D') {
+    // Kol D: Yeni oluşturulan klinik JSON RAG ile üretim (Yaşa ve profile duyarlı seçici kural enjeksiyonu)
     try {
       const activeRules = ontologyCodes.map((c) => {
         const selective = retriever.getSelectiveRuleContext({
@@ -218,15 +259,9 @@ function buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materi
         });
         return selective.ruleText;
       }).join('\n\n');
-      ragRuleInjection = `\n\n[KLİNİK RAG KURAL ENJEKSİYONU (Kol B - Yaşa ve Profile Duyarlı Kurallar)]:\n${activeRules}`;
+      ragRuleInjection = `\n\n[YENİ KLİNİK JSON RAG (Kol D - Yaşa ve Profile Duyarlı Seçici Kurallar)]:\n${activeRules}`;
     } catch (e) {
-      console.warn('[RAG] Kural enjeksiyonu atlandı:', e.message);
-    }
-  } else if (arm === 'C') {
-    try {
-      ragRuleInjection = `\n\n[KLİNİK BİLGİ TABANI TAM BAĞLAM (Kol C)]:\n${retriever.getFullContext()}`;
-    } catch (e) {
-      console.warn('[RAG] Tam bağlam atlandı:', e.message);
+      console.warn('[Kol D] JSON RAG kural enjeksiyonu hatası:', e.message);
     }
   }
 
@@ -300,16 +335,16 @@ const header = 'CLINICAL PEDIATRIC MEDICAL TRAINING: STANDARDIZED DEVELOPMENTAL 
 }
 
 async function generateOnce(genAI, modelName, prompts) {
-  const raw = await generateText(genAI, modelName, prompts,
+  const result = await generateTextWithUsage(genAI, modelName, prompts,
     { schema: scenarioSchema, maxOutputTokens: 16384 });
-  return JSON.parse(raw);
+  return { raw: JSON.parse(result.text), usage: result.usage };
 }
 
 // Anlatı girdisi üretir; 26 sahne endpoint'inden bağımsızdır, graf üretmez.
 app.post('/api/generate-scenario-input', createScenarioInputHandler({
   capacity, reportMeasurement, ...(generationTimers ? { timers: generationTimers } : {}),
   generate: genAI ? (model, prompts, options) => generate(genAI, model, prompts, options) : null,
-  modelName: (env.SCENARIO_INPUT_MODEL || '').trim(),
+  modelName: (env.SCENARIO_INPUT_MODEL || 'gemini-3.5-flash').trim(),
   cardsPath: env.BEHAVIOR_CARDS_PATH || defaultCardsPath,
 }));
 
@@ -318,15 +353,15 @@ app.post('/api/generate-clip-plan', createScenarioInputHandler({
   capacity, reportMeasurement, ...(generationTimers ? { timers: generationTimers } : {}),
   clipPlan: true,
   generate: genAI ? (model, prompts, options) => generate(genAI, model, prompts, options) : null,
-  modelName: (env.SCENARIO_INPUT_MODEL || '').trim(),
+  modelName: (env.SCENARIO_INPUT_MODEL || 'gemini-3.5-flash').trim(),
   cardsPath: env.BEHAVIOR_CARDS_PATH || defaultCardsPath,
 }));
 
 // Ekip A/B/C deneyi: aynı Bearer/gövde/kapasite/timeout sınırları; tek kol = en fazla bir çağrı.
 app.post('/api/compare-scenario', createScenarioInputHandler({
-  comparison: true, capacity, reportMeasurement, ...(generationTimers ? { timers: generationTimers } : {}),
+  comparison: true, capacity, reportMeasurement, timeoutMs: 120000, ...(generationTimers ? { timers: generationTimers } : {}),
   generate: genAI ? (model, prompts, options) => generate(genAI, model, prompts, options) : null,
-  modelName: (env.SCENARIO_INPUT_MODEL || '').trim(),
+  modelName: (env.SCENARIO_INPUT_MODEL || 'gemini-3.5-flash').trim(),
   cardsPath: env.BEHAVIOR_CARDS_PATH || defaultCardsPath,
 }));
 
@@ -357,7 +392,9 @@ app.post('/api/generate-scenario', async (req, res) => {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           console.log(`[*] Model deneniyor: ${m} (deneme ${attempt + 1})...`);
-          const raw = await generateOnce(genAI, m, prompts);
+          const callStart = Date.now();
+          const { raw, usage } = await generateOnce(genAI, m, prompts);
+          const latencyApiMs = Date.now() - callStart;
           const errors = validate(raw);
           if (errors.length) {
             lastErr = new Error(errors.join('; '));
@@ -395,7 +432,9 @@ app.post('/api/generate-scenario', async (req, res) => {
           } catch (_) {}
 
           const benchmark = {
-            latencyApiMs: 0,
+            latencyApiMs,
+            promptTokens: usage?.promptTokens || 0,
+            outputTokens: usage?.outputTokens || 0,
             fsmMatchRate,
             deltaTCompliant,
             arm,
@@ -410,7 +449,9 @@ app.post('/api/generate-scenario', async (req, res) => {
               ageMonths,
               riskProfile,
               modelVersion: m,
-              latencyApiMs: 0,
+              promptTokens: usage?.promptTokens || 0,
+              outputTokens: usage?.outputTokens || 0,
+              latencyApiMs,
               fsmMatchRate,
               deltaTCompliant,
               schemaValid: true,
@@ -439,7 +480,6 @@ app.post('/api/generate-scenario', async (req, res) => {
   }
 });
 
-// ==========================================
 // 3. VİDEO ANALİZİ (MULTIMODAL GEMINI VISION)
 // ==========================================
 app.post('/api/analyze-video', upload.single('video'), async (req, res) => {
@@ -572,12 +612,12 @@ function getLocalIps() {
 const server = app.listen(port, '0.0.0.0', () => {
   const ips = getLocalIps();
   console.log('====================================================');
-  console.log(`🚀 Nörogelişimsel Platform Backend Sunucusu Hazır!`);
-  console.log(`📡 Bilgisayar İçi (Localhost): http://localhost:${port}`);
-  console.log(`📱 Android Emülatör:           http://10.0.2.2:${port}`);
+  console.log(`Backend Sunucusu Hazır: http://localhost:${port}`);
+  
+  console.log(`Android Emülatör: http://10.0.2.2:${port}`);
   if (ips.length > 0) {
     ips.forEach((item) => {
-      console.log(`📶 Gerçek Telefon (${item.name}): http://${item.ip}:${port}`);
+      console.log(`Ağ Erişimi (${item.name}): http://${item.ip}:${port}`);
     });
   }
   console.log(`Çalışma modu: ${deployment ? 'deployment' : 'development'}`);

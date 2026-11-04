@@ -351,10 +351,10 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
                             scrollDirection: Axis.horizontal,
                             child: Row(
                               children: [
-                                _buildPresetChip('🏥 Gözlem Masası', 'Klinik odasında çocuk değerlendirme masasında', 'çıngırak ve ahşap bloklar'),
-                                _buildPresetChip('🛋️ Gözlem Halısı', 'Klinik değerlendirme odasında oyun halısı üzerinde serbest oynarken', 'renkli pelüş ayı ve bloklar'),
-                                _buildPresetChip('📦 Kilitli Kutu', 'Klinik odasında kilitli şeffaf kutuyu açmaya çalışırken', 'kilitli şeffaf kutu'),
-                                _buildPresetChip('🪑 Alçak Masa', 'Gelişimsel değerlendirme masasında hekim karşısında', 'renkli halkalar ve bultak'),
+                                _buildPresetChip('Gözlem Masası', 'Klinik odasında çocuk değerlendirme masasında', 'çıngırak ve ahşap bloklar'),
+                                _buildPresetChip('Gözlem Halısı', 'Klinik değerlendirme odasında oyun halısı üzerinde serbest oynarken', 'renkli pelüş ayı ve bloklar'),
+                                _buildPresetChip('Kilitli Kutu', 'Klinik odasında kilitli şeffaf kutuyu açmaya çalışırken', 'kilitli şeffaf kutu'),
+                                _buildPresetChip('Alçak Masa', 'Gelişimsel değerlendirme masasında hekim karşısında', 'renkli halkalar ve bultak'),
                               ],
                             ),
                           ),
@@ -868,7 +868,7 @@ class _SimulationModeScreenState extends State<SimulationModeScreen> {
                     Clipboard.setData(ClipboardData(text: promptText));
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('📋 Sentetik video promptu panoya kopyalandı!'),
+                        content: Text('Sentetik video promptu kopyalandı.'),
                         behavior: SnackBarBehavior.floating,
                       ),
                     );

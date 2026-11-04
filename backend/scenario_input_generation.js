@@ -275,7 +275,7 @@ function safeProviderDiagnostic(error, phase = 'provider') {
     description = 'Sağlayıcı istek biçimini veya parametrelerini reddetti.';
   } else if (status >= 500) {
     category = 'provider_unavailable';
-    description = 'Sağlayıcı sunucu hatası bildirdi.';
+    description = (status === 503 || String(error?.message).includes('high demand') || String(error?.message).includes('503')) ? 'Google Gemini sunucularında geçici aşırı yoğunluk yaşanıyor (HTTP 503). Lütfen birkaç saniye bekleyip tekrar deneyin.' : 'Sağlayıcı sunucu hatası bildirdi.';
   } else if (type === 'GoogleGenerativeAIResponseError') {
     category = 'provider_response_error';
     description = 'Sağlayıcı yanıtı kullanılamadı; yanıt engellenmiş veya geçersiz olabilir.';

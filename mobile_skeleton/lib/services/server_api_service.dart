@@ -48,7 +48,7 @@ class ServerApiService {
         baseUrl = defaultBaseUrl;
       }
       final savedArm = prefs.getString(_serverArmKey);
-      if (savedArm != null && ['A', 'B', 'C'].contains(savedArm)) {
+      if (savedArm != null && ['A', 'B', 'C', 'D'].contains(savedArm)) {
         selectedArm = savedArm;
       }
     } catch (_) {}
@@ -57,7 +57,7 @@ class ServerApiService {
 
   /// Deney kolunu ayarlar ('A' Baseline, 'B' Kural Enjeksiyonlu, 'C' Full-Context)
   static Future<void> setSelectedArm(String arm) async {
-    selectedArm = ['A', 'B', 'C'].contains(arm) ? arm : 'B';
+    selectedArm = ['A', 'B', 'C', 'D'].contains(arm) ? arm : 'D';
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_serverArmKey, selectedArm);

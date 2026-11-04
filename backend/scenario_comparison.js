@@ -2,6 +2,7 @@
 const { createHash } = require('node:crypto');
 const { InputError, validateRequest, narrativeSchema, narrativeSchemaFor, narrativeSettings, narrativeContract, buildNarrativePrompts, validateNarrative } = require('./scenario_input_generation');
 const { validateFSMContinuity } = require('./validators/fsm_validator');
+const retriever = require('./rag/retriever');
 const settings = narrativeSettings;
 const string = { type: 'string' };
 const legacySchema = { type: 'object', properties: { title: string, summary: string,
@@ -18,18 +19,50 @@ function fields(value, allowed) {
 function validateComparisonRequest(body) {
   check(fields(body, ['request', 'arm', 'action', 'protocolId']), 'Karşılaştırma alanları geçersiz.');
   const request = validateRequest(body.request);
-  check(['A', 'B', 'C'].includes(body.arm), 'A, B veya C deney kolu seçilmelidir.');
+  check(['A', 'B', 'C', 'D'].includes(body.arm), 'A, B, C veya D deney kolu seçilmelidir.');
   check(['preview', 'generate'].includes(body.action), 'Karşılaştırma eylemi geçersiz.');
   if (body.action === 'generate') check(typeof body.protocolId === 'string' && /^[a-f0-9]{64}$/.test(body.protocolId),
     'Üretimden önce karşılaştırma istemlerini inceleyin.');
   return { request, arm: body.arm, action: body.action, protocolId: body.protocolId };
 }
 function prepareComparison(trial, card, modelName) {
-  const sourceMode = { A: 'Temel istem: davranış adları ve ortak güvenlik; ek kart metni yok.',
-    B: 'Seçilen bütün kartların tam metni ve ortak kart kuralları.',
-    C: 'Kanonik Markdown dosyasının tüm kartları ve ortak kuralları.' }[trial.arm];
-  const sourceText = trial.arm === 'A' ? '' : trial.arm === 'B'
-    ? `${card.commonRules}\n${card.section}` : card.fullText;
+  const sourceMode = {
+    A: 'Temel istem: davranış adları ve ortak güvenlik; ek kart metni yok.',
+    B: 'Seçilen bütün kartların tam metni ve ortak kart kuralları (Markdown).',
+    C: 'Kanonik Markdown dosyasının tüm kartları ve ortak kuralları (Full-Text).',
+    D: 'Yeni Klinik JSON RAG: Ontoloji ve yaş grubuna göre seçici kural enjeksiyonu.',
+  }[trial.arm];
+  let sourceText;
+  if (trial.arm === 'A') {
+    sourceText = '';
+  } else if (trial.arm === 'B') {
+    sourceText = `${card.commonRules}\n${card.section}`;
+  } else if (trial.arm === 'C') {
+    sourceText = card.fullText;
+  } else if (trial.arm === 'D') {
+    const codes = trial.request.behaviors && trial.request.behaviors.length
+      ? trial.request.behaviors.map(b => b.behaviorId)
+      : [trial.request.behaviorId || 'D01'];
+    let ageMonths = 24;
+    if (trial.request.ageMonths) {
+      ageMonths = trial.request.ageMonths;
+    } else if (trial.request.ageGroup === '12_18') {
+      ageMonths = 15;
+    } else if (trial.request.ageGroup === '18_24') {
+      ageMonths = 21;
+    } else if (trial.request.ageGroup === '24_36') {
+      ageMonths = 30;
+    }
+    const activeRules = codes.map(c => {
+      const sel = retriever.getSelectiveRuleContext({
+        behaviorCode: c,
+        ageMonths,
+        riskProfile: 'ATIPIK',
+      });
+      return sel.ruleText;
+    });
+    sourceText = activeRules.join('\n\n');
+  }
   const base = buildNarrativePrompts(trial.request, card, { sourceText: '' }).system;
   const protocolId = createHash('sha256').update(JSON.stringify({ revision: narrativeContract,
     request: trial.request, cardHash: card.sha256, modelName, settings, base, schema: narrativeSchemaFor(trial.request),

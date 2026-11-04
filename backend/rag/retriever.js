@@ -230,10 +230,7 @@ function getSelectiveRuleContext({ behaviorCode, ageMonths, riskProfile }) {
   else activeCriteria = byAge.borderlineCriteria;
 
   const ruleLines = [
-    `[YASAL / ETİK UYARI]`,
-    `${kb.scopeNotice}`,
-    ``,
-    `[KLİNİK KURAL ENJEKSİYONU - SEÇİCİ RETRIEVAL (KOL B)]`,
+    `KLİNİK KURAL ENJEKSİYONU:`,
     `Hedef Kart: ${card.id} — ${card.title}`,
     `Gözlem Amacı: ${card.purpose}`,
     `Altın Standart Ölçek Dayanağı: ${card.goldStandardMapping.scale} — Madde ${card.goldStandardMapping.itemCode} (${card.goldStandardMapping.domain})`,
@@ -292,9 +289,6 @@ function getSelectiveRuleContext({ behaviorCode, ageMonths, riskProfile }) {
 function getFullContext() {
   const kb = loadKnowledgeBase();
   const lines = [
-    `[YASAL / ETİK UYARI]`,
-    `${kb.scopeNotice}`,
-    ``,
     `[TÜM KLİNİK BİLGİ TABANI - FULL-CONTEXT (KOL C)]`,
     `Kapsam: 10 Davranış Kartı, Uluslararası Altın Standart Kaynaklar ve 3 Yaş Bandı Gelişimsel Eşikleri`,
     ``,

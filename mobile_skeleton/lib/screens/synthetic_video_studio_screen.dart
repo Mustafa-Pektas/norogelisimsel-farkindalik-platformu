@@ -488,6 +488,30 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
     if (_normalResult != null) ...[
       const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text('2. İncele',
         style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF142540)))),
+      if (_normalResult!.measurement != null)
+        Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0FDF4),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFBBF7D0)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.analytics_outlined, color: Color(0xFF166534), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Deney Kolu: Kol ${_normalResult!.arm ?? ServerApiService.selectedArm}  ·  '
+                  'Token: Girdi ${_normalResult!.measurement!['promptTokens'] ?? '—'} / Çıktı ${_normalResult!.measurement!['outputTokens'] ?? '—'}  ·  '
+                  'Süre: ${_normalResult!.measurement!['providerDurationMs'] ?? '—'} ms',
+                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF166534)),
+                ),
+              ),
+            ],
+          ),
+        ),
       Text(_normalResult!.summary, key: const ValueKey('studio-result-summary')),
       const Text('Yapı geçerli; içerik henüz onaylanmadı. Önceki sonuç form değişse de kendi isteğine aittir.'),
       FilledButton(key: const ValueKey('studio-continue-result'),
@@ -1381,7 +1405,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                               Icon(Icons.compare_arrows_rounded, size: 13, color: Color(0xFF4F46E5)),
                               SizedBox(width: 4),
                               Flexible(child: Text(
-                                'A/B/C karşılaştır',
+                                'A/B/C/D karşılaştır',
                                 style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
                               )),
                             ],
@@ -1394,8 +1418,9 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   Wrap(
                     spacing: 6, runSpacing: 6, children: [
                       _buildArmChip('A', 'Kol A (Saf)', 'Ek kart yok', const Color(0xFF64748B)),
-                      _buildArmChip('B', 'Kol B (RAG)', 'Hedef Kural', const Color(0xFF2563EB)),
+                      _buildArmChip('B', 'Kol B (MD)', 'Tek MD Kartı', const Color(0xFF2563EB)),
                       _buildArmChip('C', 'Kol C (Full)', 'Tüm Kitaplık', const Color(0xFF7C3AED)),
+                      _buildArmChip('D', 'Kol D (JSON RAG)', 'Seçici Kural', const Color(0xFF059669)),
                     ],
                   ),
                   if (_lastBenchmark != null) ...[
@@ -1417,6 +1442,10 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                           Text(
                             'Son çıktı (${_lastArm ?? 'normal'}) · sağlayıcı: ${_lastBenchmark!['providerDurationMs'] is num ? '${_lastBenchmark!['providerDurationMs']} ms' : 'Bilinmiyor'} · toplam: ${_lastBenchmark!['endpointDurationMs'] is num ? '${_lastBenchmark!['endpointDurationMs']} ms' : 'Bilinmiyor'}',
                             style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
+                          ),
+                          Text(
+                            'Token: Girdi ${_lastBenchmark!['promptTokens'] ?? '—'} / Çıktı ${_lastBenchmark!['outputTokens'] ?? '—'}',
+                            style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF059669)),
                           ),
                           Text(
                             'Model/kaynak: ${_lastComparison?['model'] ?? 'Bilinmiyor'} · ${_lastComparison?['sourceMode'] ?? 'Bilinmiyor'}',
@@ -1451,8 +1480,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                 ),
               ),
             ),
-            const Text('Anahtar yalnız bu Stüdyo oturumu boyunca bellekte tutulur.'),
-            const Text('Üretim tüm seçili kartları kullanır. Kaynakları kıyaslamak için A/B/C’yi açın.'),
+
           ],
         ],
       ),
@@ -1587,7 +1615,18 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                     spacing: 6,
                     children: [
                       ChoiceChip(
-                        label: const Text('Kol B: Kural Enj. (RAG)', style: TextStyle(fontSize: 11)),
+                        label: const Text('Kol D: JSON RAG (Klinik)', style: TextStyle(fontSize: 11)),
+                        selected: ServerApiService.selectedArm == 'D',
+                        selectedColor: const Color(0xFFD1FAE5),
+                        onSelected: (val) {
+                          if (val) {
+                            ServerApiService.setSelectedArm('D');
+                            setDialogState(() {});
+                          }
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Kol B: Tek MD Kartı', style: TextStyle(fontSize: 11)),
                         selected: ServerApiService.selectedArm == 'B',
                         selectedColor: const Color(0xFFDBEAFE),
                         onSelected: (val) {
@@ -1609,7 +1648,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                         },
                       ),
                       ChoiceChip(
-                        label: const Text('Kol C: Full-Context', style: TextStyle(fontSize: 11)),
+                        label: const Text('Kol C: Full-Context MD', style: TextStyle(fontSize: 11)),
                         selected: ServerApiService.selectedArm == 'C',
                         selectedColor: const Color(0xFFF3E8FF),
                         onSelected: (val) {
@@ -3365,7 +3404,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('📍 ', style: TextStyle(fontSize: 12)),
+                  const Icon(Icons.place_outlined, size: 14, color: Color(0xFF64748B)), const SizedBox(width: 4),
                   Expanded(
                     child: RichText(
                       text: TextSpan(
@@ -3383,7 +3422,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('📦 ', style: TextStyle(fontSize: 12)),
+                  const Icon(Icons.inventory_2_outlined, size: 14, color: Color(0xFF64748B)), const SizedBox(width: 4),
                   Expanded(
                     child: RichText(
                       text: TextSpan(
@@ -3869,7 +3908,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                   ),
                   // SAHNE VE ZAMAN
                   Text(
-                      '🎬 Sahne ${step.stepNumber} ($timeRange)',
+                      'Sahne ${step.stepNumber} ($timeRange)',
                       style: const TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.bold,

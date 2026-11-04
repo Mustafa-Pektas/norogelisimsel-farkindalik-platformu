@@ -42,7 +42,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function runBenchmark() {
   console.log('================================================================');
-  console.log('🧪 GEMINI vs. RAG KARŞILAŞTIRMA BENCHMARK KOŞUCUSU (Metodoloji v2)');
+  console.log('GEMINI vs. RAG KARŞILAŞTIRMA BENCHMARK KOŞUCUSU (Metodoloji v2)');
   console.log('================================================================');
   console.log(`[*] Toplam Test Vakası: ${TEST_CASES.length}`);
   console.log(`[*] Hedef Kollar: Kol A (Baseline), Kol B (Kural Enj.), Kol C (Full-Context)`);
@@ -54,7 +54,7 @@ async function runBenchmark() {
   for (const vaka of TEST_CASES) {
     for (const arm of arms) {
       runCount++;
-      console.log(`[${runCount}/30] Çalıştırılıyor: Vaka ${vaka.id} (${vaka.ageMonths} ay, ${vaka.behaviorCode}, ${vaka.riskProfile}) ➔ Kol ${arm}...`);
+      console.log(`[${runCount}/30] Çalıştırılıyor: Vaka ${vaka.id} (${vaka.ageMonths} ay, ${vaka.behaviorCode}, ${vaka.riskProfile}) -> Kol ${arm}...`);
 
       try {
         const response = await fetch('http://localhost:8000/api/generate-scenario', {
@@ -88,7 +88,7 @@ async function runBenchmark() {
   }
 
   console.log('\n================================================================');
-  console.log('📊 BENCHMARK TAMAMLANDI! ÖZET İSTATİSTİKLER:');
+  console.log('BENCHMARK TAMAMLANDI! ÖZET İSTATİSTİKLER:');
   console.log('================================================================');
   const stats = benchmarkService.getBenchmarkStats();
   console.log(JSON.stringify(stats, null, 2));

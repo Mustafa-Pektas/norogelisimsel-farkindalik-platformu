@@ -60,10 +60,11 @@ function getBenchmarkStats() {
     A: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
     B: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
     C: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
+    D: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
   };
 
   entries.forEach((e) => {
-    const a = arms[e.arm] || arms.B;
+    const a = arms[e.arm] || arms.D;
     a.count++;
     if (e.latencyApiMs > 0) a.latencies.push(e.latencyApiMs);
     if (typeof e.fsmMatchRate === 'number') a.fsmRates.push(e.fsmMatchRate);
@@ -96,8 +97,9 @@ function getBenchmarkStats() {
     totalRuns: entries.length,
     arms: {
       A_Baseline: summarize(arms.A),
-      B_RuleInjection: summarize(arms.B),
-      C_FullContext: summarize(arms.C),
+      B_MarkdownSingle: summarize(arms.B),
+      C_MarkdownAll: summarize(arms.C),
+      D_JsonRAG_Selective: summarize(arms.D),
     },
   };
 }
