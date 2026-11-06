@@ -118,3 +118,57 @@ test('Çoklu graf/plan kimliği ve sahne ilişkileri doğrulanır; süre hedefi 
   assert.throws(() => validatePlanRequest({ ...input, graph: { ...graph,
     scenes: graph.scenes.map(s => ({ ...s, behaviorIds: ['D01'] })) } }), /kapsamıyor/);
 });
+
+test('Çoklu davranış aşamalı çıktı (stages) başarıyla doğrulanır; eksik dal veya geçersiz tip reddedilir', () => {
+  const multiStage = {
+    structure: 'branched',
+    commonStart: 'Kum havuzunda oyun.',
+    commonBehaviorIds: ['D01', 'D02'],
+    stages: [
+      {
+        stageIndex: 1,
+        behaviorId: 'D01',
+        title: 'Aşama 1: İsme Tepki Gözlemi',
+        prompt: 'Yetişkin doğal sesle "Ali" der.',
+        branches: [
+          { branchType: 'typical', title: 'İsme Tepki Gözlendi', continuation: 'Ali başını çevirir.' },
+          { branchType: 'atypical', title: 'İsme Tepki Gözlenmedi', continuation: 'Ali kumla oynamaya devam eder.' },
+        ],
+      },
+      {
+        stageIndex: 2,
+        behaviorId: 'D02',
+        title: 'Aşama 2: İşarete Yönelme Gözlemi',
+        prompt: 'Yetişkin kovayı işaret eder.',
+        branches: [
+          { branchType: 'typical', title: 'İşarete Yönelme Gözlendi', continuation: 'Ali kovaya bakar.', ending: 'İşarete yönelme tamamlandı.' },
+          { branchType: 'atypical', title: 'İşme Yönelme Gözlenmedi', continuation: 'Ali kovaya bakmaz.', ending: 'İşarete yönelme gerçekleşmedi.' },
+        ],
+      },
+    ],
+    alternatives: [
+      { title: 'D01+ / D02+', continuation: 'İkisi de olumlu.', ending: 'Her iki davranış da gözlendi.', behaviorIds: ['D01', 'D02'] },
+      { title: 'D01+ / D02-', continuation: 'D01 olumlu, D02 olumsuz.', ending: 'İsme tepki var, işarete yönelme yok.', behaviorIds: ['D01', 'D02'] },
+      { title: 'D01- / D02+', continuation: 'D01 olumsuz, D02 olumlu.', ending: 'İsme tepki yok, işarete yönelme var.', behaviorIds: ['D01', 'D02'] },
+      { title: 'D01- / D02-', continuation: 'İkisi de olumsuz.', ending: 'Ne isme tepki ne de işarete yönelme gözlendi.', behaviorIds: ['D01', 'D02'] },
+    ],
+  };
+
+  const validated = validateNarrative(JSON.stringify(multiStage), request);
+  assert.deepEqual(validated, multiStage);
+
+  // Schema validates stages presence
+  const schema = narrativeSchemaFor(request);
+  assert.ok(schema.required.includes('stages'));
+  assert.ok(schema.properties.stages);
+
+  // Invalid branchType rejected
+  const invalidType = structuredClone(multiStage);
+  invalidType.stages[0].branches[0].branchType = 'invalid_type';
+  assert.throws(() => validateNarrative(JSON.stringify(invalidType), request));
+
+  // Incomplete stages list rejected
+  const missingStage = structuredClone(multiStage);
+  missingStage.stages = [missingStage.stages[0]];
+  assert.throws(() => validateNarrative(JSON.stringify(missingStage), request));
+});

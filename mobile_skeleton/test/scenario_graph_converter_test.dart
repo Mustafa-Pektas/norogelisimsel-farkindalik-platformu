@@ -212,4 +212,111 @@ void main() {
       throwsUnsupportedError,
     );
   });
+  test('Çoklu davranış (D01 + D02) sıralı aşamalı girdi 11 sahneli 4 katmanlı karar ağacına dönüşür', () {
+    final multiJson = {
+      'schemaVersion': '1.1',
+      'scenarioId': 'd01-d02-multi',
+      'title': 'D01 ve D02 Karar Ağacı',
+      'language': 'tr',
+      'ageMonths': 24,
+      'behaviorId': 'D01',
+      'cardVersion': '0.2',
+      'behaviors': [
+        {'behaviorId': 'D01', 'cardVersion': '0.2'},
+        {'behaviorId': 'D02', 'cardVersion': '0.2'},
+      ],
+      'source': 'model_output',
+      'commonStart': 'Kum havuzunda oynayan çocuk ve yakındaki yetişkin.',
+      'commonBehaviorIds': ['D01', 'D02'],
+      'stages': [
+        {
+          'stageIndex': 1,
+          'behaviorId': 'D01',
+          'title': 'Aşama 1: İsme Tepki Gözlemi',
+          'prompt': 'Yetişkin doğal ses tonuyla "Ali" diye seslenir.',
+          'branches': [
+            {
+              'branchType': 'typical',
+              'title': 'İsme Tepki Gözlendi',
+              'continuation': 'Ali seslenişi duyunca küreği bırakıp başını yetişkine çevirir.',
+            },
+            {
+              'branchType': 'atypical',
+              'title': 'İsme Tepki Gözlenmedi',
+              'continuation': 'Ali kumla oynamaya devam eder, başını çevirmez.',
+            },
+          ],
+        },
+        {
+          'stageIndex': 2,
+          'behaviorId': 'D02',
+          'title': 'Aşama 2: İşaret Edilen Hedefe Yönelme Gözlemi',
+          'prompt': 'Yetişkin işaret parmağıyla uzaktaki renkli kovayı işaret eder.',
+          'branches': [
+            {
+              'branchType': 'typical',
+              'title': 'İsme Yönelen Çocuk: İşarete Yönelme Gözlendi',
+              'continuation': 'Ali işaret edilen kovaya başını ve bakışını çevirir.',
+              'ending': 'Ortak dikkat işarete yönelme başarıyla gözlendi.',
+            },
+            {
+              'branchType': 'atypical',
+              'title': 'İşarete Yönelme Gözlenmedi',
+              'continuation': 'Ali işaret edilen yöne bakmaz, kendi önüne odaklanır.',
+              'ending': 'İşaret edilen hedefe yönelme gerçekleşmedi.',
+            },
+          ],
+        },
+      ],
+      'alternatives': [
+        {
+          'title': 'D01(+) / D02(+)',
+          'continuation': 'Aşama 1 ve 2 olumlu.',
+          'ending': 'Hem isme tepki hem işarete yönelme yaş grubuna uygun gözlendi.',
+          'behaviorIds': ['D01', 'D02'],
+        },
+        {
+          'title': 'D01(+) / D02(-)',
+          'continuation': 'Aşama 1 olumlu, Aşama 2 olumsuz.',
+          'ending': 'İsme tepki var, işarete yönelme yok.',
+          'behaviorIds': ['D01', 'D02'],
+        },
+        {
+          'title': 'D01(-) / D02(+)',
+          'continuation': 'Aşama 1 olumsuz, Aşama 2 olumlu.',
+          'ending': 'İsme tepki yok, işarete yönelme var.',
+          'behaviorIds': ['D01', 'D02'],
+        },
+        {
+          'title': 'D01(-) / D02(-)',
+          'continuation': 'Aşama 1 ve 2 olumsuz.',
+          'ending': 'Ne isme tepki ne de işarete yönelme gözlendi.',
+          'behaviorIds': ['D01', 'D02'],
+        },
+      ],
+    };
+
+    final input = ScenarioInput.fromJson(multiJson);
+    expect(input.stages, isNotNull);
+    expect(input.stages!.length, 2);
+
+    final graph = converter.convert(input);
+
+    // 1 start + 2 stage1 + 4 stage2 + 4 endings = 11 scenes!
+    expect(graph.scenes.length, 11);
+    // 2 (start->s1) + 4 (s1->s2) + 4 (s2->endings) = 10 transitions!
+    expect(graph.transitions.length, 10);
+    // 4 distinct ending paths
+    expect(graph.endSceneIds.length, 4);
+    expect(graph.endSceneIds, [
+      'ending_typical_typical',
+      'ending_typical_atypical',
+      'ending_atypical_typical',
+      'ending_atypical_atypical',
+    ]);
+
+    // Validation passes completely (reachability, DAG structure, behavior coverage)
+    expect(graph.validate, returnsNormally);
+    expect(graph.authoringNote, contains('Planlanan çok aşamalı sıralı gözlem grafıdır'));
+  });
 }

@@ -114,7 +114,7 @@ function resolveAgeBandKey(ageMonths) {
   const kb = loadKnowledgeBase();
 
   if (typeof ageMonths === 'string') {
-    const clean = ageMonths.trim();
+    const clean = ageMonths.trim().replace('_', '-');
     if (kb.legacyAliases && kb.legacyAliases[clean]) {
       return kb.legacyAliases[clean];
     }

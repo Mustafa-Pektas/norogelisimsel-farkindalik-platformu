@@ -36,6 +36,87 @@ class ScenarioInputAlternative {
   final List<String>? behaviorIds;
 }
 
+class ScenarioStageBranch {
+  ScenarioStageBranch({
+    required this.branchType,
+    required this.title,
+    required this.continuation,
+    this.ending,
+  }) {
+    _text(branchType, 'branchType');
+    _text(title, 'title');
+    _text(continuation, 'continuation');
+  }
+
+  factory ScenarioStageBranch.fromJson(Map<String, dynamic> json) {
+    _onlyFields(json, const {'branchType', 'title', 'continuation', 'ending'}, 'Aşama dalı');
+    return ScenarioStageBranch(
+      branchType: _readText(json, 'branchType'),
+      title: _readText(json, 'title'),
+      continuation: _readText(json, 'continuation'),
+      ending: json['ending'] as String?,
+    );
+  }
+
+  final String branchType;
+  final String title;
+  final String continuation;
+  final String? ending;
+
+  Map<String, dynamic> toJson() => {
+    'branchType': branchType,
+    'title': title,
+    'continuation': continuation,
+    if (ending != null) 'ending': ending,
+  };
+}
+
+class ScenarioStage {
+  ScenarioStage({
+    required this.stageIndex,
+    required this.behaviorId,
+    required this.title,
+    required this.prompt,
+    required List<ScenarioStageBranch> branches,
+  }) : branches = List.unmodifiable(branches) {
+    _text(behaviorId, 'behaviorId');
+    _text(title, 'title');
+    _text(prompt, 'prompt');
+    if (branches.length < 2) {
+      throw const FormatException('Aşama en az 2 dal içermelidir.');
+    }
+  }
+
+  factory ScenarioStage.fromJson(Map<String, dynamic> json) {
+    _onlyFields(json, const {'stageIndex', 'behaviorId', 'title', 'prompt', 'branches'}, 'Aşama');
+    final rawBranches = json['branches'];
+    if (rawBranches is! List) {
+      throw const FormatException('branches bir liste olmalıdır.');
+    }
+    return ScenarioStage(
+      stageIndex: json['stageIndex'] as int? ?? 1,
+      behaviorId: _readText(json, 'behaviorId'),
+      title: _readText(json, 'title'),
+      prompt: _readText(json, 'prompt'),
+      branches: [for (final b in rawBranches) ScenarioStageBranch.fromJson(_object(b, 'Aşama dalı'))],
+    );
+  }
+
+  final int stageIndex;
+  final String behaviorId;
+  final String title;
+  final String prompt;
+  final List<ScenarioStageBranch> branches;
+
+  Map<String, dynamic> toJson() => {
+    'stageIndex': stageIndex,
+    'behaviorId': behaviorId,
+    'title': title,
+    'prompt': prompt,
+    'branches': [for (final b in branches) b.toJson()],
+  };
+}
+
 class ScenarioNarrativeScene {
   ScenarioNarrativeScene({required this.title, required this.description, required List<String> behaviorIds})
       : behaviorIds = List.unmodifiable(behaviorIds) {
@@ -69,8 +150,10 @@ class ScenarioInput {
     required List<ScenarioInputAlternative> alternatives,
     List<ScenarioBehaviorRef>? behaviors, this.structure = 'branched', List<String>? commonBehaviorIds,
     List<ScenarioNarrativeScene> linearScenes = const [],
+    List<ScenarioStage>? stages,
   }) : alternatives = List.unmodifiable(alternatives), linearScenes = List.unmodifiable(linearScenes),
        commonBehaviorIds = commonBehaviorIds == null ? null : List.unmodifiable(commonBehaviorIds),
+       stages = stages == null ? null : List.unmodifiable(stages),
        behaviors = List.unmodifiable(behaviors ?? [ScenarioBehaviorRef(behaviorId: behaviorId, cardVersion: cardVersion)]) {
     _text(schemaVersion, 'schemaVersion');
     if (schemaVersion != ScenarioGraph.currentSchemaVersion && schemaVersion != '1.1' && schemaVersion != '1.2') {
@@ -141,6 +224,7 @@ class ScenarioInput {
       'commonStart',
       'alternatives',
       'behaviors', 'structure', 'commonBehaviorIds', 'linearScenes',
+      'stages',
     }, 'Senaryo girdisi');
     final age = json['ageMonths'];
     final ageGroup = schemaVersion == '1.2' ? ScenarioAgeGroup.fromJson(json['ageGroup']) : null;
@@ -175,6 +259,10 @@ class ScenarioInput {
         throw FormatException('alternatives[$i]: ${error.message}');
       }
     }
+    final rawStages = json['stages'];
+    final stages = rawStages is List
+        ? [for (final s in rawStages) ScenarioStage.fromJson(_object(s, 'Aşama'))]
+        : null;
     return ScenarioInput(
       schemaVersion: _readText(json, 'schemaVersion'),
       scenarioId: _readText(json, 'scenarioId'),
@@ -192,6 +280,7 @@ class ScenarioInput {
       commonBehaviorIds: readScenarioBehaviorIds(json['commonBehaviorIds'], optional: true),
       linearScenes: [for (final entry in json['linearScenes'] as List? ?? [])
         ScenarioNarrativeScene.fromJson(_object(entry, 'Anlatı sahnesi'))],
+      stages: stages,
     );
   }
 
@@ -220,6 +309,7 @@ class ScenarioInput {
   final String structure;
   final List<String>? commonBehaviorIds;
   final List<ScenarioNarrativeScene> linearScenes;
+  final List<ScenarioStage>? stages;
 }
 
 void _text(String value, String field) {

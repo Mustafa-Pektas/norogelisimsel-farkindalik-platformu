@@ -111,15 +111,43 @@ function narrativeSchemaFor(request) {
         title: { type: 'string' }, description: { type: 'string' }, behaviorIds: ids }, required: ['title','description','behaviorIds'] } } },
     required: ['commonStart','structure','alternatives','linearScenes'],
   };
+  const behaviors = requestBehaviors(request);
+  const multiBehavior = behaviors.length > 1;
+  const stageBranchSchema = {
+    type: 'object',
+    properties: {
+      branchType: { type: 'string', enum: ['typical', 'atypical'] },
+      title: { type: 'string' },
+      continuation: { type: 'string' },
+      ending: { type: 'string' },
+    },
+    required: ['branchType', 'title', 'continuation'],
+  };
+  const stageSchema = {
+    type: 'object',
+    properties: {
+      stageIndex: { type: 'integer' },
+      behaviorId: { type: 'string', enum: behaviors.map(ref => ref.behaviorId) },
+      title: { type: 'string' },
+      prompt: { type: 'string' },
+      branches: { type: 'array', items: stageBranchSchema },
+    },
+    required: ['stageIndex', 'behaviorId', 'title', 'prompt', 'branches'],
+  };
+
   return { ...narrativeSchema, properties: { ...narrativeSchema.properties,
     structure: { type: 'string', enum: ['branched'] }, commonBehaviorIds: ids,
+    ...(multiBehavior ? { stages: { type: 'array', items: stageSchema } } : {}),
     alternatives: { type: 'array', items: { type: 'object', properties: {
       ...narrativeSchema.properties.alternatives.items.properties, behaviorIds: ids },
       required: ['title','continuation','ending','behaviorIds'] } } },
-    required: ['commonStart','structure','commonBehaviorIds','alternatives'] };
+    required: multiBehavior
+      ? ['commonStart','structure','commonBehaviorIds','stages','alternatives']
+      : ['commonStart','structure','commonBehaviorIds','alternatives'] };
 }
 function buildNarrativePrompts(request, card, { sourceText } = {}) {
   const linear = request.production?.structure === 'linear26';
+  const behaviors = requestBehaviors(request);
   const sources = sourceText === undefined
     ? `GÜVENİLİR ORTAK KART KURALLARI:\n${card.commonRules}\nSEÇİLEN GÜNCEL KARTIN TAM METNİ:\n${card.section}`
     : sourceText;
@@ -160,7 +188,10 @@ ${d01}
 ${isCurrentRequest(request) ? `GÜNCEL ÜRETİM DÜZENİ (yukarıdaki varsayılan dallı biçimin yerine bu seçimi uygula):
 ${request.production?.structure === 'linear26' ?
   'structure=linear26; commonStart okunabilir genel anlatı/bağlam olsun. alternatives BOŞ liste olmalı. linearScenes tam 26 sıralı sahne içerir: title, description, behaviorIds. İlk 6 sahne başlangıç/hazırlık, sonraki 11 sahne kart işlem/gözlemleri, son 9 sahne doğal kapanış düzenidir; aynı çağrıyı tekrarlayan kapanış ekleme. Dal UYDURMA; görsel/ses promptları sonraki klip planındadır.' :
-  'structure=branched; commonStart için commonBehaviorIds; her alternatifin title/continuation/ending alanlarına ek olarak behaviorIds ver. Tek dallanma düzeyi; kimlikleri dönüştürücü üretir.'}
+  'structure=branched; commonStart için commonBehaviorIds; her alternatifin title/continuation/ending alanlarına ek olarak behaviorIds ver. ' +
+  (behaviors.length > 1
+    ? `ÇOKLU DAVRANIŞ SIRALI AŞAMA DÜZENİ: Seçilen davranışlar (${behaviors.map(b => b.behaviorId).join(', ')}) tek bir sahnede birleştirilmez. ${behaviors.length} sıralı klinik gözlem aşaması olarak kurgula (${behaviors.map((b, i) => 'Aşama ' + (i + 1) + ': ' + b.behaviorId).join(', ')}). Her aşama için prompt, typical (gözlendi) ve atypical (gözlenmedi) dallarını "stages" dizisinde ver. Ayrıca bu aşamaların ardışık kombinasyonlarından oluşan tam klinik yolları "alternatives" dizisinde ver.`
+    : 'Tek dallanma düzeyi; kimlikleri dönüştürücü üretir.')}
 Her sahne/alternatif behaviorIds ile seçilen kartlara bağlansın; tüm seçilen davranışlar en az bir sahnede kapsansın.
 Farklı kart görevlerini D01 gözlem penceresine eşzamanlı ek uyaran olarak sıkıştırma. Kurallar çelişirse uydurma çözüm/klinik sonuç üretme.
 Üretim hedefleri: ${JSON.stringify(request.production ?? null)}. Süre ve sayılar üretim HEDEFİDİR; gerçekleşmiş video ölçümü değildir.` : ''}
@@ -184,7 +215,9 @@ function validateNarrative(raw, request) {
   if (!object(value)) throw new InputError('Model cevabı nesne olmalıdır.', 502);
   if (isCurrentRequest(request)) {
     const linear = request.production?.structure === 'linear26';
-    const allowed = linear ? ['commonStart','structure','alternatives','linearScenes'] : ['commonStart','structure','commonBehaviorIds','alternatives'];
+    const behaviors = requestBehaviors(request);
+    const multiBehavior = !linear && behaviors.length > 1;
+    const allowed = linear ? ['commonStart','structure','alternatives','linearScenes'] : ['commonStart','structure','commonBehaviorIds','alternatives','stages'];
     const fail = () => { throw new InputError('Senaryo anlatı sözleşmesi/çoklu davranış ilişkileri geçersiz veya eksik.', 502); };
     if (Object.keys(value).some(key => !allowed.includes(key)) || !text(value.commonStart) ||
         value.structure !== (linear ? 'linear26' : 'branched') || !Array.isArray(value.alternatives)) fail();
@@ -208,6 +241,18 @@ function validateNarrative(raw, request) {
             !['title','continuation','ending'].every(key => text(a[key]))) fail();
         binding(a.behaviorIds);
       });
+      if (multiBehavior && value.stages != null) {
+        if (!Array.isArray(value.stages) || value.stages.length !== behaviors.length) fail('stages listesi eksik/geçersiz.');
+        value.stages.forEach(st => {
+          if (!object(st) || Object.keys(st).some(key => !['stageIndex','behaviorId','title','prompt','branches'].includes(key)) ||
+              !text(st.title) || !text(st.prompt) || !selected.has(st.behaviorId) ||
+              !Array.isArray(st.branches) || st.branches.length < 2) fail('stage alanları eksik veya geçersiz.');
+          st.branches.forEach(b => {
+            if (!object(b) || Object.keys(b).some(key => !['branchType','title','continuation','ending'].includes(key)) ||
+                !['typical','atypical'].includes(b.branchType) || !text(b.title) || !text(b.continuation)) fail('stage branch alanları geçersiz.');
+          });
+        });
+      }
     }
     if (covered.size !== selected.size) fail();
     return value;
