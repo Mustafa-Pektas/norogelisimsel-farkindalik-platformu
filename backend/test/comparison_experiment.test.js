@@ -91,6 +91,36 @@ test('24 unique trials cover three groups, four arms and two identical-input rep
   }
 });
 
+test('provider 429 wrapped in HTTP 502 halts after one call and persists quota failure without unknown tokens becoming zero', async t => {
+  const directory = fixture(t);
+  const preview = fakeTransport(async () => { throw Error('No provider call expected'); });
+  let calls = 0;
+  const options = { directory, gitRevision: 'controlled', dirty: 'controlled', transport: async body => {
+    if (body.action === 'preview') return preview(body);
+    calls++;
+    return { status: 502, body: { success: false, rawResponse: null,
+      providerError: { httpStatus: 429, code: 'QUOTA_EXCEEDED', category: 'quota_or_rate_limit' },
+      measurement: { outcome: 'provider_error', providerStarted: true, providerFinished: true, promptTokens: null, outputTokens: null } } };
+  } };
+  await assert.rejects(run(options), /quota rejected/);
+  assert.equal(calls, 1);
+  const record = records(directory)[0];
+  assert.equal(record.remoteOutcomeUncertain, false);
+  assert.equal(record.measurement.promptTokens, null);
+  assert.equal(record.rawResponse, null);
+  assert.equal(record.error.provider.httpStatus, 429);
+  const manifestPath = path.join(directory, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.equal(manifest.halted.reason, 'provider_quota_rejected');
+  await assert.rejects(run(options), /remains halted/);
+  assert.equal(calls, 1);
+  // An old runner may have written the same error without manifest.halted.
+  delete manifest.halted;
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  await assert.rejects(run(options), /quota rejected/);
+  assert.equal(calls, 1);
+});
+
 test('real comparison handler + fake provider: preserve all 24 records, sources, raw text and null usage; resume sends zero calls', async t => {
   const directory = fixture(t);
   let calls = 0;

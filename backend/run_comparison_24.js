@@ -26,7 +26,15 @@ function previewIdentity(preview) {
   return { protocolId: preview.protocolId, model: preview.model, settings: preview.settings,
     outputContract: preview.outputContract, experiment: preview.experiment };
 }
-async function run({ directory, transport, gitRevision, dirty, spec = defaultSpec, acknowledgeProviderStopped = false }) {
+function isProviderQuotaFailure(value) {
+  const provider = value.providerError ?? value.error?.provider;
+  const code = value.code ?? value.error?.code;
+  return provider?.httpStatus === 429 || provider?.category === 'quota_or_rate_limit' ||
+    ['QUOTA_EXCEEDED', 'RESOURCE_EXHAUSTED', 'RATE_LIMIT_EXCEEDED'].includes(provider?.code ?? code) ||
+    (value.httpStatus === 429 && code !== 'local_capacity_exceeded');
+}
+async function run({ directory, transport, gitRevision, dirty, spec = defaultSpec, acknowledgeProviderStopped = false,
+  trialPlan, validatePreview }) {
   fs.mkdirSync(directory, { recursive: true });
   // Exclusive ownership; a stale lock requires explicit human inspection/removal.
   const lock = path.join(directory, 'runner.lock');
@@ -42,18 +50,20 @@ async function run({ directory, transport, gitRevision, dirty, spec = defaultSpe
       if (fs.readdirSync(directory).some(name => name !== 'runner.lock')) throw Error('Use an empty experiment directory');
       manifest = { version: 'comparison-records-1', specHash: hash(spec), gitRevision, dirty,
         gitRevisionScope: 'local_runner', serverGitRevision: null,
-        createdAt: new Date().toISOString(), trials: plan(spec), frozen: {} };
+        createdAt: new Date().toISOString(), trials: trialPlan ?? plan(spec), frozen: {} };
       write(manifestFile, manifest);
     }
     if (manifest.halted) {
-      if (!acknowledgeProviderStopped) throw Error('Provider outcome uncertain; experiment remains halted');
+      if (!acknowledgeProviderStopped) throw Error(`Experiment remains halted: ${manifest.halted.reason}`);
       manifest.haltHistory = [...(manifest.haltHistory ?? []), { ...manifest.halted, acknowledgedAt: new Date().toISOString() }];
       manifest.halted = null;
       write(manifestFile, manifest);
     }
-    function halt(trialId) {
-      manifest.halted = { trialId, reason: 'provider_outcome_uncertain', at: new Date().toISOString() };
+    function halt(trialId, reason = 'provider_outcome_uncertain') {
+      manifest.halted = { trialId, reason, at: new Date().toISOString() };
       write(manifestFile, manifest);
+      if (reason === 'provider_quota_rejected') throw Error('Provider quota rejected; no further generation sent');
+      if (reason === 'original_conditions_mismatch') throw Error('Original conditions mismatch; no further generation sent');
       throw Error('Provider outcome uncertain; no further generation sent');
     }
     for (const trial of manifest.trials) {
@@ -67,6 +77,9 @@ async function run({ directory, transport, gitRevision, dirty, spec = defaultSpe
         }
         // Also recognize records written by the earlier runner, before halted existed.
         const acknowledged = manifest.haltHistory?.some(entry => entry.trialId === trial.trialId && entry.acknowledgedAt);
+        if (!acknowledgeProviderStopped && !acknowledged && isProviderQuotaFailure(prior)) {
+          halt(trial.trialId, 'provider_quota_rejected');
+        }
         if (!acknowledgeProviderStopped && !acknowledged && (prior.remoteOutcomeUncertain === true ||
             prior.error?.remoteOutcome === 'unknown' || prior.status === 'interrupted' ||
             prior.httpStatus === 504 || ['timeout', 'disconnected'].includes(prior.measurement?.outcome))) {
@@ -79,7 +92,7 @@ async function run({ directory, transport, gitRevision, dirty, spec = defaultSpe
         startedAt: new Date().toISOString(), status: 'running', preview: null,
         rawResponse: null, validation: null, measurement: null, clientDurationMs: null,
         cachedTokens: null, reasoningTokens: null, cost: null, error: null,
-        generationSent: false, remoteOutcomeUncertain: false };
+        generationSent: false, remoteOutcomeUncertain: false, haltReason: null };
       write(file, record);
       try {
         const inspected = await transport({ request: trial.request, arm: trial.arm, action: 'preview' });
@@ -90,6 +103,14 @@ async function run({ directory, transport, gitRevision, dirty, spec = defaultSpe
           throw Error('Preview failed');
         }
         record.preview = inspected.body.preview;
+        if (validatePreview) {
+          try { validatePreview(inspected.body, trial); }
+          catch (_) {
+            record.haltReason = 'original_conditions_mismatch';
+            record.error = { code: 'original_conditions_mismatch' };
+            throw Error('Original conditions mismatch');
+          }
+        }
         const identity = previewIdentity(record.preview);
         const frozen = manifest.frozen[trial.inputId];
         if (frozen && JSON.stringify(frozen.identity) !== JSON.stringify(identity)) throw Error('Model/settings/protocol/source changed; no generation sent');
@@ -116,6 +137,9 @@ async function run({ directory, transport, gitRevision, dirty, spec = defaultSpe
         record.status = response.status === 200 && response.body.success && record.scenarioInput && record.validation === 'structure_only' ? 'completed' : 'failed';
         record.error = record.status === 'failed' ? { code: response.body.code ?? null, message: response.body.error ?? null,
           outcome: record.measurement?.outcome ?? null, provider: response.body.providerError ?? null } : null;
+        if (record.status === 'failed' && isProviderQuotaFailure({ ...response.body, httpStatus: response.status })) {
+          record.haltReason = 'provider_quota_rejected';
+        }
         record.remoteOutcomeUncertain = response.status === 504 ||
           record.measurement?.outcome === 'timeout' || record.measurement?.outcome === 'disconnected' ||
           response.body.code === 'local_capacity_exceeded' ||
@@ -129,6 +153,7 @@ async function run({ directory, transport, gitRevision, dirty, spec = defaultSpe
       }
       record.endedAt = new Date().toISOString();
       write(file, record);
+      if (record.haltReason) halt(trial.trialId, record.haltReason);
       if (record.remoteOutcomeUncertain) halt(trial.trialId);
     }
     return manifest;
@@ -163,4 +188,4 @@ async function main() {
   console.log('Experiment finished. Inspect all 24 trial records, including failures.');
 }
 if (require.main === module) main().catch(() => { console.error('Experiment stopped; inspect preserved records. No automatic retry.'); process.exitCode = 1; });
-module.exports = { plan, run, httpTransport, previewIdentity };
+module.exports = { plan, run, httpTransport, previewIdentity, isProviderQuotaFailure };
