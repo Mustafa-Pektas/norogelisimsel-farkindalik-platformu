@@ -1,0 +1,10 @@
+{
+  "version": "comparison-24-v1",
+  "repeats": 2,
+  "arms": ["A", "B", "C", "D"],
+  "inputs": [
+    {"id":"name-young","request":{"requestVersion":"3.0","behaviors":[{"behaviorId":"D01","cardVersion":"0.2"}],"ageGroup":{"contractVersion":"1.0","id":"12_18"},"sceneContext":"Deniz evde yerde bloklarla oynar. Sağdaki yetişkin Deniz adını bir kez söyler; çocuk başlangıçta yetişkine dönük değildir.","additionalInstructions":"Sabit kamera. Yaşa uyarlama gereksinimlerini belirt; klinik sonuç veya yaşa dayalı başarı eşiği üretme."}},
+    {"id":"point-middle","request":{"requestVersion":"3.0","behaviors":[{"behaviorId":"D02","cardVersion":"0.2"}],"ageGroup":{"contractVersion":"1.0","id":"18_24"},"sceneContext":"Evde masanın solunda kırmızı araba, sağında mavi top durur. Yetişkin çocuk başka yere bakarken mavi topu işaret edip Bak der; hedefin adını söylemez.","additionalInstructions":"Sabit kamera; el, iki nesne ve çocuk başı görünür. Yaşa uyarlama gereksinimlerini belirt; klinik sonuç üretme."}},
+    {"id":"pretend-older","request":{"requestVersion":"3.0","behaviors":[{"behaviorId":"D04","cardVersion":"0.2"}],"ageGroup":{"contractVersion":"1.0","id":"24_36"},"sceneContext":"Evde çocuk oyuncak bebek ve boş oyuncak fincanla serbestçe oynar. Yetişkin aynı eylemi modellemez veya açık yönerge vermez.","additionalInstructions":"Sabit kamera; eller ve nesneler görünür. Basit hayali kullanım ile rastlantısal teması ayır; klinik sonuç üretme."}}
+  ]
+}

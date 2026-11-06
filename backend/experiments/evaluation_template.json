@@ -1,0 +1,15 @@
+{
+  "version": "human-narrative-review-1",
+  "trialId": null,
+  "reviewer": null,
+  "reviewedAt": null,
+  "structuralValidation": null,
+  "reviewStatus": "not_reviewed",
+  "responseConsistency": {"assessment": null, "evidence": null},
+  "ageAppropriateness": {"assessment": null, "adaptationNeeded": null, "evidence": null},
+  "cardProcedureAndObservation": {"assessment": null, "evidence": null},
+  "targetAndVoiceResponseSeparated": {"assessment": null, "evidence": null},
+  "unsupportedClinicalClaims": {"present": null, "evidence": null},
+  "visualAndTemporalConsistency": {"assessment": null, "evidence": null},
+  "limitations": "İnsan incelemesi; şema geçerliliği içerik doğruluğu veya klinik onay değildir. Yaş grubu desteği uzman tarafından doğrulanmış sayılmaz. Değerlendirme: uygun / sorunlu / belirsiz / uygulanamaz; örnek metinle gerekçe gerekir."
+}

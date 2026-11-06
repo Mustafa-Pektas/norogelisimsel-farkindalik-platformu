@@ -139,8 +139,9 @@ function narrativeSchemaFor(request) {
     structure: { type: 'string', enum: ['branched'] }, commonBehaviorIds: ids,
     ...(multiBehavior ? { stages: { type: 'array', items: stageSchema } } : {}),
     alternatives: { type: 'array', items: { type: 'object', properties: {
-      ...narrativeSchema.properties.alternatives.items.properties, behaviorIds: ids },
-      required: ['title','continuation','ending','behaviorIds'] } } },
+      ...narrativeSchema.properties.alternatives.items.properties, behaviorIds: ids,
+      ...(multiBehavior ? { outcomeKey: { type: 'string', description: 'Ordered path identity: +D01-D02; typical=+, atypical=-.' } } : {}) },
+      required: ['title','continuation','ending','behaviorIds', ...(multiBehavior ? ['outcomeKey'] : [])] } } },
     required: multiBehavior
       ? ['commonStart','structure','commonBehaviorIds','stages','alternatives']
       : ['commonStart','structure','commonBehaviorIds','alternatives'] };
@@ -193,6 +194,7 @@ ${request.production?.structure === 'linear26' ?
     ? `ÇOKLU DAVRANIŞ SIRALI AŞAMA DÜZENİ: Seçilen davranışlar (${behaviors.map(b => b.behaviorId).join(', ')}) tek bir sahnede birleştirilmez. ${behaviors.length} sıralı klinik gözlem aşaması olarak kurgula (${behaviors.map((b, i) => 'Aşama ' + (i + 1) + ': ' + b.behaviorId).join(', ')}). Her aşama için prompt, typical (gözlendi) ve atypical (gözlenmedi) dallarını "stages" dizisinde ver. Ayrıca bu aşamaların ardışık kombinasyonlarından oluşan tam klinik yolları "alternatives" dizisinde ver.`
     : 'Tek dallanma düzeyi; kimlikleri dönüştürücü üretir.')}
 Her sahne/alternatif behaviorIds ile seçilen kartlara bağlansın; tüm seçilen davranışlar en az bir sahnede kapsansın.
+Çoklu davranışlı branched düzende her aşama seçilen davranış sırasına göre stageIndex=1..N taşır ve tam bir typical, bir atypical dal içerir. Her alternatives kaydı outcomeKey taşır: aşama sırasıyla typical için +, atypical için - ve davranış kimliği birleştirilir (ör. +D01-D02). Her tam yol için tam bir alternatif üret; bu anahtar alternatives.ending metnini o tam yola bağlar, liste sırası anlam taşımaz. Dal içindeki isteğe bağlı ending yalnız o aşamanın kapanışıdır, tam yol bitişinin yerine geçmez.
 Farklı kart görevlerini D01 gözlem penceresine eşzamanlı ek uyaran olarak sıkıştırma. Kurallar çelişirse uydurma çözüm/klinik sonuç üretme.
 Üretim hedefleri: ${JSON.stringify(request.production ?? null)}. Süre ve sayılar üretim HEDEFİDİR; gerçekleşmiş video ölçümü değildir.` : ''}
 KAYNAK BAĞLAMI:\n${sources}`,
@@ -237,21 +239,33 @@ function validateNarrative(raw, request) {
       binding(value.commonBehaviorIds);
       if (!value.alternatives.length) fail();
       value.alternatives.forEach(a => {
-        if (!object(a) || Object.keys(a).some(key => !['title','continuation','ending','behaviorIds'].includes(key)) ||
+        if (!object(a) || Object.keys(a).some(key => !['title','continuation','ending','behaviorIds','outcomeKey'].includes(key)) ||
             !['title','continuation','ending'].every(key => text(a[key]))) fail();
         binding(a.behaviorIds);
       });
-      if (multiBehavior && value.stages != null) {
+      if (multiBehavior) {
         if (!Array.isArray(value.stages) || value.stages.length !== behaviors.length) fail('stages listesi eksik/geçersiz.');
-        value.stages.forEach(st => {
+        value.stages.forEach((st, index) => {
           if (!object(st) || Object.keys(st).some(key => !['stageIndex','behaviorId','title','prompt','branches'].includes(key)) ||
-              !text(st.title) || !text(st.prompt) || !selected.has(st.behaviorId) ||
-              !Array.isArray(st.branches) || st.branches.length < 2) fail('stage alanları eksik veya geçersiz.');
+              st.stageIndex !== index + 1 || st.behaviorId !== behaviors[index].behaviorId ||
+              !text(st.title) || !text(st.prompt) ||
+              !Array.isArray(st.branches) || st.branches.length !== 2 ||
+              new Set(st.branches.map(b => b?.branchType)).size !== 2) fail('stage alanları eksik veya geçersiz.');
           st.branches.forEach(b => {
             if (!object(b) || Object.keys(b).some(key => !['branchType','title','continuation','ending'].includes(key)) ||
-                !['typical','atypical'].includes(b.branchType) || !text(b.title) || !text(b.continuation)) fail('stage branch alanları geçersiz.');
+                !['typical','atypical'].includes(b.branchType) || !text(b.title) || !text(b.continuation) ||
+                (b.ending != null && !text(b.ending))) fail('stage branch alanları geçersiz.');
           });
         });
+        let paths = [''];
+        for (const ref of behaviors) paths = paths.flatMap(key => [`${key}+${ref.behaviorId}`, `${key}-${ref.behaviorId}`]);
+        const expected = new Set(paths);
+        if (value.alternatives.length !== expected.size) fail();
+        for (const alternative of value.alternatives) {
+          if (!expected.delete(alternative.outcomeKey) || alternative.behaviorIds.length !== behaviors.length) fail();
+        }
+      } else if (value.stages != null) {
+        fail();
       }
     }
     if (covered.size !== selected.size) fail();
@@ -355,13 +369,16 @@ function createScenarioInputHandler({ generate, modelName, cardsPath = defaultCa
         const trial = experiment ? experiment.validateComparisonRequest(req.body) : null;
         const input = planning ? planning.validatePlanRequest(req.body) : null;
         const request = validateRequest(trial ? trial.request : planning ? input.request : req.body);
-        let card;
+        let card, preview;
         measurement.startRetrieval();
-        try { card = await loadCard(request, cardsPath); }
-        finally { measurement.finishRetrieval(card); }
+        try {
+          card = await loadCard(request, cardsPath);
+          if (experiment) preview = experiment.prepareComparison(trial, card, modelName);
+        } finally {
+          measurement.finishRetrieval(preview ? { ...card, ...preview.source } : card);
+        }
         if (!modelName || (trial?.action !== 'preview' && typeof generate !== 'function')) throw new InputError('Sunucuda senaryo modeli/API erişimi yapılandırılmadı.', 503);
         if (disconnected || stopped) throw new InputError('Bekleme sonlandı.', 499);
-        const preview = experiment ? experiment.prepareComparison(trial, card, modelName) : null;
         if (trial?.action === 'preview') return { success: true, request, preview };
         const prompts = preview || (planning ? planning.buildPlanPrompts(input, card) : buildNarrativePrompts(request, card));
         const release = capacity?.tryAcquire();

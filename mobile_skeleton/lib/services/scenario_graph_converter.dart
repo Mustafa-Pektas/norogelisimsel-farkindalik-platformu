@@ -56,7 +56,7 @@ class ScenarioGraphConverter {
             scenes.add(ScenarioScene(
               id: nodeId,
               title: '${stage.title}: ${b.title}',
-              description: '$contextPrefix${stage.prompt}\n\n${b.continuation}',
+              description: '$contextPrefix${stage.prompt}\n\n${b.continuation}${b.ending == null ? '' : '\n${b.ending}'}',
               behaviorIds: [stage.behaviorId],
             ));
 
@@ -82,14 +82,11 @@ class ScenarioGraphConverter {
         final leaf = currentParents[i];
         final endingId = 'ending_${leaf.id}';
 
-        String endingDesc = '';
-        if (i < input.alternatives.length) {
-          endingDesc = input.alternatives[i].ending;
-        } else if (input.alternatives.isNotEmpty) {
-          endingDesc = input.alternatives.first.ending;
-        } else {
-          endingDesc = '${leaf.pathSummary.join(" -> ")} gelişimsel gözlem basamakları tamamlandı.';
+        final matches = input.alternatives.where((a) => a.outcomeKey == leaf.outcomeKey).toList();
+        if (matches.length != 1) {
+          throw FormatException('outcomeKey için tek bitiş bulunamadı: ${leaf.outcomeKey}.');
         }
+        final endingDesc = matches.single.ending;
 
         scenes.add(ScenarioScene(
           id: endingId,

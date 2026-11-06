@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { performance } = require('perf_hooks');
+const { createHash } = require('node:crypto');
 
 const kbPath = path.join(__dirname, 'clinical_knowledge_base.json');
 let knowledgeBase = null;
@@ -110,8 +111,15 @@ function loadKnowledgeBase() {
  * Yaş değerini doğrular ve geçerli yaş bandı anahtarına ('12-18', '18-24', '24-36') çevirir.
  * 12 altı veya 36 üstü yaş değerlerinde açıkça hata fırlatır.
  */
-function resolveAgeBandKey(ageMonths) {
-  const kb = loadKnowledgeBase();
+function readKnowledgeSnapshot() {
+  const bytes = fs.readFileSync(kbPath);
+  const kb = JSON.parse(bytes.toString('utf8'));
+  validateKnowledgeBase(kb);
+  return { knowledge: deepFreeze(kb), sourceId: 'rag/clinical_knowledge_base.json',
+    sha256: createHash('sha256').update(bytes).digest('hex') };
+}
+
+function resolveAgeBandKey(ageMonths, kb = loadKnowledgeBase()) {
 
   if (typeof ageMonths === 'string') {
     const clean = ageMonths.trim().replace('_', '-');
@@ -160,14 +168,13 @@ const ONT_MAP = Object.freeze({
   'ONT-13': 'D10', // Kalemle kendiliğinden karalama
 });
 
-function normalizeCode(rawCode) {
+function normalizeCode(rawCode, kb = loadKnowledgeBase()) {
   if (!rawCode || typeof rawCode !== 'string') {
     throw new Error('Geçersiz davranış kodu: Kod boş veya tanımsız olamaz.');
   }
   const c = rawCode.trim().toUpperCase();
   const mapped = ONT_MAP[c] || c;
 
-  const kb = loadKnowledgeBase();
   const exists = kb.cards.some((card) => card.id === mapped);
   if (!exists) {
     throw new Error(`Bilinmeyen davranış kodu: '${rawCode}'. İzin verilen kodlar: D01-D10 veya ONT-01-ONT-13.`);
@@ -209,10 +216,10 @@ function parseRiskProfile(rawProfile) {
  * Kol B (Selective Rule Injection): Yalnızca istenen vaka ve yaş bandına ait seçici kuralları çeker.
  * Bilgi sızıntısını önlemek için modele yalnızca hedeflenen aktif ölçüt ve geçersizlik şartları iletilir.
  */
-function getSelectiveRuleContext({ behaviorCode, ageMonths, riskProfile }) {
-  const kb = loadKnowledgeBase();
-  const code = normalizeCode(behaviorCode);
-  const bandKey = resolveAgeBandKey(ageMonths);
+function getSelectiveRuleContext({ behaviorCode, ageMonths, riskProfile, knowledge }) {
+  const kb = knowledge || loadKnowledgeBase();
+  const code = normalizeCode(behaviorCode, kb);
+  const bandKey = resolveAgeBandKey(ageMonths, kb);
   const risk = parseRiskProfile(riskProfile);
 
   const bandInfo = kb.ageBands[bandKey];
@@ -369,6 +376,7 @@ function timedRetrieval(params) {
 }
 
 module.exports = {
+  readKnowledgeSnapshot,
   loadKnowledgeBase,
   validateKnowledgeBase,
   resolveAgeBandKey,

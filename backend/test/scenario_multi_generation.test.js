@@ -14,6 +14,11 @@ const branched = { structure: 'branched', commonStart: '  Ortak başlangıç.  '
     { title: 'Birinci devam', continuation: '  Birinci devam metni.  ', ending: 'Birinci bitiş.', behaviorIds: ['D01'] },
     { title: 'İkinci devam', continuation: 'İkinci devam metni.', ending: 'İkinci bitiş.', behaviorIds: ['D02'] },
   ] };
+branched.stages = refs.map((ref, i) => ({stageIndex:i+1, behaviorId:ref.behaviorId,
+  title:`Stage ${i+1}`, prompt:`Prompt ${ref.behaviorId}`,
+  branches:['typical','atypical'].map(branchType => ({branchType,title:branchType,continuation:`Continue ${branchType}`}))}));
+branched.alternatives = ['+D01+D02','+D01-D02','-D01+D02','-D01-D02'].map(outcomeKey => ({
+  outcomeKey,title:outcomeKey,continuation:`Continue ${outcomeKey}`,ending:`End ${outcomeKey}`,behaviorIds:['D01','D02']}));
 const linearRequest = { ...request, production: { structure: 'linear26', targetSceneCount: 26,
   targetDurationS: 210, maxClipDurationS: 8 } };
 const linear = { structure: 'linear26', commonStart: '  Genel anlatı.  ', alternatives: [],
@@ -61,6 +66,26 @@ test('Tek kaynak tüm seçili kartları bir kez içerir; ilk kartla yetinmez ve 
 test('Dallı çıktı seçilen davranışları sahnelere bağlar; eksik ilişki veya kayıp kart reddedilir', () => {
   const raw = ' \n' + JSON.stringify(branched) + '\n ';
   assert.deepEqual(validateNarrative(raw, request), branched);
+  const reversed = structuredClone(branched);
+  reversed.alternatives.reverse();
+  assert.deepEqual(validateNarrative(JSON.stringify(reversed), request), reversed);
+  for (const mutate of [
+    v => { delete v.stages; },
+    v => { v.stages[1] = structuredClone(v.stages[0]); },
+    v => { v.stages.reverse(); },
+    v => { v.stages[0].stageIndex = 2; },
+    v => { delete v.stages[0].stageIndex; },
+    v => { v.stages[0].branches[1].branchType = 'typical'; },
+    v => { v.stages[0].branches.pop(); },
+    v => { v.stages[1].behaviorId = 'D10'; },
+    v => { v.alternatives.pop(); },
+    v => { v.alternatives[1].outcomeKey = v.alternatives[0].outcomeKey; },
+    v => { delete v.alternatives[0].outcomeKey; },
+    v => { v.alternatives[0].outcomeKey = '+D02+D01'; },
+  ]) {
+    const invalid = structuredClone(branched); mutate(invalid);
+    assert.throws(() => validateNarrative(JSON.stringify(invalid), request));
+  }
   for (const change of [value => { delete value.commonBehaviorIds; }, value => { value.alternatives[0].behaviorIds = ['D10']; },
     value => { value.commonBehaviorIds = ['D01']; value.alternatives[1].behaviorIds = ['D01']; }]) {
     const value = structuredClone(branched); change(value);
@@ -147,10 +172,10 @@ test('Çoklu davranış aşamalı çıktı (stages) başarıyla doğrulanır; ek
       },
     ],
     alternatives: [
-      { title: 'D01+ / D02+', continuation: 'İkisi de olumlu.', ending: 'Her iki davranış da gözlendi.', behaviorIds: ['D01', 'D02'] },
-      { title: 'D01+ / D02-', continuation: 'D01 olumlu, D02 olumsuz.', ending: 'İsme tepki var, işarete yönelme yok.', behaviorIds: ['D01', 'D02'] },
-      { title: 'D01- / D02+', continuation: 'D01 olumsuz, D02 olumlu.', ending: 'İsme tepki yok, işarete yönelme var.', behaviorIds: ['D01', 'D02'] },
-      { title: 'D01- / D02-', continuation: 'İkisi de olumsuz.', ending: 'Ne isme tepki ne de işarete yönelme gözlendi.', behaviorIds: ['D01', 'D02'] },
+      { outcomeKey: '+D01+D02', title: 'D01+ / D02+', continuation: 'İkisi de olumlu.', ending: 'Her iki davranış da gözlendi.', behaviorIds: ['D01', 'D02'] },
+      { outcomeKey: '+D01-D02', title: 'D01+ / D02-', continuation: 'D01 olumlu, D02 olumsuz.', ending: 'İsme tepki var, işarete yönelme yok.', behaviorIds: ['D01', 'D02'] },
+      { outcomeKey: '-D01+D02', title: 'D01- / D02+', continuation: 'D01 olumsuz, D02 olumlu.', ending: 'İsme tepki yok, işarete yönelme var.', behaviorIds: ['D01', 'D02'] },
+      { outcomeKey: '-D01-D02', title: 'D01- / D02-', continuation: 'İkisi de olumsuz.', ending: 'Ne isme tepki ne de işarete yönelme gözlendi.', behaviorIds: ['D01', 'D02'] },
     ],
   };
 

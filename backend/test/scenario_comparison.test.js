@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const retriever = require('../rag/retriever');
 const { EventEmitter } = require('node:events');
 const { createGenerationCapacity } = require('../generation_capacity');
 const { loadCard, createScenarioInputHandler } = require('../scenario_input_generation');
@@ -62,7 +64,10 @@ test('Üç yaş grubu normal ve A/B/C istemlerinde aynıdır; temsilî ay eklenm
       assert.ok(prompts.system.includes(`Seçilen yaş grubu: ${label}`));
       normalUser = prompts.user; normalBase = prompts.system.split('KAYNAK BAĞLAMI:')[0];
       return JSON.stringify({ commonStart: 'Ortak.', structure: 'branched', commonBehaviorIds: ['D01','D02'],
-        alternatives: [{ title: 'Devam', continuation: 'Devam.', ending: 'Bitiş.', behaviorIds: ['D01','D02'] }] });
+        stages: request.behaviors.map((ref,i)=>({stageIndex:i+1,behaviorId:ref.behaviorId,title:'Stage',prompt:'Prompt',
+          branches:['typical','atypical'].map(branchType=>({branchType,title:branchType,continuation:'Continue'}))})),
+        alternatives: ['+D01+D02','+D01-D02','-D01+D02','-D01-D02'].map(outcomeKey=>({outcomeKey,
+          title:'Path',continuation:'Continue',ending:outcomeKey,behaviorIds:['D01','D02']})) });
     } });
     const normal = await call(normalHandler, request);
     assert.equal(normal.statusCode, 200);
@@ -208,6 +213,76 @@ test('Karşılaştırma timeout geç cevabı uygulamaz; ortak slot sağlayıcı 
   finish(); await released;
   assert.equal(res.bodies.length, 1); assert.equal(records.length, 1);
   assert.equal((await call(handler, body)).statusCode, 200); assert.equal(calls, 2);
+});
+
+test('D resolves all three age groups without numeric month or profile fallback', async () => {
+  for (const id of ['12_18', '18_24', '24_36']) {
+    const r = validateComparisonRequest({ request: { requestVersion: '3.0',
+      behaviors: [{ behaviorId: 'D01', cardVersion: '0.2' }],
+      ageGroup: { contractVersion: '1.0', id }, sceneContext: request.sceneContext }, arm: 'D', action: 'preview' }).request;
+    const card = await loadCard(r);
+    const previews = ['A','B','C','D'].map(arm => prepareComparison({ request: r, arm, action: 'preview' }, card, 'controlled'));
+    const d = previews[3];
+    assert.ok(d.system.includes(`Hedef Yaş Bandı: ${id.replace('_','–')} Ay`));
+    assert.equal(new Set(previews.map(p => p.user)).size, 1);
+    assert.equal(new Set(previews.map(p => p.protocolId)).size, 1);
+    assert.equal(new Set(previews.map(p => p.system.split('KAYNAK BAĞLAMI:')[0])).size, 1);
+    for (const profile of ['TİPİK','ATİPİK','SINIRDA']) assert.ok(d.system.includes(`Hedef Davranış Çıktısı: ${profile}`));
+    assert.deepEqual(d.source.profiles, ['TIPIK','ATIPIK','SINIRDA']);
+    assert.equal(d.source.sourceId, 'rag/clinical_knowledge_base.json');
+    assert.equal(d.source.jsonVersion, null);
+  }
+  const card = await loadCard(request);
+  for (const ageGroup of [null, '12_18', {contractVersion:'1.0',id:'unknown'}]) {
+    assert.throws(() => prepareComparison({ request: {...request, requestVersion:'3.0',ageGroup}, arm:'D',action:'preview' }, card,'controlled'), /age group/);
+  }
+});
+
+test('JSON content snapshot changes D source and shared experiment identity; ABC source metadata stays Markdown', async t => {
+  const card = await loadCard(request);
+  const before = prepareComparison({request,arm:'D',action:'preview'},card,'controlled');
+  const read = fs.readFileSync;
+  t.mock.method(fs, 'readFileSync', function(file, ...args) {
+    if (String(file).endsWith('clinical_knowledge_base.json')) {
+      const kb = JSON.parse(read.call(fs, file, 'utf8'));
+      kb.cards[0].purpose += ' CONTROLLED_SOURCE_CHANGE';
+      return Buffer.from(JSON.stringify(kb));
+    }
+    return read.call(fs, file, ...args);
+  });
+  const after = prepareComparison({request,arm:'D',action:'preview'},card,'controlled');
+  assert.notEqual(after.source.sha256, before.source.sha256);
+  assert.notEqual(after.protocolId, before.protocolId);
+  assert.ok(after.system.includes('CONTROLLED_SOURCE_CHANGE'));
+  assert.throws(() => prepareComparison({request,arm:'D',action:'generate',protocolId:before.protocolId},card,'controlled'), /yenileyin/);
+  for (const arm of ['A','B','C']) {
+    const p = prepareComparison({request,arm,action:'preview'},card,'controlled');
+    assert.equal(p.source.sourceId,card.sourceId); assert.equal(p.source.sha256,card.sha256);
+    assert.equal(p.protocolId,after.protocolId);
+  }
+});
+
+test('D retrieval failure cannot call provider or return context-free success', async t => {
+  let calls=0;
+  t.mock.method(retriever,'readKnowledgeSnapshot',()=>{throw new Error('controlled unavailable');});
+  const handler=createScenarioInputHandler({comparison:true,modelName:'controlled',generate:async()=>{calls++;return raw;}});
+  const response=await call(handler,{request,arm:'D',action:'preview'});
+  assert.equal(response.statusCode,503);assert.equal(response.bodies[0].success,false);
+  assert.equal(response.bodies[0].measurement.promptTokens,null);
+  assert.equal(response.bodies[0].measurement.providerDurationMs,null);
+  assert.equal(calls,0);
+});
+
+test('D successful response keeps unknown usage null and records actual JSON retrieval source', async () => {
+  const card=await loadCard(request);
+  const preview=prepareComparison({request,arm:'D',action:'preview'},card,'controlled');
+  const handler=createScenarioInputHandler({comparison:true,modelName:'controlled',generate:async()=>raw});
+  const response=await call(handler,{request,arm:'D',action:'generate',protocolId:preview.protocolId});
+  assert.equal(response.statusCode,200);
+  const b=response.bodies[0];
+  assert.equal(b.measurement.promptTokens,null);assert.equal(b.measurement.outputTokens,null);
+  assert.equal(b.measurement.behaviorSource.sha256,preview.source.sha256);
+  assert.equal(b.measurement.behaviorSource.sourceId,preview.source.sourceId);
 });
 
 test('Arm D Karşılaştırma: Yeni Klinik JSON RAG seçici kural enjeksiyonu ve protokol doğrulaması', async () => {

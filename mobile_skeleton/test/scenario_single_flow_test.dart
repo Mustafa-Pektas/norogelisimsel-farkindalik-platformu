@@ -50,7 +50,8 @@ class _Server {
     'outputContract': ScenarioGenerationResult.contract,
     'settings': {'temperature': 0.2, 'topP': 0.95, 'maxOutputTokens': 16384},
     'sourceMode': 'Kaynak $arm',
-    'source': {'sourceId': 'Davranis_Kartlari_v02.md', 'cardVersion': '0.2', 'sha256': List.filled(64, 'b').join()},
+    'source': {'sourceId': arm == 'D' ? 'rag/clinical_knowledge_base.json' : 'Davranis_Kartlari_v02.md',
+      'cardVersion': '0.2', 'sha256': List.filled(64, arm == 'D' ? 'd' : 'b').join()},
     'system': 'Kontrollü sistem istemi $arm', 'user': jsonEncode(_request.toJson()),
   };
   HttpScenarioGenerationService service() => HttpScenarioGenerationService(
@@ -144,6 +145,26 @@ void main() {
     expect(restored.scenarioJson, 'düzenlenmiş'); expect(restored.generationRaw, _raw('A'));
     expect(restored.responseScenarioId, 'legacy-id'); expect(restored.responseResult, isNull);
   });
+  testWidgets('D selection does not relabel normal Markdown generation', (tester) async {
+    await _size(tester);
+    final server = _Server();
+    ServerApiService.selectedArm = 'D';
+    await tester.pumpWidget(MaterialApp(home: SyntheticVideoStudioScreen(
+      initialOntologyCode: 'D01', initialAgeMonths: 31,
+      comparisonService: server.service(), scenarioDraftStore: _Store())));
+    await tester.pumpAndSettle();
+    await _tap(tester, 'studio-engine-server');
+    await _field(tester, 'scenario-request-context', _request.sceneContext);
+    await _field(tester, 'scenario-request-instructions', _request.additionalInstructions!);
+    await _field(tester, 'studio-team-access-key', _Server.key);
+    await _tap(tester, 'studio-generate-scenario');
+    expect(server.paths, ['/api/generate-scenario-input']);
+    expect(server.bodies.single.containsKey('arm'), isFalse);
+    expect(find.textContaining('Normal üretim · seçili Markdown kartları'), findsOneWidget);
+    expect(find.textContaining('Deney Kolu: Kol D'), findsNothing);
+    await _close(tester);
+  });
+
   testWidgets('320px büyük yazı: motor, kol ve tek form eylemleri gizlenmeden erişilir', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -153,7 +174,7 @@ void main() {
       home: SyntheticVideoStudioScreen(initialOntologyCode: 'D01', initialAgeMonths: 31,
         comparisonService: server.service(), scenarioDraftStore: _Store())));
     await tester.pumpAndSettle(); await _tap(tester, 'studio-engine-server');
-    for (final key in ['studio-arm-A', 'studio-arm-B', 'studio-arm-C']) { await _tap(tester, key); }
+    for (final key in ['studio-arm-A', 'studio-arm-B', 'studio-arm-C', 'studio-arm-D']) { await _tap(tester, key); }
     for (final key in ['studio-open-comparison', 'scenario-request-age', 'scenario-request-context',
       'scenario-request-instructions', 'scenario-request-validate', 'studio-generate-scenario']) {
       final target = find.byKey(ValueKey(key)); await tester.ensureVisible(target);
@@ -188,7 +209,7 @@ void main() {
     await _tap(tester, 'scenario-import-validate'); expect(find.byKey(const ValueKey('scenario-import-summary')), findsOneWidget);
     expect(ScenarioInput.fromJsonString(_editor(tester)).source, ScenarioInputSource.editedModelOutput); await _close(tester);
   });
-  testWidgets('Tek form normal ve A/B/C için aynıdır; seçilen sonuç çağrısız editöre, aynı kimlikle plana gider', (tester) async {
+  testWidgets('Tek form normal ve A/B/C/D için aynıdır; seçilen sonuç çağrısız editöre, aynı kimlikle plana gider', (tester) async {
     await _size(tester); final server = _Server(), store = _Store();
     await tester.pumpWidget(MaterialApp(home: SyntheticVideoStudioScreen(initialOntologyCode: 'D01', initialAgeMonths: 31,
       comparisonService: server.service(), scenarioDraftStore: store)));
@@ -209,7 +230,7 @@ void main() {
     expect(server.bodies.skip(1).map((body) => body['request']), everyElement(_request.toJson()));
     expect(server.bodies.skip(1).map((body) => body['action']), everyElement('preview'));
     await _tap(tester, 'comparison-start');
-    expect(server.bodies.where((body) => body['action'] == 'generate').map((body) => body['arm']), ['A', 'B', 'C']);
+    expect(server.bodies.where((body) => body['action'] == 'generate').map((body) => body['arm']), ['A', 'B', 'C', 'D']);
     final calls = server.paths.length;
     String? copied;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
@@ -219,12 +240,14 @@ void main() {
     addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
     await _tap(tester, 'comparison-copy-all');
     final trials = (jsonDecode(copied!) as Map)['results'] as List;
-    expect(trials.map((trial) => trial['selectedResult']['scenarioId']).toSet(), hasLength(3));
+    expect(trials.map((trial) => trial['selectedResult']['scenarioId']).toSet(), hasLength(4));
     expect(trials.map((trial) => trial['selectedResult']['scenarioId']), isNot(contains(normalId)));
-    for (var i = 0; i < 3; i++) {
-      expect(trials[i]['selectedResult']['rawResponse'], _raw(['A', 'B', 'C'][i]));
+    for (var i = 0; i < 4; i++) {
+      expect(trials[i]['selectedResult']['rawResponse'], _raw(['A', 'B', 'C', 'D'][i]));
       expect(trials[i]['selectedResult']['request'], _request.toJson());
+      expect(trials[i]['selectedResult']['arm'], ['A', 'B', 'C', 'D'][i]);
     }
+    expect(trials[3]['selectedResult']['behaviorSource']['sourceId'], 'rag/clinical_knowledge_base.json');
     expect(copied, isNot(contains(_Server.key)));
     Future<void> openTrial(int index) async {
       final header = find.descendant(of: find.byKey(ValueKey('comparison-result-$index')), matching: find.byType(ListTile));

@@ -35,7 +35,8 @@ class _Server {
   Map<String, dynamic> preview(String arm) => {'arm': arm, 'protocolId': protocol, 'model': 'controlled-model',
     'outputContract': 'scenario-input-narrative-v4',
     'settings': {'temperature': 0.2, 'topP': 0.95, 'maxOutputTokens': 16384},
-    'sourceMode': 'Kaynak $arm', 'source': {'sourceId': 'Davranis_Kartlari_v02.md', 'cardVersion': '0.2', 'sha256': List.filled(64, 'b').join()},
+    'sourceMode': 'Kaynak $arm', 'source': {'sourceId': arm == 'D' ? 'rag/clinical_knowledge_base.json' : 'Davranis_Kartlari_v02.md',
+      'cardVersion': '0.2', 'sha256': List.filled(64, arm == 'D' ? 'd' : 'b').join()},
     'system': 'Tam sistem istemi $arm', 'user': jsonEncode(requestJson)};
   String raw(String arm) {
     final value = <String, dynamic>{'commonStart': '$arm: child plays; mother says the name once.',
@@ -107,7 +108,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     ServerApiService.selectedArm = 'B';
   });
-  for (final selection in ['A', 'B', 'C', 'ALL']) {
+  for (final selection in ['A', 'B', 'C', 'D', 'ALL']) {
     testWidgets('$selection başlangıç seçimi yalnız belirtilen kolları açık eylemle başlatır', (tester) async {
       final server = _Server();
       await _open(tester, server, initialSelection: selection);
@@ -115,7 +116,7 @@ void main() {
         .value, selection);
       expect(server.requests, isEmpty);
       await tap(tester, 'comparison-preview');
-      final expected = selection == 'ALL' ? ['A', 'B', 'C'] : [selection];
+      final expected = selection == 'ALL' ? ['A', 'B', 'C', 'D'] : [selection];
       expect(server.requests.map((request) => request['arm']), expected);
       expect(server.arms, isEmpty);
       await tap(tester, 'comparison-start');
@@ -123,24 +124,24 @@ void main() {
     });
   }
   for (final group in ScenarioAgeGroup.values) {
-    testWidgets('A/B/C aynı $group yaş grubu isteğini ve anlatı sözleşmesini kullanır', (tester) async {
+    testWidgets('A/B/C/D aynı $group yaş grubu isteğini ve anlatı sözleşmesini kullanır', (tester) async {
       final request = ScenarioGenerationRequest(behaviorId: 'D01', cardVersion: '0.2', ageGroup: group,
         sceneContext: 'Evde oyun.');
       final server = _Server(requestOverride: request);
       await _open(tester, server, request: request);
+      expect(server.requests, isEmpty);
       await tap(tester, 'comparison-preview');
-      expect(server.requests, hasLength(3));
+      expect(server.requests, hasLength(4));
       for (final body in server.requests) {
         final received = Map<String, dynamic>.from(body['request'] as Map);
         expect(received['ageGroup'], group.toJson());
         expect(received, isNot(contains('ageMonths')));
       }
       await tap(tester, 'comparison-start');
-      expect(server.arms, ['A', 'B', 'C']);
-      expect(server.requests.skip(3).every((body) =>
-        (body['request'] as Map)['ageGroup'] is Map && !(body['request'] as Map).containsKey('ageMonths')), isTrue);
-      for (var i = 0; i < 3; i++) {
-        final arm = ['A', 'B', 'C'][i];
+      expect(server.arms, ['A', 'B', 'C', 'D']);
+      expect(server.requests.skip(4).map((body) => body['request']), everyElement(request.toJson()));
+      for (var i = 0; i < 4; i++) {
+        final arm = ['A', 'B', 'C', 'D'][i];
         final result = find.byKey(ValueKey('comparison-result-$i'));
         final title = tester.widget<ExpansionTile>(result).title as Text;
         expect(title.data, contains('$arm — Yapısal olarak geçerli — içerik incelenmedi'));
@@ -152,7 +153,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
-  testWidgets('Sabit istek özeti tüm davranışları, yaşı ve doğrusal düzeni gösterir; A/B/C kaynak farkı açıktır', (tester) async {
+  testWidgets('Sabit istek özeti tüm davranışları, yaşı ve doğrusal düzeni gösterir; A/B/C/D kaynak farkı açıktır', (tester) async {
     final request = ScenarioGenerationRequest.fromJson({
       'requestVersion': '2.0',
       'behaviors': [
@@ -177,6 +178,8 @@ void main() {
     expect(find.text('A — Ek kart metni yok; ortak görev ve güvenlik talimatları ile seçili davranış adları korunur.'), findsOneWidget);
     expect(find.text('B — Seçilen bütün davranış kartlarının metni ve ortak kart kuralları eklenir.'), findsOneWidget);
     expect(find.text('C — Kanonik davranış kartı dosyasının tüm içeriği eklenir.'), findsOneWidget);
+    expect(find.textContaining('D — Seçilen davranış ve yaş grubunun JSON kuralları'), findsOneWidget);
+    expect(find.textContaining('İstekte profil seçimi yoktur'), findsOneWidget);
     expect(find.textContaining('aynı istek, görev, anlatı sözleşmesi, model ve ayarları'), findsOneWidget);
     expect(server.requests, isEmpty);
   });
@@ -197,17 +200,17 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getKeys().map(prefs.get).join(), isNot(contains(server.key)));
   });
-  testWidgets('Dialog açılması çağrı başlatmaz; önizleme 0 model, açık başlatma A/B/C ve hatayı korur', (tester) async {
+  testWidgets('Dialog açılması çağrı başlatmaz; önizleme 0 model, açık başlatma A/B/C/D ve hatayı korur', (tester) async {
     final server = _Server()..failB = true;
     await _open(tester, server);
     expect(server.requests, isEmpty);
-    expect(find.textContaining('en fazla 3 sağlayıcı çağrısı'), findsOneWidget);
+    expect(find.textContaining('en fazla 4 sağlayıcı çağrısı'), findsOneWidget);
     await tap(tester, 'comparison-preview');
-    expect(server.requests, hasLength(3)); expect(server.arms, isEmpty);
+    expect(server.requests, hasLength(4)); expect(server.arms, isEmpty);
     final title = find.text('A — Kaynak A'); await tester.ensureVisible(title); await tester.tap(title); await tester.pumpAndSettle();
     expect(tester.widget<SelectableText>(find.byKey(const ValueKey('comparison-system-A'))).data, 'Tam sistem istemi A');
     await tap(tester, 'comparison-start');
-    expect(server.arms, ['A', 'B', 'C']); expect(server.protocols.toSet(), {protocol});
+    expect(server.arms, ['A', 'B', 'C', 'D']); expect(server.protocols.toSet(), {protocol});
     final errorTitle = find.text('2. B — Hata'); await tester.ensureVisible(errorTitle); await tester.tap(errorTitle); await tester.pumpAndSettle();
     expect(tester.widget<SelectableText>(find.byKey(const ValueKey('comparison-raw-1'))).data, server.raw('B'));
     String? copied;
@@ -218,7 +221,7 @@ void main() {
     addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
     await tap(tester, 'comparison-copy-all');
     final data = jsonDecode(copied!) as Map;
-    expect((data['results'] as List).map((r) => r['arm']), ['A', 'B', 'C']);
+    expect((data['results'] as List).map((r) => r['arm']), ['A', 'B', 'C', 'D']);
     expect(data['results'][1]['error'], 'Kontrollü B doğrulama hatası');
     expect(data['results'][1]['rawResponse'], server.raw('B'));
     expect(copied, isNot(contains(server.key)));
@@ -236,9 +239,16 @@ void main() {
   });
   testWidgets('Tek kol seçimi ve 320 piksel/büyük yazıda ana eylemler erişilir', (tester) async {
     final server = _Server(); await _open(tester, server, narrow: true);
-    final dropdown = find.descendant(of: find.byKey(const ValueKey('comparison-arms')), matching: find.byType(DropdownButton<String>));
-    await tester.ensureVisible(dropdown); await tester.tap(dropdown); await tester.pumpAndSettle();
-    await tester.tap(find.text('B — Seçili kaynak').last); await tester.pumpAndSettle();
+    final dropdown = find.byKey(const ValueKey('comparison-arms'));
+    await tester.ensureVisible(dropdown); await tester.pumpAndSettle();
+    expect(dropdown.hitTestable(), findsOneWidget);
+    await tester.tap(dropdown); await tester.pumpAndSettle();
+    final option = find.byKey(const ValueKey('comparison-arm-option-B')).last;
+    await tester.ensureVisible(option); await tester.pumpAndSettle();
+    expect(option.hitTestable(), findsOneWidget);
+    await tester.tap(option); await tester.pumpAndSettle();
+    expect(tester.state<FormFieldState<String>>(dropdown).value, 'B');
+    expect(server.requests, isEmpty);
     expect(find.textContaining('en fazla 1 sağlayıcı çağrısı'), findsOneWidget);
     await tap(tester, 'comparison-preview'); await tap(tester, 'comparison-start');
     expect(server.arms, ['B']); expect(tester.takeException(), isNull);

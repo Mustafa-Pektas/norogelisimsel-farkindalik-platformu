@@ -24,15 +24,29 @@ final _refs = ['D01','D02','D03'].map((id) => ScenarioBehaviorRef(behaviorId: id
 ScenarioGenerationRequest _request({bool linear = false}) => ScenarioGenerationRequest(
   behaviorId: 'D01', cardVersion: '0.2', behaviors: _refs, ageGroup: ScenarioAgeGroup.months24To36, sceneContext: '  Evde oyun.  ',
   production: linear ? ScenarioProductionSettings(structure: 'linear26', targetDurationS: 210, maxClipDurationS: 8) : null);
+List<String> _paths(ScenarioGenerationRequest request) {
+  var paths = <String>[''];
+  for (final ref in request.behaviors) {
+    paths = [for (final path in paths) ...['$path+${ref.behaviorId}', '$path-${ref.behaviorId}']];
+  }
+  return paths;
+}
 String _raw(ScenarioGenerationRequest request) => ' \n${jsonEncode({
   'structure': request.linear ? 'linear26' : 'branched', 'commonStart': '  Ortak anlatı.  ',
   if (request.linear) 'linearScenes': [for (var i = 0; i < 26; i++) {
     'title': 'Sahne ${i + 1}', 'description': '  Sahne anlatısı ${i + 1}.  ',
     'behaviorIds': [request.behaviors[i % request.behaviors.length].behaviorId],
   }] else 'commonBehaviorIds': request.behaviors.map((ref) => ref.behaviorId).toList(),
-  'alternatives': request.linear ? [] : [for (final ref in request.behaviors) {
-    'title': '${ref.behaviorId} devamı', 'continuation': '  Devam ${ref.behaviorId}.  ',
-    'ending': 'Bitiş ${ref.behaviorId}.', 'behaviorIds': [ref.behaviorId],
+  if (!request.linear) 'stages': [for (var i = 0; i < request.behaviors.length; i++) {
+    'stageIndex': i + 1, 'behaviorId': request.behaviors[i].behaviorId,
+    'title': 'Stage ${i+1}', 'prompt': 'Prompt ${i+1}',
+    'branches': [for (final type in ['typical', 'atypical']) {
+      'branchType': type, 'title': type, 'continuation': 'Continue $type',
+    }],
+  }],
+  'alternatives': request.linear ? [] : [for (final path in _paths(request)) {
+    'outcomeKey': path, 'title': path, 'continuation': 'Continue $path',
+    'ending': 'End $path', 'behaviorIds': request.behaviors.map((ref) => ref.behaviorId).toList(),
   }],
 })}\n ';
 class _Store extends ScenarioDraftStore {
@@ -144,10 +158,11 @@ void main() {
   test('Eksik davranış ilişkisi ve üretim hedefi reddedilir; seçimi ilk karta düşürmez', () {
     final request = _request(), value = jsonDecode(_raw(_request())) as Map<String,dynamic>;
     value['commonBehaviorIds'] = ['D01']; value['alternatives'] = [(value['alternatives'] as List).first];
+    value['alternatives'][0]['behaviorIds'] = ['D01'];
     expect(() => request.prepareInput(jsonEncode(value), scenarioId: 'missing', edited: false), throwsFormatException);
     expect(() => ScenarioProductionSettings(structure: 'linear26', targetDurationS: 210, maxClipDurationS: 9), throwsFormatException);
   });
-  test('Normal ve A/B/C HTTP bütün seçimleri aynı değişmez istekten taşır; anahtar body/export içinde değildir', () async {
+  test('Normal ve A/B/C/D HTTP bütün seçimleri aynı değişmez istekten taşır; anahtar body/export içinde değildir', () async {
     final request = _request();
     final bodies = <Map<String,dynamic>>[];
     final protocol = List.filled(64,'a').join();
@@ -167,12 +182,12 @@ void main() {
           }})), 200, headers: {'content-type':'application/json; charset=utf-8'});
       }));
     final normal = service.start(request); expect(await normal.response, _raw(request)); await normal.dispose();
-    for (final arm in ['A','B','C']) {
+    for (final arm in ['A','B','C','D']) {
       final preview = service.startComparison(request, arm: arm, preview: true); await preview.result; await preview.dispose();
       final job = service.startComparison(request, arm: arm, preview: false, protocolId: protocol);
       expect((await job.result)['rawResponse'], _raw(request)); await job.dispose();
     }
-    expect(bodies, hasLength(7)); expect(request.behaviors, hasLength(3));
+    expect(bodies, hasLength(9)); expect(request.behaviors, hasLength(3));
   });
   for (final linear in [false,true]) {
     testWidgets('Tek form çoklu seçim ve $linear düzenini aktif sahne/prompt planına taşır', (tester) async {
@@ -213,7 +228,38 @@ void main() {
         expect(service.requests.single.production!.targetDurationS, 210);
         expect(service.requests.single.production!.maxClipDurationS, 8);
       }
-      expect(find.byKey(ValueKey('narrative-scene:${linear ? 'scene_26' : 'alternative_3'}')),findsOneWidget);
+      final producedRequest = service.requests.single;
+      final narrative = ScenarioInput.fromJsonString(producedRequest.prepareInput(_raw(producedRequest),
+        scenarioId: 'controlled-path-review', edited: false).json);
+      final producedGraph = const ScenarioGraphConverter().convert(narrative);
+      if (linear) {
+        expect(find.byKey(const ValueKey('narrative-scene:scene_26')), findsOneWidget);
+      } else {
+        var current = producedGraph.startSceneId;
+        const choices = ['atypical', 'typical', 'atypical'];
+        for (var i = 0; i < choices.length; i++) {
+          current = producedGraph.transitions.singleWhere((edge) => edge.fromSceneId == current && edge.label == choices[i]).toSceneId;
+          expect(producedGraph.scenes.singleWhere((scene) => scene.id == current).behaviorIds,
+            [producedRequest.behaviors[i].behaviorId]);
+        }
+        final leafCard = find.byKey(ValueKey('narrative-scene:$current'));
+        final tile = find.descendant(of: leafCard, matching: find.byType(ExpansionTile));
+        final header = find.descendant(of: tile, matching: find.byType(ListTile)).first;
+        await tester.ensureVisible(header); await tester.pumpAndSettle();
+        expect(header.hitTestable(), findsOneWidget);
+        await tester.tap(header); await tester.pumpAndSettle();
+        expect(find.descendant(of: leafCard, matching: find.text(producedGraph.scenes.singleWhere((scene) => scene.id == current).description)), findsOneWidget);
+        final endId = producedGraph.transitions.singleWhere((edge) => edge.fromSceneId == current).toSceneId;
+        expect(producedGraph.endSceneIds, contains(endId));
+        final ending = narrative.alternatives.singleWhere((alternative) => alternative.outcomeKey == '-D01+D02-D03').ending;
+        expect(producedGraph.scenes.singleWhere((scene) => scene.id == endId).description, ending);
+        final endCard = find.byKey(ValueKey('narrative-scene:$endId'));
+        final endHeader = find.descendant(of: endCard, matching: find.byType(ListTile)).first;
+        await tester.ensureVisible(endHeader); await tester.pumpAndSettle();
+        expect(endHeader.hitTestable(), findsOneWidget);
+        await tester.tap(endHeader); await tester.pumpAndSettle();
+        expect(find.descendant(of: endCard, matching: find.text(ending)), findsOneWidget);
+      }
       await _tap(tester,'studio-continue-result'); await _tap(tester,'scenario-accept-result');
       await _tap(tester,'scenario-import-validate');
       expect(find.text('Davranışlar: D01 (0.2), D02 (0.2), D03 (0.2)'), findsOneWidget);
@@ -227,7 +273,8 @@ void main() {
       final editor = tester.widget<TextField>(find.byKey(const ValueKey('scenario-import-json'))).controller!.text;
       expect(ScenarioInput.fromJsonString(editor).behaviors,hasLength(3));
       await _tap(tester,'scenario-request-clip-plan'); expect(plans.requests,hasLength(1));
-      expect(plans.requests.single.graph.scenes.length,linear ? 26 : 7);
+      expect(plans.requests.single.graph.scenes.length,linear ? 26 : 23);
+      expect(plans.requests.single.graph.endSceneIds, hasLength(linear ? 1 : 8));
       await _tap(tester,'scenario-view-clip-plan');
       final screen = tester.widget<ClipProductionPlanScreen>(find.byType(ClipProductionPlanScreen));
       expect(screen.providedPlan!.graph.scenarioId,store.value!.editorScenarioId);

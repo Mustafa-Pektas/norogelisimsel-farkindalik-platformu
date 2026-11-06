@@ -7,12 +7,13 @@ import 'scenario_age_group.dart';
 /// Kaynak beyanıdır; modelin çalıştığını veya olayın gözlendiğini doğrulamaz.
 enum ScenarioInputSource { manualExample, modelOutput, editedModelOutput }
 
-/// Tek bir alternatifin içeriği. Sahne kimliği veya bağlantı içermez.
+/// Alternatif anlatısı; çoklu aşamada outcomeKey tam yolun bitiş ilişkisini taşır.
 class ScenarioInputAlternative {
   ScenarioInputAlternative({
     required this.title,
     required this.continuation,
     required this.ending,
+    this.outcomeKey,
     List<String>? behaviorIds,
   }) : behaviorIds = behaviorIds == null ? null : List.unmodifiable(behaviorIds) {
     _text(title, 'Alternatif başlığı');
@@ -21,11 +22,12 @@ class ScenarioInputAlternative {
   }
 
   factory ScenarioInputAlternative.fromJson(Map<String, dynamic> json) {
-    _onlyFields(json, const {'title', 'continuation', 'ending', 'behaviorIds'}, 'Alternatif');
+    _onlyFields(json, const {'title', 'continuation', 'ending', 'behaviorIds', 'outcomeKey'}, 'Alternatif');
     return ScenarioInputAlternative(
       title: _readText(json, 'title'),
       continuation: _readText(json, 'continuation'),
       ending: _readText(json, 'ending'),
+      outcomeKey: json['outcomeKey'] == null ? null : _readText(json, 'outcomeKey'),
       behaviorIds: readScenarioBehaviorIds(json['behaviorIds'], optional: true),
     );
   }
@@ -33,6 +35,7 @@ class ScenarioInputAlternative {
   final String title;
   final String continuation;
   final String ending;
+  final String? outcomeKey;
   final List<String>? behaviorIds;
 }
 
@@ -44,8 +47,12 @@ class ScenarioStageBranch {
     this.ending,
   }) {
     _text(branchType, 'branchType');
+    if (!['typical', 'atypical'].contains(branchType)) {
+      throw const FormatException('branchType typical veya atypical olmalıdır.');
+    }
     _text(title, 'title');
     _text(continuation, 'continuation');
+    if (ending != null) _text(ending!, 'Aşama bitişi');
   }
 
   factory ScenarioStageBranch.fromJson(Map<String, dynamic> json) {
@@ -54,7 +61,7 @@ class ScenarioStageBranch {
       branchType: _readText(json, 'branchType'),
       title: _readText(json, 'title'),
       continuation: _readText(json, 'continuation'),
-      ending: json['ending'] as String?,
+      ending: json['ending'] == null ? null : _readText(json, 'ending'),
     );
   }
 
@@ -82,8 +89,8 @@ class ScenarioStage {
     _text(behaviorId, 'behaviorId');
     _text(title, 'title');
     _text(prompt, 'prompt');
-    if (branches.length < 2) {
-      throw const FormatException('Aşama en az 2 dal içermelidir.');
+    if (stageIndex < 1 || branches.length != 2 || branches.map((b) => b.branchType).toSet().length != 2) {
+      throw const FormatException('Aşama pozitif stageIndex ve iki farklı dal içermelidir.');
     }
   }
 
@@ -94,7 +101,7 @@ class ScenarioStage {
       throw const FormatException('branches bir liste olmalıdır.');
     }
     return ScenarioStage(
-      stageIndex: json['stageIndex'] as int? ?? 1,
+      stageIndex: _stageIndex(json['stageIndex']),
       behaviorId: _readText(json, 'behaviorId'),
       title: _readText(json, 'title'),
       prompt: _readText(json, 'prompt'),
@@ -107,6 +114,11 @@ class ScenarioStage {
   final String title;
   final String prompt;
   final List<ScenarioStageBranch> branches;
+
+  static int _stageIndex(Object? value) {
+    if (value is! int) throw const FormatException('stageIndex tam sayı olmalıdır.');
+    return value;
+  }
 
   Map<String, dynamic> toJson() => {
     'stageIndex': stageIndex,
@@ -204,6 +216,31 @@ class ScenarioInput {
     } else if (this.behaviors.length != 1 || structure != 'branched') {
       throw const FormatException('Çoklu/doğrusal içerik 1.1 şeması gerektirir.');
     }
+    if (structure == 'branched' && this.behaviors.length > 1) {
+      if (this.stages == null || this.stages!.length != this.behaviors.length) {
+        throw const FormatException('Çoklu davranış için stages zorunlu ve eksiksiz olmalıdır.');
+      }
+      for (var i = 0; i < this.stages!.length; i++) {
+        if (this.stages![i].stageIndex != i + 1 || this.stages![i].behaviorId != this.behaviors[i].behaviorId) {
+          throw const FormatException('stages davranış sırası veya stageIndex uyuşmuyor.');
+        }
+      }
+      var paths = <String>[''];
+      for (final ref in this.behaviors) {
+        paths = [for (final key in paths) ...['$key+${ref.behaviorId}', '$key-${ref.behaviorId}']];
+      }
+      final expected = paths.toSet();
+      if (this.alternatives.length != expected.length) {
+        throw const FormatException('outcomeKey: her tam yol için bir bitiş gerekir.');
+      }
+      for (final alternative in this.alternatives) {
+        if (!expected.remove(alternative.outcomeKey) || alternative.behaviorIds?.length != this.behaviors.length) {
+          throw const FormatException('outcomeKey eksik, yinelenmiş veya geçersiz.');
+        }
+      }
+    } else if (this.stages != null) {
+      throw const FormatException('stages yalnız çoklu dallı anlatıda kullanılabilir.');
+    }
   }
 
   factory ScenarioInput.fromJson(Map<String, dynamic> json) {
@@ -260,6 +297,9 @@ class ScenarioInput {
       }
     }
     final rawStages = json['stages'];
+    if (rawStages != null && rawStages is! List) {
+      throw const FormatException('stages liste olmalıdır.');
+    }
     final stages = rawStages is List
         ? [for (final s in rawStages) ScenarioStage.fromJson(_object(s, 'Aşama'))]
         : null;

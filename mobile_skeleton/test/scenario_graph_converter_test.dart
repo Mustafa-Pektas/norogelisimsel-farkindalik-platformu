@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:neuro_awareness_app/models/scenario_graph.dart';
 import 'package:neuro_awareness_app/models/scenario_input.dart';
 import 'package:neuro_awareness_app/services/scenario_graph_converter.dart';
+import 'package:neuro_awareness_app/models/scenario_generation_request.dart';
+import 'package:neuro_awareness_app/services/clip_plan_generation_service.dart';
 
 void main() {
   // Gerçek dosya okuması testin sanal zaman/bekleme döngüsüne bırakılmaz.
@@ -296,6 +298,11 @@ void main() {
       ],
     };
 
+    const keys = ['+D01+D02', '+D01-D02', '-D01+D02', '-D01-D02'];
+    final alternatives = multiJson['alternatives'] as List;
+    for (var i = 0; i < keys.length; i++) {
+      (alternatives[i] as Map)['outcomeKey'] = keys[i];
+    }
     final input = ScenarioInput.fromJson(multiJson);
     expect(input.stages, isNotNull);
     expect(input.stages!.length, 2);
@@ -308,12 +315,61 @@ void main() {
     expect(graph.transitions.length, 10);
     // 4 distinct ending paths
     expect(graph.endSceneIds.length, 4);
-    expect(graph.endSceneIds, [
-      'ending_typical_typical',
-      'ending_typical_atypical',
-      'ending_atypical_typical',
-      'ending_atypical_atypical',
-    ]);
+    void verifyEveryPath(Map<String, dynamic> value) {
+      final parsed = ScenarioInput.fromJson(value);
+      final converted = converter.convert(parsed);
+      for (final key in keys) {
+        var current = converted.startSceneId;
+        for (var i = 0; i < parsed.stages!.length; i++) {
+          final branchType = key[i * 4] == '+' ? 'typical' : 'atypical';
+          final branch = parsed.stages![i].branches.singleWhere((b) => b.branchType == branchType);
+          current = converted.transitions.singleWhere((t) => t.fromSceneId == current && t.label == branch.title).toSceneId;
+        }
+        final end = converted.transitions.singleWhere((t) => t.fromSceneId == current).toSceneId;
+        expect(converted.endSceneIds, contains(end));
+        expect(converted.scenes.singleWhere((s) => s.id == end).description,
+          parsed.alternatives.singleWhere((a) => a.outcomeKey == key).ending);
+      }
+    }
+    Map<String, dynamic> copy() => jsonDecode(jsonEncode(multiJson)) as Map<String, dynamic>;
+    verifyEveryPath(multiJson);
+    final request = ScenarioGenerationRequest.fromJson({
+      'requestVersion': '2.0', 'behaviors': multiJson['behaviors'],
+      'ageMonths': 24, 'sceneContext': 'Controlled context',
+    });
+    final prepared = request.prepareInput(jsonEncode({
+      for (final key in ['commonStart', 'commonBehaviorIds', 'stages', 'alternatives']) key: multiJson[key],
+      'structure': 'branched',
+    }), scenarioId: 'generated-path-test', edited: true);
+    final editorJson = jsonDecode(prepared.json) as Map<String, dynamic>;
+    verifyEveryPath(editorJson);
+    final planRequest = ClipPlanGenerationRequest(request: request,
+      graph: converter.convert(ScenarioInput.fromJson(editorJson)), planId: 'generated-path-plan');
+    expect(planRequest.graph.scenarioId, 'generated-path-test');
+    expect(planRequest.graph.endSceneIds, hasLength(4));
+    expect((planRequest.toJson()['graph'] as Map)['endSceneIds'], planRequest.graph.endSceneIds);
+    final reordered = copy();
+    reordered['alternatives'] = (reordered['alternatives'] as List).reversed.toList();
+    for (final stage in reordered['stages'] as List) {
+      stage['branches'] = (stage['branches'] as List).reversed.toList();
+    }
+    verifyEveryPath(reordered);
+    void rejects(void Function(Map<String, dynamic>) mutate) {
+      final invalid = copy(); mutate(invalid);
+      expect(() => converter.convert(ScenarioInput.fromJson(invalid)), throwsFormatException);
+    }
+    rejects((v) => v.remove('stages'));
+    rejects((v) => v['stages'][1] = v['stages'][0]);
+    rejects((v) => v['stages'] = (v['stages'] as List).reversed.toList());
+    rejects((v) => v['stages'][0]['stageIndex'] = 2);
+    rejects((v) => (v['stages'][0] as Map).remove('stageIndex'));
+    rejects((v) => v['stages'][0]['branches'][1]['branchType'] = 'typical');
+    rejects((v) => (v['stages'][0]['branches'] as List).removeLast());
+    rejects((v) => v['stages'][1]['behaviorId'] = 'D10');
+    rejects((v) => (v['alternatives'] as List).removeLast());
+    rejects((v) => v['alternatives'][1]['outcomeKey'] = v['alternatives'][0]['outcomeKey']);
+    rejects((v) => (v['alternatives'][0] as Map).remove('outcomeKey'));
+    rejects((v) => v['alternatives'][0]['outcomeKey'] = '+D02+D01');
 
     // Validation passes completely (reachability, DAG structure, behavior coverage)
     expect(graph.validate, returnsNormally);

@@ -14,7 +14,8 @@ import 'server_api_service.dart';
 /// Adres yalnız hedefi belirler; kullanılabilir model veya başarılı erişim kanıtı değildir.
 class HttpScenarioGenerationService implements ScenarioGenerationService, ClipPlanGenerationService {
   const HttpScenarioGenerationService({this.clientFactory, this.resolveServerUrl, this.resolveAccessKey,
-    this.timeout = const Duration(seconds: 100)});
+    // Backend karşılaştırması 120 sn; terminal yanıt için 30 sn taşıma payı.
+    this.timeout = const Duration(seconds: 150)});
 
   final http.Client Function()? clientFactory;
   final Future<String> Function()? resolveServerUrl;

@@ -3,6 +3,7 @@ const { createHash } = require('node:crypto');
 const { InputError, validateRequest, narrativeSchema, narrativeSchemaFor, narrativeSettings, narrativeContract, buildNarrativePrompts, validateNarrative } = require('./scenario_input_generation');
 const { validateFSMContinuity } = require('./validators/fsm_validator');
 const retriever = require('./rag/retriever');
+const { validateAgeGroup, fromLegacyMonths } = require('./scenario_age_group');
 const settings = narrativeSettings;
 const string = { type: 'string' };
 const legacySchema = { type: 'object', properties: { title: string, summary: string,
@@ -32,6 +33,11 @@ function prepareComparison(trial, card, modelName) {
     C: 'Kanonik Markdown dosyasının tüm kartları ve ortak kuralları (Full-Text).',
     D: 'Yeni Klinik JSON RAG: Ontoloji ve yaş grubuna göre seçici kural enjeksiyonu.',
   }[trial.arm];
+  const profiles = ['TIPIK', 'ATIPIK', 'SINIRDA'];
+  const experiment = { revision: 'abcd-json-source-1', profilePolicy: 'all_outcomes_no_request_profile', profiles };
+  let snapshot = null;
+  try { snapshot = retriever.readKnowledgeSnapshot(); }
+  catch (_) { if (trial.arm === 'D') throw new InputError('JSON retrieval source unavailable', 503); }
   let sourceText;
   if (trial.arm === 'A') {
     sourceText = '';
@@ -40,39 +46,35 @@ function prepareComparison(trial, card, modelName) {
   } else if (trial.arm === 'C') {
     sourceText = card.fullText;
   } else if (trial.arm === 'D') {
-    const codes = trial.request.behaviors && trial.request.behaviors.length
-      ? trial.request.behaviors.map(b => b.behaviorId)
-      : [trial.request.behaviorId || 'D01'];
-    let ageMonths = 24;
-    if (trial.request.ageMonths) {
-      ageMonths = trial.request.ageMonths;
-    } else if (trial.request.ageGroup === '12_18') {
-      ageMonths = 15;
-    } else if (trial.request.ageGroup === '18_24') {
-      ageMonths = 21;
-    } else if (trial.request.ageGroup === '24_36') {
-      ageMonths = 30;
-    }
-    const activeRules = codes.map(c => {
-      const sel = retriever.getSelectiveRuleContext({
-        behaviorCode: c,
-        ageMonths,
-        riskProfile: 'ATIPIK',
-      });
-      return sel.ruleText;
-    });
-    sourceText = activeRules.join('\n\n');
+    check(snapshot !== null, 'JSON retrieval source unavailable');
+    const codes = trial.request.behaviors?.map(b => b.behaviorId) ?? [trial.request.behaviorId];
+    const group = trial.request.requestVersion === '3.0'
+      ? validateAgeGroup(trial.request.ageGroup) : fromLegacyMonths(trial.request.ageMonths);
+    check(group !== null, 'Valid age group is required for JSON retrieval');
+    const bandKey = group.id.replace('_', '-');
+    try {
+      const activeRules = codes.flatMap(behaviorCode => profiles.map(riskProfile =>
+        retriever.getSelectiveRuleContext({ behaviorCode, ageMonths: bandKey, riskProfile,
+          knowledge: snapshot.knowledge }).ruleText));
+      sourceText = activeRules.join('\n\n');
+    } catch (_) { throw new InputError('JSON retrieval rules unavailable', 503); }
   }
   const base = buildNarrativePrompts(trial.request, card, { sourceText: '' }).system;
   const protocolId = createHash('sha256').update(JSON.stringify({ revision: narrativeContract,
-    request: trial.request, cardHash: card.sha256, modelName, settings, base, schema: narrativeSchemaFor(trial.request),
+    experiment, jsonSourceHash: snapshot?.sha256 ?? null, request: trial.request, cardHash: card.sha256, modelName, settings, base, schema: narrativeSchemaFor(trial.request),
   })).digest('hex');
   if (trial.action === 'generate' && trial.protocolId !== protocolId) {
     throw new InputError('Girdi, kaynak veya model ayarları değişti; istem önizlemesini yenileyin.', 409);
   }
   const system = buildNarrativePrompts(trial.request, card, { sourceText }).system;
-  return { arm: trial.arm, protocolId, outputContract: narrativeContract, model: modelName, settings, sourceMode,
-    source: { sourceId: card.sourceId, cardVersion: card.version, sha256: card.sha256,
+  return { arm: trial.arm, protocolId, experiment, outputContract: narrativeContract, model: modelName, settings, sourceMode,
+    source: { sourceId: trial.arm === 'D' ? snapshot.sourceId : card.sourceId,
+      cardVersion: card.version, sha256: trial.arm === 'D' ? snapshot.sha256 : card.sha256,
+      ...(trial.arm === 'D' ? { jsonVersion: snapshot.knowledge.version ?? null,
+        profilePolicy: experiment.profilePolicy, profiles,
+        referenceIds: [...new Set(snapshot.knowledge.cards
+          .filter(ref => card.selectedCards.some(selected => selected.behaviorId === ref.id))
+          .flatMap(ref => (ref.clinicalSources || []).flatMap(text => text.match(/REF-\d+/g) || [])))] } : {}),
       behaviors: card.selectedCards.map(ref => ({ behaviorId: ref.behaviorId, cardVersion: ref.cardVersion })) },
     system, user: JSON.stringify(trial.request) };
 }

@@ -503,7 +503,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Deney Kolu: Kol ${_normalResult!.arm ?? ServerApiService.selectedArm}  ·  '
+                  '${_normalResult!.arm == null ? 'Normal üretim · seçili Markdown kartları' : 'Deney Kolu: Kol ${_normalResult!.arm}'}  ·  '
                   'Token: Girdi ${_normalResult!.measurement!['promptTokens'] ?? '—'} / Çıktı ${_normalResult!.measurement!['outputTokens'] ?? '—'}  ·  '
                   'Süre: ${_normalResult!.measurement!['providerDurationMs'] ?? '—'} ms',
                   style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF166534)),
@@ -1423,6 +1423,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
                       _buildArmChip('D', 'Kol D (JSON RAG)', 'Seçici Kural', const Color(0xFF059669)),
                     ],
                   ),
+                  const Text('Kol seçimi karşılaştırma içindir. Normal üretim seçili Markdown kartlarını kullanır.'),
                   if (_lastBenchmark != null) ...[
                     const SizedBox(height: 8),
                     Container(
