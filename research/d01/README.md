@@ -1,5 +1,129 @@
 # D01 manuel etiketleme ve baş pozu deney kodları
 
+## Gerçek tamponlu hibrit çalıştırıcı — 7 Kasım 2026
+
+`real_hybrid_benchmark.py --config EXPERIMENT.json --output YENI_KLASOR --mode smoke|full|hybrid`.
+Örnek ayarlar: `C:\Projeler\Norogelisim\outputs\d01_headpose_method_compare\real_hybrid_20261107T111928Z\experiment.json`.
+Aynı resmî runtime, hash denetimleri ve insan tarafından verilmiş dolgusuz ROI; 24 geçmiş + güncel görüntü tamponu, yalnız seçilen karelerde gerçek6D, ham/EMA bağımsız pencereleri, matris birleştirme yok. Eksik/geçersiz sonuçlar doldurulmaz; ara kayıtlar artımlı JSONL/state dosyalarındadır. Uçtan uca süre ağır importlar öncesinden son tespit/Tasks kapatmasına kadardır; runtime/model yüklemeleri ve forward iç içedir, toplanmaz. Son JSON serileştirme ve Python süreç başlangıç/çıkışı hariçtir. İlk tam6D sonra hibrit birer koşu; sıra/cache etkileri kontrol edilmez. Manuel işaretler yalnız ayrı değerlendirmede kullanılmalıdır.
+
+Yeni ortamda pip check temiz; gerçek MediaPipe/PnP tek-kare kontrolü geçti. **6D kontrolü resmî datasets.py içindeki eksik pandas nedeniyle durdu; tam6D/hibrit çalıştırılmadı.** Normal terminalde ayrı ortama `pandas==3.0.6` (eski çalışan ortamın sürümü) kurulmalı; smoke tekrar geçmeden full/hybrid başlatılmamalı. Yeni çalıştırıcının gerçek tüm-klip yolu henüz doğrulanmadı.
+
+Kontrollü testler (model yüklemez): ayrı araştırma Python'u ile bu dizinde `python -m unittest test_compare_headpose_methods test_selective_6d_replay test_real_hybrid_benchmark`; bu oturumda11 test geçti. Eski çevrimdışı144/168 sonucu ölçülmüş gerçek hibrit süre/sayı yerine kullanılamaz.
+
+## Sunucu MP/PnP hazırlığı ve seçici6D tekrar deneyi — 7 Kasım 2026
+
+Bu oturumdaki ssh gerçek istemci yerine `.sbx-denybin/ssh.bat` engelli sarmalayıcıya çözümlendi; sunucu bağlantısı/ortam kontrolü gerçekleşmedi. Başka SSH yolu denenmedi. Aşağıdaki komutlar **normal Windows PowerShell** içindir; bu tur sunucuda çalıştırılmış sayılmaz. Canlı norogelisim.service, uygulama klasörü ve ortamı değiştirilmez; kurulum/servis yeniden başlatma yoktur.
+
+Hazır araştırma paketi:
+`C:\Projeler\Norogelisim\outputs\d01_headpose_method_compare\second_video_selective_20261107_01\d01_mediapipe_research_20261107_01.tar.gz`.
+
+Paket9 dosya içerir: karşılaştırma komutu, mevcut motion_candidates, araştırma shell komutu, aynı ikinci video, aynı ZIP, yerel face_landmarker.task ve önceki6D koşunun result/settings/raw_frames dosyaları; ayrıca checksum manifest'i.6D ağırlığı, sanal ortam, backend/env/anahtar/platform dosyası içermez. Video SHA b6e12246983f8852f2cef4397b328ec9c0412294564a17212a4021a653eaf605, Tasks SHA64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff, ROI220,140,320×320 dolgusuz. Kopya hash'leri bundle_copy_checks.json içinde doğrulandı. Windows satır sonu olan shell dosyası kopyası Linux için LF yapılır; kaynak değiştirilmez.
+
+Sunucudaki **ayrı araştırma ortamının mevcut Python tam yolunu** kullanıcı girmeli; varmış gibi bir yol atanmaz. Gerekenler: NumPy, OpenCV (PyrLK/SQPNP/RefineLM), MediaPipe Tasks CPU/IMAGE. Mevcut Windows ölçümü MediaPipe1.0.1/OpenCV5.0.0/NumPy2.5.3'tü; uzak sürüm farkı raporlanmalı. Ölçüm için Torch/SciPy/Matplotlib/Gaze gerekmez. Paket/model indirimi yapılmaz. Ortam yoksa aşağıdaki kontrol durur; başka ortam veya kurulum için ayrı karar gerekir.
+
+### 1. Yalnız ortam kontrolü — Windows PowerShell → SSH
+
+```powershell
+$server = 'mertcan@31.77.69.171'
+$researchPython = Read-Host 'Sunucudaki AYRI araştırma ortamının Python tam yolu'
+if ($researchPython -notmatch '^/[A-Za-z0-9_./-]+$') { throw 'Boşluksuz geçerli mutlak Linux yolu gerekli.' }
+$probe = @'
+set -eu
+py="$1"
+test -x "$py" || { printf 'Research Python missing; nothing installed or started.\n'; exit 2; }
+"$py" -B - <<'PY'
+import sys,json,platform
+try:
+    import numpy as np,cv2,mediapipe as mp
+    from mediapipe.tasks.python import BaseOptions
+    from mediapipe.tasks.python.vision import FaceLandmarker,FaceLandmarkerOptions,RunningMode
+    assert hasattr(BaseOptions.Delegate,'CPU')
+    assert hasattr(cv2,'SOLVEPNP_SQPNP') and hasattr(cv2,'solvePnPRefineLM') and hasattr(cv2,'calcOpticalFlowPyrLK')
+except (ImportError,AttributeError,AssertionError) as e:
+    print(json.dumps({'ready':False,'error_type':type(e).__name__,'required':'NumPy/OpenCV/MediaPipe Tasks CPU IMAGE'}))
+    raise SystemExit(2)
+print(json.dumps({'ready':True,'python':sys.version,'platform':platform.platform(),'numpy':np.__version__,'opencv':cv2.__version__,'mediapipe':mp.__version__,'model_loaded':False}))
+PY
+ps -eo pid,ppid,comm,etimes,pcpu,rss | awk 'NR==1 || $3 ~ /^python([0-9]+([.][0-9]+)*)?$/'
+'@
+($probe -replace "`r", '') | ssh $server "bash -s -- '$researchPython'"
+if ($LASTEXITCODE -ne 0) { throw 'Araştırma ortamı doğrulanmadı; burada durun. Kurulum/ölçüm başlatmayın.' }
+```
+
+Bu kontrol model yüklemez; .env veya servis Environment/ExecStart içeriğini okumaz. Başka Python analizi varsa ölçümü erteleyin; süreç kapatmayın. Güncel canlı Node kapasitesinin boş olduğu bu kontrolden çıkarılamaz; ölçüm için uygun zaman seçilmelidir.
+
+### 2. Kontrol uygunsa ayrı dizine aktarım ve yalnız MP/PnP
+
+```powershell
+$bundle = 'C:\Projeler\Norogelisim\outputs\d01_headpose_method_compare\second_video_selective_20261107_01\d01_mediapipe_research_20261107_01.tar.gz'
+$tag = 'd01-method-' + [guid]::NewGuid().ToString('N')
+ssh $server "cd ~ && test ! -e '$tag.tar.gz' && test ! -e '$tag'"
+if ($LASTEXITCODE -ne 0) { throw 'Hedef yeni değil veya erişilemiyor.' }
+scp $bundle "${server}:$tag.tar.gz"
+if ($LASTEXITCODE -ne 0) { throw 'Aktarım başarısız; ölçüm başlatılmadı.' }
+$measure = @'
+set -eu
+cd "$HOME"
+tag="$1"
+py="$2"
+test ! -e "$tag"
+mkdir -- "$tag"
+tar -xzf "$tag.tar.gz" -C "$tag"
+bash "$tag/server_mediapipe_research.sh" "$py" --check-only
+bash "$tag/server_mediapipe_research.sh" "$py" --measure
+'@
+($measure -replace "`r", '') | ssh $server "bash -s -- '$tag' '$researchPython'"
+if ($LASTEXITCODE -ne 0) { Write-Warning 'Ölçüm başlamamış/yarım kalmış olabilir. Dosyaları koruyun; otomatik tekrarlamayın.' }
+```
+
+Shell komutu checksum/ROI/video/model kontrolünü yineler, yeni measurement klasörü ister, mevcut Python süreci varsa muhafazakâr biçimde başlamaz. Yalnız insan incelemesi sonrası yeni boş araştırma dizininde denenebilir; süreç/servis durdurmaz. Modelden önce server_environment.json ortam kaydı alınır; bu kayıt oluşması modelin çalıştığının kanıtı değildir.120sn ölçüm sınırı yerel koşuyla aynıdır; aşılırsa partial JSONL/state korunur, timeout artırılmaz veya6D çalıştırılmaz. Çıktı168/valid/akış/kayıp ve elapsed/tracking_and_pnp alanlarıyla raporlanır;72 valid çıkması zorlanmaz.
+
+Sonuçları almak için (aynı `$tag` ve yeni yerel dizin):
+
+```powershell
+$local = Join-Path 'C:\Projeler\Norogelisim\outputs\d01_headpose_method_compare' $tag
+if (Test-Path -LiteralPath $local) { throw 'Yerel sonuç dizini yeni olmalı.' }
+New-Item -ItemType Directory -Path $local | Out-Null
+scp -r "${server}:$tag/measurement" $local
+scp "${server}:$tag/server_environment.json" $local
+Get-Content -LiteralPath (Join-Path $local 'measurement\measurement.json')
+```
+
+Mevcut sunucu6D321.082/578.028sn ve timeout kayıtları tarihsel kalır; bu hazırlık sunucu MP/PnP ölçümü tamamlandı veya gerçek hibrit hızlandı diye raporlanmaz.
+
+### Yerel seçici6D — yalnız kayıtlı matrislerden
+
+`selective_6d_replay.py`, işlemden önce parameters/selective_6d_v1.json ile sabitlenen kuralı kullanır: PnP poz kaybı tetikler;1sn/24 kare geçmiş eklenir; PnP10 ardışık geçerli kareye dönünce ve mevcut6D stop koşulunun5 örneği sakinleşince pencere kapanır.10 sayısı mevcut5 aralık+5 stop örneğinden gelir. Ham ve EMA .50 ayrı6D pencereleridir; PnP/6D matrisleri birleştirilmez, pencere EMA'sı yeniden başlar. Manuel etiketler seçici sonuçlar sabitlendikten sonra okunur. Geçerli işaretlenmiş ama yanlış PnP pozlarını bu kural yakalamaz.
+
+İkinci videoda ilk kayıp43. kare/1.792sn; geçmiş nedeniyle6D penceresi19. kare/0.792sn'den başlıyor. İlk hareket bitişinin doğrulanmasına63. kare/2.625sn'de ulaşıldı:45 seçili6D karesi. PnP uzun süre geri gelmediği için tüm-klip politikası pencereyi162. kare/6.750sn'ye uzattı: **144/168 kare**.45 sayısı tüm klibin toplamı değildir. Tam6D'nin iki adayının ham/EMA başlangıç-bitiş sınırları aynı kaldı; ilk ham1.542–2.458, EMA1.583–2.458; manuel fark+0.141/+0.056 ve+0.182/+0.056sn. İkinci5.875–6.583 aday korunur. Bu workload sayımıdır, gerçek hibrit süre veya hızlanma değildir; yeni model çağrısı0. Dört sentetik seçici testi geçti.
+
+Sonuç: `C:\Projeler\Norogelisim\outputs\d01_headpose_method_compare\second_video_selective_20261107_01/result.json`, candidates.csv, source_preservation.json. Paket ve kopya hash kontrolü aynı klasördedir.
+
+```powershell
+& 'C:\Projeler\Norogelisim\.venv_headpose\Scripts\python.exe' -B research/d01/selective_6d_replay.py --comparison-run '<MP_YEREL_KOSU>' --recorded-run '<ESKI_6D_RUN>' --manual '<MANUEL_ADAY_JSON>' --output '<YENI_YEREL_TEKRAR_DIZINI>'
+& 'C:\Projeler\Norogelisim\.venv_headpose\Scripts\python.exe' -B -m unittest discover -s research/d01 -p test_selective_6d_replay.py -v
+```
+
+## İlk MediaPipe/PnP–6D karşılaştırması — 7 Kasım 2026
+
+`compare_headpose_methods.py` paketli tracker/PnP'yi değiştirmeden ZIP'ten ayrı deney klasörüne alır; eski FaceMesh oluşturucusu mevcut yerel Tasks IMAGE/CPU API'sine uyarlanır. Bu, farklı API/model koşuludur; legacy modelin birebir tekrarı değildir. Gaze/ASR/6D modeli yüklenmez, ağdan model indirilmez. İkinci videonun kayıtlı6D matrisleri ve dolgusuz insan ROI'si yeniden kullanılır. Manuel zamanlar ölçüme/dedektöre girmez; ayrı raporlama sonrasında karşılaştırılır. Eksik poz ve zaman doldurulmaz.
+
+Bu tur ikinci video168 kare:72 landmark/geçerli PnP,65 yalnız akış,31 takip kayıp; yeni yerel ölçüm20.179sn (takip+PnP17.313sn). Eski6D168/168 ve ham/EMA adayları aynen korundu. İlk PnP hareket bitişi veri boşluğunda belirsiz kaldı. Eski6D yerel CLI süresi176.358sn yeni ölçüm gibi sunulmadı, sunucu hızına kıyaslanmadı. Yeni yardımcı için4 sentetik test geçti; video doğruluğu değildir.
+
+Çıktı: `C:\Projeler\Norogelisim\outputs\d01_headpose_method_compare\second_video_20261107_01`; sonuç/CSV/grafikler `comparison_02` altında, kısa rapor SUMMARY.md. Native Euler panellerinde matematiksel XYZ sırası kontrol edildi; fiziksel sıfır/işaret referansı eşleştirilmediği için mutlak açı hatası hesaplanmadı.
+
+Yeniden çalıştırma biçimi (her ölçüm için yeni haricî klasör; bu komutlar kendiliğinden çalışmaz):
+
+```powershell
+# MediaPipe/NumPy/OpenCV bulunan mevcut Python; yalnız yerel face_landmarker.task.
+python -B research/d01/compare_headpose_methods.py measure --video '<VIDEO>' --package '<Isme_Tepki.zip>' --face-model '<YEREL_FACE_LANDMARKER_TASK>' --recorded-run '<TAMAMLANMIS_6D_CLI_RUN>' --output '<YENI_CIKTI>' --max-seconds 120
+# SciPy/Matplotlib bulunan mevcut headpose ortamında yalnız dosyalardan raporlama.
+& 'C:\Projeler\Norogelisim\.venv_headpose\Scripts\python.exe' -B research/d01/compare_headpose_methods.py report --recorded-run '<AYNI_6D_CLI_RUN>' --manual '<ADAY_MANUEL_JSON>' --output '<AYNI_YENI_CIKTI>' --report-name comparison
+& 'C:\Projeler\Norogelisim\.venv_headpose\Scripts\python.exe' -B -m unittest discover -s research/d01 -p test_compare_headpose_methods.py -v
+```
+
+Bu ilk yardımcı yalnız incelenmiş dolgusuz ROI ve mevcut24FPS protokolü içindir. Başka FPS/ROI'yi sessizce uyarlamaz. Yeni paket kurmayın; MediaPipe olmayan headpose ortamına araç zorlanmaz. Ölçüm ve çevrimdışı raporlama mevcut iki ortamda ayrıdır. Ham paket, eski deneyler, video ve etiketler değiştirilmez.
+
 ## CLI ölçüm kapsamı — 29 Ekim 2026 tanılama güncellemesi
 
 Model/ROI/protokol/filtre/eşik değişmedi; bu güncellemede gerçek çıkarım yapılmadı. `pilot_metrics.py` ile `state.json.runtime_environment`, `result.json.runtime_environment` ve `details/performance.json` gerçek Python sürümü/yürütülebilirini, paket dağıtım sürümlerini, PID/parent PID'yi, yüklenmiş Torch sürümünü, etkin intra/inter-op thread sayılarını ve model parametresinin cihazını kaydeder. Yüklü olmayan paket, ölçülmeyen thread veya replay'de yüklenmemiş runtime bilgisi null kalır; sadece kurulu paket sürümü Torch'un bu koşuda yüklendiğinin kanıtı değildir. Yerel ortam yolları operatör raporudur; backend'in güvenli ana sonuç projeksiyonuna girmez.

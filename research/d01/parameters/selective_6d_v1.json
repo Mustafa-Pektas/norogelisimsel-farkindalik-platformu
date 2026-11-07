@@ -1,0 +1,14 @@
+{
+  "protocol": "selective-6d-independent-window-v1",
+  "declared_before_replay": true,
+  "trigger": "PnP valid-pose flag false; optical-flow-only and lost frames both trigger",
+  "pre_context_s": 1.0,
+  "pre_context_reason": "Fixed operational video buffer, declared before replay; not selected from manual event times",
+  "recovery_samples": "motion.window_intervals + motion.stop_confirmation_samples",
+  "stop": "PnP consecutive valid samples reach recovery_samples AND final stop_confirmation_samples of 6D median speed are all <= existing stop_deg_s",
+  "methods": ["raw", "ema_050"],
+  "rotation_fusion": false,
+  "manual_used_by_selector": false,
+  "scope": "Offline replay of recorded matrices only; selected unique frames are a workload count, NOT real hybrid latency or speedup",
+  "limitation": "Only pose unavailability triggers selection; incorrect but marked-valid PnP is not caught. An active window may extend almost the whole clip."
+}
