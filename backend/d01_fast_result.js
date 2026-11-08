@@ -29,6 +29,22 @@ function fastMainResult(job, run, state, result) {
     manualTimes[key] = { time_s: expected, source: expected === null ? null : 'manual_user_input' };
   }
   const movements = {};
+  let callTiming;
+  if (result.callTiming !== undefined) {
+    const t = result.callTiming;
+    const statuses = ['accepted','not_found','ambiguous','low_confidence','unavailable','failed'];
+    if (!t || t.schemaVersion !== 'd01-call-timing-1.0' || t.name !== 'Deniz' || t.language !== 'tr' ||
+        !statuses.includes(t.audioStatus) || !['manual_user_input','automatic_word_timing','unknown'].includes(t.source) ||
+        (t.matchCount !== null && (!Number.isInteger(t.matchCount) || t.matchCount < 0 || t.matchCount > 1000))) bad();
+    const manual = job.manual.call_start_s !== undefined;
+    if (manual ? t.source !== 'manual_user_input' || t.startS !== job.manual.call_start_s || t.endS !== job.manual.call_end_s
+      : t.audioStatus === 'accepted' ? t.source !== 'automatic_word_timing' || t.matchCount !== 1 : t.source !== 'unknown') bad();
+    if (t.source === 'unknown' ? t.startS !== null || t.endS !== null
+      : !finite(t.startS) || !finite(t.endS) || t.startS < 0 || t.endS < t.startS ||
+        (t.source === 'automatic_word_timing' && t.endS === t.startS) || t.endS > meta.duration_s) bad();
+    callTiming = {schemaVersion:t.schemaVersion,source:t.source,startS:t.startS,endS:t.endS,
+      audioStatus:t.audioStatus,matchCount:t.matchCount,name:'Deniz',language:'tr'};
+  }
   for (const mode of ['raw', 'ema_050']) {
     const rows = result.movements?.[mode]; if (!Array.isArray(rows) || rows.length > 1000) bad();
     if (new Set(rows.map(c => c.candidate_id)).size !== rows.length) bad();
@@ -39,7 +55,8 @@ function fastMainResult(job, run, state, result) {
       for (const k of ['movement_start_s', 'movement_end_s', 'start_confirmation_time_s', 'end_confirmation_time_s', 'start_minus_manual_call_start_s', 'start_minus_manual_call_end_s']) {
         if (c[k] !== null && !finite(c[k])) bad(); safe[k] = c[k];
       }
-      const a = job.manual.call_start_s, b = job.manual.call_end_s, start = c.movement_start_s;
+      const a = callTiming ? callTiming.startS ?? undefined : job.manual.call_start_s;
+      const b = callTiming ? callTiming.endS ?? undefined : job.manual.call_end_s, start = c.movement_start_s;
       for (const key of ['movement_start_s','movement_end_s','start_confirmation_time_s','end_confirmation_time_s']) {
         if (c[key] !== null && (c[key] < 0 || c[key] > meta.duration_s)) bad();
       }
@@ -74,11 +91,15 @@ function fastMainResult(job, run, state, result) {
   }
   timings.upload_s = job.uploadCompletedAt === undefined ? null : (job.uploadCompletedAt - job.createdAt) / 1000;
   timings.child_process_s = job.childClosedAt === undefined ? null : (job.childClosedAt - job.childStartedAt) / 1000;
+  for (const key of ['audio_s','audio_model_load_s','audio_transcribe_s']) {
+    timings[key] = result.timings?.[key] ?? null;
+    if (timings[key] !== null && (!finite(timings[key]) || timings[key] < 0)) bad();
+  }
   return { schemaVersion: 'd01-pilot-api-1.2', jobId: job.jobId, profileId: null, videoHash: job.videoHash,
     source: { schemaVersion: 'd01-input-source-1.2', type: 'automatic_face_tracking', method: 'mediapipe_pnp_flow',
       targetSelection: result.targetSelection, identityStatus: result.identityStatus,
       video: { width: meta.width, height: meta.height, fps: 24, durationS: meta.duration_s, decodedFrames: counts.processed } },
-    manualTimes, movements, counts, coverage, missingPoseIntervals, timings, settling: [],
+    manualTimes, ...(callTiming ? {callTiming} : {}), movements, counts, coverage, missingPoseIntervals, timings, settling: [],
     algorithmicTarget: 'not_determined', clockAlignmentVerified: false, manualCandidateStatus: 'unreviewed',
     interpretation: 'temporal_relations_only_not_response_or_target_classification' };
 }

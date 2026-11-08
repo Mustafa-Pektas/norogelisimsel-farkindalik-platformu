@@ -10,12 +10,17 @@ async function main() {
   const root = path.resolve(at('--output-dir')); fs.mkdirSync(root, { recursive: false });
   const repo = path.resolve(__dirname, '../..'), data = path.dirname(repo);
   const sources = JSON.parse(fs.readFileSync(at('--sources'), 'utf8'));
+  const automaticCall = process.argv.includes('--automatic-call');
+  if (automaticCall && !envPathReady(process.env.PILOT_D01_AUDIO_MODEL)) throw new Error('prepared_audio_model_required');
+  function envPathReady(p) { return typeof p === 'string' && path.isAbsolute(p) &&
+    ['model.bin','config.json','tokenizer.json','preprocessor_config.json'].every(f=>fs.existsSync(path.join(p,f))); }
   const key = crypto.randomBytes(32).toString('hex');
   const env = { BACKEND_MODE:'deployment',TEAM_ACCESS_KEY:key,GENERATION_MAX_CONCURRENT:'1',PILOT_D01_ENABLED:'true',
     PILOT_D01_PYTHON:path.join(data,'.venv_headpose/Scripts/python.exe'),
     PILOT_D01_WEIGHTS:path.join(data,'araclar/6DRepNet360_Full-Rotation_300W_LP+Panoptic.pth'),
     PILOT_D01_OFFICIAL_SOURCE:path.join(data,'dis_kaynaklar/6DRepNet360'),PILOT_D01_JOBS_DIR:path.join(root,'jobs'),
-    PILOT_D01_FAST_PYTHON:path.join(data,'calisma/venv_d01_hybrid_20261107_01/Scripts/python.exe'),
+    PILOT_D01_FAST_PYTHON:process.env.PILOT_D01_FAST_PYTHON || path.join(data,'calisma/venv_d01_hybrid_20261107_01/Scripts/python.exe'),
+    PILOT_D01_AUDIO_MODEL:process.env.PILOT_D01_AUDIO_MODEL,
     PILOT_D01_FACE_MODEL:path.join(data,'calisma/Video Analizinin Feasibility Testi/face_landmarker.task'),
     PILOT_D01_TIMEOUT_MS:'120000',PILOT_D01_KILL_GRACE_MS:'10000' };
   const {createApp}=require('../server');
@@ -32,8 +37,9 @@ async function main() {
       const source=sources[i],bytes=fs.readFileSync(source.video),digest=crypto.createHash('sha256').update(bytes).digest('hex');
       assert.equal(digest,source.sha256);
       const started=performance.now(),form=new FormData();form.set('video',new Blob([bytes]),'pilot.mp4');
-      form.set('method','mediapipe_pnp_flow');form.set('targetPoint',JSON.stringify(source.targetPoint));
-      if(source.callStartS!==null){form.set('callStartS',source.callStartS.toFixed(3));form.set('callEndS',source.callEndS.toFixed(3));}
+      form.set('method','mediapipe_pnp_flow');
+      if(Array.isArray(source.targetPoint))form.set('targetPoint',JSON.stringify(source.targetPoint));
+      if(!automaticCall && source.callStartS!==null){form.set('callStartS',source.callStartS.toFixed(3));form.set('callEndS',source.callEndS.toFixed(3));}
       const accepted=await request('POST','',form,202);assert.equal(accepted.videoHash,digest);
       let state; const deadline=performance.now()+135000;
       do {
@@ -46,11 +52,20 @@ async function main() {
       assert.equal(result.schemaVersion,'d01-pilot-api-1.2');assert.equal(result.videoHash,digest);assert.equal(result.jobId,accepted.jobId);
       assert.equal(result.manualTimes.response_start_s.time_s,null);assert.equal(JSON.stringify(result).includes(root),false);
       assert.equal(result.counts.processed,result.source.video.decodedFrames);
+      if(automaticCall) {
+        assert.ok(result.callTiming);assert.equal(result.manualTimes.call_start_s.time_s,null);
+        assert.equal(result.manualTimes.call_end_s.time_s,null);
+        assert.ok(!['unavailable','failed'].includes(result.callTiming.audioStatus),'real_audio_step_not_completed');
+      }
       const job=JSON.parse(fs.readFileSync(path.join(root,'jobs',accepted.jobId,'job.json')));
       assert.ok(job.childClosedAt>=job.childStartedAt);
       assert.equal(job.childExitCode,0);
       report.push({index:i,jobId:accepted.jobId,status:state.status,videoHash:digest,counts:result.counts,coverage:result.coverage,
-        upload_to_result_s:(performance.now()-started)/1000,mobile_visible_elapsed_s:null,timings:result.timings});
+        upload_to_result_s:(performance.now()-started)/1000,mobile_visible_elapsed_s:null,timings:result.timings,
+        ...(automaticCall ? {callTiming:result.callTiming,manualComparison:{status:'approximate_candidate_not_ground_truth',
+          referenceStartS:source.callStartS,referenceEndS:source.callEndS,
+          startDifferenceS:result.callTiming.source==='automatic_word_timing' && Number.isFinite(source.callStartS)?result.callTiming.startS-source.callStartS:null,
+          endDifferenceS:result.callTiming.source==='automatic_word_timing' && Number.isFinite(source.callEndS)?result.callTiming.endS-source.callEndS:null}} : {})});
       fs.writeFileSync(path.join(root,`api_result_${i}.json`),JSON.stringify(result,null,2));
       fs.writeFileSync(path.join(root,'acceptance.json'),JSON.stringify({runs:report,mobileAcceptance:'not_run'},null,2));
       console.log(JSON.stringify(report.at(-1)));

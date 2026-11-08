@@ -1,4 +1,4 @@
-"""Bounded CPU Tasks/PnP/flow job; no Torch, gaze, ASR or clinical decision."""
+"""Bounded CPU Tasks/PnP/flow job with optional local-only ASR word timing."""
 from pathlib import Path
 import argparse
 import json
@@ -13,6 +13,7 @@ from pilot_cli import inspect_marked_video,atomic,append,PilotInputError,load_pr
 from motion_candidates import sha,detect
 from compare_headpose_methods import series
 from pilot_metrics import environment,memory
+from automatic_call import detect_call,effective_timing
 
 
 def atomic_state(path, data):
@@ -67,7 +68,16 @@ def run(args):
         if args.target_point:
             point=json.loads(args.target_point.read_text())
             if not isinstance(point,list) or len(point)!=2 or any(type(v) not in (int,float) or not 0<=v<=1 for v in point):raise PilotInputError('invalid_target','Normalized initial target point invalid')
-        atomic(out/'settings.json',dict(video_hash=checksum,video=info,target_point=point,manual_call_times=[call_start,call_end],protocol='d01-fast-1.0',face_model_sha256=sha(args.face_model),association=dict(min_iou=.15,max_histogram_l2=.45,max_loss_s=2.5,no_reacquisition_after_long_loss=True),no_automatic_call_detection=True))
+        manual_start,manual_end=call_start,call_end
+        checkpoint(stage='automatic_call',video_metadata=info)
+        audio=detect_call(args.video,getattr(args,'audio_model',None),info['duration_s'])
+        atomic(details/'audio_call.json',audio)
+        timings['audio_s']=audio['timings']['total_s']
+        timings['audio_model_load_s']=audio['timings'].get('model_load_s')
+        timings['audio_transcribe_s']=audio['timings'].get('transcribe_s')
+        timing=effective_timing(audio,manual_start,manual_end)
+        call_start,call_end=timing['startS'],timing['endS']
+        atomic(out/'settings.json',dict(video_hash=checksum,video=info,target_point=point,manual_call_times=[manual_start,manual_end],protocol='d01-fast-1.0',face_model_sha256=sha(args.face_model),association=dict(min_iou=.15,max_histogram_l2=.45,max_loss_s=2.5,no_reacquisition_after_long_loss=True),automatic_call=dict(name='Deniz',language='tr',local_files_only=True,word_probability_min=.8,segment_no_speech_max=.5,segment_avg_logprob_min=-1.,not_clinical_thresholds=True)))
         checkpoint(stage='model_load',video_metadata=info)
         t=time.perf_counter();tracker=FastTracker(args.face_model,point);timings['model_load_s']=time.perf_counter()-t
         checkpoint(stage='tracking',model_loaded=True)
@@ -107,11 +117,11 @@ def run(args):
             coverage=dict(poseFrames=sum(r['valid'] for r in rows),flowOnlyFrames=sum(r['track_source']=='optical_flow' and not r['valid'] for r in rows),
                 lostFrames=sum(r['track_source']=='lost' for r in rows),ambiguousFrames=sum(r['identity_status']=='target_ambiguous' for r in rows),totalFrames=len(rows)),
             targetSelection=rows[0]['target_provenance'],identityStatus='ambiguous_or_unselected' if not any(r['target_provenance']!='not_determined' for r in rows) else 'continuity_candidate_not_biometric_identity',
-            missingPoseIntervals=gaps(rows),manualTimes={k:dict(time_s=v,source='manual_user_input' if v is not None else None) for k,v in [('call_start_s',call_start),('call_end_s',call_end),('response_start_s',None),('response_end_s',None)]},
+            missingPoseIntervals=gaps(rows),callTiming=timing,manualTimes={k:dict(time_s=v,source='manual_user_input' if v is not None else None) for k,v in [('call_start_s',manual_start),('call_end_s',manual_end),('response_start_s',None),('response_end_s',None)]},
             movements=movements,algorithmicTarget='not_determined',clockAlignmentVerified=False,manualCandidateStatus='unreviewed',
             interpretation='temporal_relations_only_not_response_or_target_classification',runtime=runtime,
             detail_files={p.name:dict(path='details/'+p.name,sha256=sha(p)) for p in details.iterdir() if p.is_file()},
-            limitations=['Flow-only has no absolute angles','Generic PnP camera/face model; no calibrated shared neutral with6D','Track identity is conservative continuity, not verified age/child classification','No call inference; no response/correct-target/clinical classification'])
+            limitations=['Flow-only has no absolute angles','Generic PnP camera/face model; no calibrated shared neutral with6D','Track identity is conservative continuity, not verified age/child classification','ASR word timing is an unreviewed estimate; no speaker/actual call/response/correct-target/clinical classification'])
         timings['report_preparation_s']=time.perf_counter()-t;timings['total_s']=time.perf_counter()-start;result['timings']=timings
         if any(sha(p)!=h for p,h in protected.items()):raise ValueError('Protected source changed')
         atomic(out/'result.json',result);atomic(out/'source_preservation.json',dict(files=protected,unchanged=True));checkpoint(status='completed',stage='finished',invalid_frames=result['counts']['invalid'])
@@ -128,4 +138,5 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for k in ('video','face-model','output-dir'):parser.add_argument('--'+k,type=Path,required=True)
     parser.add_argument('--manual',type=Path);parser.add_argument('--target-point',type=Path)
+    parser.add_argument('--audio-model',type=Path,help='Prepared local faster-whisper directory only; never download during analysis')
     run(parser.parse_args())

@@ -5,9 +5,11 @@ class D01PilotException implements Exception {
   const D01PilotException(this.code);
   final String code;
   String get message => switch (code) {
-    'fast_runtime_not_configured' => 'Sunucuda hızlı analiz ortamı veya yüz modeli yapılandırılmamış.',
+    'fast_runtime_not_configured' =>
+      'Sunucuda hızlı analiz ortamı veya yüz modeli yapılandırılmamış.',
     'invalid_target' => 'Hedef yüz noktası geçersiz. Videonun ilk karesinde çocuğun yüzünü yeniden belirtin.',
-    'fast_cli_failed' => 'Hızlı analiz tamamlanamadı; yeni analiz otomatik başlatılmadı.',
+    'fast_cli_failed' =>
+      'Hızlı analiz tamamlanamadı; yeni analiz otomatik başlatılmadı.',
     'unauthorized' => 'Ekip erişim anahtarı eksik veya geçersiz.',
     'pilot_busy' =>
       'Sunucuda başka bir analiz devam ediyor. Yeni yükleme yapılmadı.',
@@ -386,6 +388,64 @@ class D01PilotResult {
     }
     callStart = expectedStart;
     callEnd = expectedEnd;
+    if (json['callTiming'] != null) {
+      final timing = pilotMap(json['callTiming']);
+      final kind = timing['source'];
+      final status = timing['audioStatus'];
+      final a = _time(timing['startS']), b = _time(timing['endS']);
+      final count = timing['matchCount'];
+      if (timing['schemaVersion'] != 'd01-call-timing-1.0' ||
+          timing['name'] != 'Deniz' ||
+          timing['language'] != 'tr' ||
+          !const [
+            'accepted',
+            'not_found',
+            'ambiguous',
+            'low_confidence',
+            'unavailable',
+            'failed',
+          ].contains(status) ||
+          !const [
+            'automatic_word_timing',
+            'manual_user_input',
+            'unknown',
+          ].contains(kind) ||
+          count != null && (count is! int || count < 0 || count > 1000)) {
+        bad();
+      }
+      if (expectedStart != null) {
+        if (kind != 'manual_user_input' ||
+            a != expectedStart ||
+            b != expectedEnd) {
+          bad();
+        }
+      } else if (status == 'accepted') {
+        if (kind != 'automatic_word_timing' || count != 1) {
+          bad();
+        }
+      } else if (kind != 'unknown') {
+        bad();
+      }
+      if (kind == 'unknown') {
+        if (timing['startS'] != null || timing['endS'] != null) {
+          bad();
+        }
+      } else if (a == null ||
+          b == null ||
+          a < 0 ||
+          b < a ||
+          b > duration ||
+          kind == 'automatic_word_timing' && a == b) {
+        bad();
+      }
+      callTimingSource = kind as String;
+      audioStatus = status as String;
+      effectiveCallStart = a;
+      effectiveCallEnd = b;
+    } else {
+      effectiveCallStart = expectedStart;
+      effectiveCallEnd = expectedEnd;
+    }
     final rawCoverage = pilotMap(json['coverage']);
     coverage = {
       for (final key in [
@@ -425,25 +485,29 @@ class D01PilotResult {
       bad();
     }
     for (final c in [...raw, ...ema]) {
-      for (final t in [c.start,c.end,c.startConfirmed,c.endConfirmed]) {
-        if (t != null && (t < 0 || t > duration)) { bad(); }
+      for (final t in [c.start, c.end, c.startConfirmed, c.endConfirmed]) {
+        if (t != null && (t < 0 || t > duration)) {
+          bad();
+        }
       }
-      if (c.start != null && c.end != null && c.end! < c.start!) { bad(); }
-      final phase = callStart == null
+      if (c.start != null && c.end != null && c.end! < c.start!) {
+        bad();
+      }
+      final phase = effectiveCallStart == null
           ? 'call_unknown'
           : c.start == null
           ? 'unknown_movement_start'
-          : c.start! < callStart!
+          : c.start! < effectiveCallStart!
           ? 'before_call'
-          : c.start! <= callEnd!
+          : c.start! <= effectiveCallEnd!
           ? 'during_call'
           : 'after_call';
       if (c.callPhase != phase) {
         bad();
       }
       for (final pair in [
-        (c.callStartDifference, callStart),
-        (c.callEndDifference, callEnd),
+        (c.callStartDifference, effectiveCallStart),
+        (c.callEndDifference, effectiveCallEnd),
       ]) {
         final expected = c.start == null || pair.$2 == null
             ? null
@@ -474,6 +538,8 @@ class D01PilotResult {
   late final bool userMarked;
   late final D01Roi? sourceRoi;
   late final double? callStart, callEnd;
+  String? callTimingSource, audioStatus;
+  double? effectiveCallStart, effectiveCallEnd;
   final List<D01MotionCandidate> raw, ema;
   late final int? processed, valid, invalid;
 }

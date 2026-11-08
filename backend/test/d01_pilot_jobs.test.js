@@ -40,7 +40,7 @@ function fixture(t, mode = 'deployment', extra = {}) {
   function runner(executable, args, options) {
     const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.signals = [];
     child.kill = signal => { child.signals.push(signal); return true; }; child.args = args; child.options = options;
-    child.finish = (kind = 'completed') => {
+    child.finish = (kind = 'completed', callTiming) => {
       const at = key => args[args.indexOf(key) + 1]; const run = at('--output-dir'); fs.mkdirSync(run);
       fs.mkdirSync(path.join(run, 'details')); fs.writeFileSync(path.join(run, 'details', 'controlled.json'), '{}');
       const manual = args.includes('--manual') ? JSON.parse(fs.readFileSync(at('--manual'))).marks : {};
@@ -60,6 +60,17 @@ function fixture(t, mode = 'deployment', extra = {}) {
           missingPoseIntervals:[{startS:0,endS:.04,frames:2}],targetSelection:args.includes('--target-point')?'manual_initial_point':'single_face_candidate_role_unverified',identityStatus:'continuity_candidate_not_biometric_identity',
           timings:{media_preflight_s:.01,model_load_s:.02,tracking_pnp_s:.03,candidate_postprocess_s:.01,report_preparation_s:.01,total_s:.08},
           detail_files:{frames:{path:'details/controlled.json',sha256:hash(Buffer.from('{}'))}}}));
+        if (callTiming) {
+          const file=path.join(run,'result.json');const result=JSON.parse(fs.readFileSync(file));
+          result.callTiming=callTiming;result.timings.audio_s=.04;
+          for (const mode of ['raw','ema_050']) for (const c of result.movements[mode]) {
+            const a=callTiming.startS,b=callTiming.endS;
+            c.start_minus_manual_call_start_s=a===null?null:c.movement_start_s-a;
+            c.start_minus_manual_call_end_s=b===null?null:c.movement_start_s-b;
+            c.callPhase=a===null?'call_unknown':c.movement_start_s<a?'before_call':c.movement_start_s<=b?'during_call':'after_call';
+          }
+          fs.writeFileSync(file,JSON.stringify(result));
+        }
         child.emit('close', kind === 'completed' ? 0 : 1); return;
       }
       fs.writeFileSync(path.join(run, 'state.json'), JSON.stringify({ status: kind, mode: 'cpu_inference', model_loaded: true, processed_frames: 5, valid_frames: 5, invalid_frames: 0 }));
@@ -274,6 +285,23 @@ test('Fast input requires paired optional calls and bounded target; pre-call mov
 test('Fast runtime missing is explicit, not a fallback to 6D or Gemini',async t=>{
   const f=fixture(t,'deployment',{envOverrides:{PILOT_D01_FAST_PYTHON:undefined}});
   assert.equal((await f.upload({method:'mediapipe_pnp_flow'})).body.code,'fast_runtime_not_configured');assert.equal(f.children.length,0);
+});
+
+test('Automatic Deniz timing is distinct from manual; unavailable/name absent preserves head candidates',async t=>{
+  for (const status of ['accepted','not_found','ambiguous','low_confidence','unavailable','failed']) {
+    const f=fixture(t,'deployment',{envOverrides:{PILOT_D01_AUDIO_MODEL:path.resolve('prepared-audio-model')}});
+    const accepted=await f.upload({method:'mediapipe_pnp_flow'});
+    assert.ok(f.children[0].args.includes('--audio-model'));
+    const ok=status==='accepted';
+    f.children[0].finish('completed',{schemaVersion:'d01-call-timing-1.0',source:ok?'automatic_word_timing':'unknown',startS:ok ? .1 : null,endS:ok ? .15 : null,audioStatus:status,matchCount:ok?1:status==='ambiguous'?2:status==='not_found'?0:null,name:'Deniz',language:'tr'});
+    const reply=await request(f.app,'GET',`/api/pilot-d01/jobs/${accepted.body.jobId}/result`);
+    assert.equal(reply.status,200);assert.equal(reply.body.callTiming.audioStatus,status);
+    assert.equal(reply.body.manualTimes.call_start_s.time_s,null);
+    assert.equal(reply.body.counts.valid,3);assert.equal(reply.body.movements.raw.length,1);
+    assert.equal(reply.body.movements.raw[0].callPhase,ok?'before_call':'call_unknown');
+    assert.equal(reply.body.movements.raw[0].start_minus_manual_call_start_s,ok?-.05:null);
+    assert.equal(reply.body.timings.audio_s,.04);
+  }
 });
 test('Spawn rejection retains only a local safe diagnostic; API never exposes process errors',async t=>{
   for (const code of ['EPERM','untrusted-secret-code']) {

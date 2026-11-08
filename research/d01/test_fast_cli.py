@@ -80,5 +80,24 @@ class CliTests(unittest.TestCase):
             with self.assertRaises(fast_cli.PilotInputError):self.run_controlled(root,manual)
             state=json.loads((root/'run/state.json').read_text());self.assertEqual(state['status'],'failed');self.assertFalse(state['model_loaded'])
 
+    def test_audio_missing_or_failure_preserves_head_result_and_unknown_times(self):
+        for status in ('not_found','ambiguous','low_confidence','unavailable','failed'):
+            with TemporaryDirectory() as root:
+                audio=dict(status=status,startS=None,endS=None,matchCount=0,name='Deniz',language='tr',timings=dict(total_s=.02))
+                with patch.object(fast_cli,'detect_call',return_value=audio):r=self.run_controlled(root)
+                self.assertEqual(r['counts']['processed'],10)
+                self.assertEqual(r['callTiming']['source'],'unknown')
+                self.assertIsNone(r['callTiming']['startS'])
+                self.assertEqual(r['timings']['audio_s'],.02)
+                self.assertEqual(json.loads((Path(root)/'run/state.json').read_text())['status'],'completed')
+
+    def test_automatic_call_does_not_populate_manual_times(self):
+        with TemporaryDirectory() as root:
+            audio=dict(status='accepted',startS=.1,endS=.2,matchCount=1,name='Deniz',language='tr',timings=dict(total_s=.03))
+            with patch.object(fast_cli,'detect_call',return_value=audio):r=self.run_controlled(root)
+            self.assertEqual(r['callTiming']['source'],'automatic_word_timing')
+            self.assertEqual(r['callTiming']['startS'],.1)
+            self.assertIsNone(r['manualTimes']['call_start_s']['time_s'])
+
 
 if __name__=='__main__':unittest.main()

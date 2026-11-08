@@ -1,5 +1,11 @@
 # Kullanım rehberi
 
+## Otomatik çağrı zamanı — yerel D01, gerçek kabul bekliyor
+
+Hazır ses modeliyle güncel backend kullanıldığında, Video Analizi → Deneysel D01 hızlı analizinde iki çağrı işaretini boş bırakabilirsiniz. Türkçe **Deniz** kelimesi için tek ve teknik kontrollerden geçen eşleşmenin zamanı “Otomatik çağrı zamanı” olarak gösterilir; onay veya düzeltme istenmez. Bu kelime zamanı bir tahmindir; konuşanı, gerçek seslenmeyi veya çocuğun tepkisini doğrulamaz. Çoklu/eksik eşleşme, düşük güven veya ses hatasında baş hareketi sonucu görünür kalır; çağrı zamanı belirsizdir, çağrıya göre farklar hesaplanmaz. İki manuel çağrı işareti verilirse onlar öncelikli olur. Bitişin bulunamaması “tepki yok” değildir.
+
+Ses modeli analiz sırasında indirilmez; ayrı ortam/tek seferlik hazırlık ve gerçek API kabulü [backend/D01_PILOT.md](../../backend/D01_PILOT.md) başındadır. Bu tur ses paketi kurulumu ve mobil test ortamı engellendi; gerçek sesli API/mobil kabul henüz doğrulanmadı. Aşağıdaki önceki hazırlık/kabul kayıtları tarihsel kapsamlarıyla korunur.
+
 ## Hızlı D01 baş hareketi — yerel deneysel yol, 8 Kasım
 
 Video Analizi → Deneysel D01. Galeriden kısa24FPS video seçin; aynı önizleme/controller kullanılır. Yeni yöntem MediaPipe/PnP ve optik akıştır;6D araştırma referansıdır. Çok yüzlü görüntüde **Hedef yüzü belirt** seçeneğini açın, videonun ilk karesinde çocuğun yüzüne bir kez dokunun. Baş çevresine kutu çizilmez. İlerideki bir karede dokunursanız oynatıcı önce başa gelir; ilk karede tekrar belirtin. Tek yüz bulunması çocuk yaşını/kimliğini doğrulamaz. Hedef seçilemezse veya takip kaybolursa eksik poz açık gösterilir.
@@ -9,6 +15,14 @@ Video Analizi → Deneysel D01. Galeriden kısa24FPS video seçin; aynı önizle
 Tamamlanınca sonuç görünür alana kayar. Poz/akış/kayıp/belirsiz kapsamı, poz ölçülemeyen zaman aralıkları, ham ve EMA adayları ayrı gösterilir. Akışta mutlak açı yoktur; null bitiş tamamlanmış dönüş değildir. Çağrı varsa yalnız önce/sıra/sonra ilişkisi vardır; çağrı öncesi hareket sonradan yeni tepki sayılmaz. Çağrı bilinmiyorsa yalnız hareket sonucu gösterilir. Adayın bilinen başlangıcına dokunma aynı videoyu duraklatılmış olarak görünür kılar; yeni video açmaz. Ölçüm süreleri → ölçüm özetini kopyala ile anahtar içermeyen yerel kabul kaydı alınabilir.
 
 Yeni yerel Python ölçümlerinde iki videoda da başlangıç bulunmasına rağmen ilk bitiş eksik kaldı; bu sınırlama gizlenmez. Bunlar klinik/isme tepki/doğru kişiye yönelme sonuçları değildir. Eski6D/API1.0/1.1 profil ve işaretli istek desteği backend/serviste korunur; aşağıdaki önceki ROI yönergeleri o araştırma yoluna aittir. Yeni mobil arayüz henüz normal PowerShell testleri ve son emülatör kabulüyle doğrulanmadı. Kesin yerel başlatma/kabul komutları backend/D01_PILOT.md başındadır.
+
+## Üretilmiş D01/D02 planını interaktif oynatıcıya bağlama
+
+Stüdyo → senaryo üretimi/sonuç seçimi → düzenle ve doğrula → graf → klip planı iste → **Klip Üretim Planı**. Bu ekranda doğrulanmış planın her sahnesini açın. Her klip için **Video seç** ile o klibe gerçekten ait yerel videoyu bağlayın. Eşleme uygulamanın mevcut deposunda planId+clipId ile saklanır; başka planın aynı adlı klibi veya hazır D01/D02 videosu otomatik kullanılmaz. Klip planı tek başına video değildir; yeni videolar bu görevde üretilmez.
+
+**Eksik veya bulunamayan klip videoları** bölümünde plan, sahne, klip kimliği ve sıra gösterilir. Bu alan eksik dosyaları sizin yerinize seçmez. Bir klibin önizlemesini kontrol edip kalanları eşleyin. **Grafı dene** aynı mevcut graf oynatıcısını açar; **Başlat** öncesinde video açılmaz. Ortak başlangıç gerçek video sonunda bitince dal seçin; seçilen sahnenin klipleri orderInScene sırasıyla devam eder. Eksik bir klipte açık hata olur, klip atlanmaz. Yol sonunda **Seçtiğim yolu tekrar oynat** ortak başlangıç ve yalnız seçilmiş yolu tekrarlar; yeniden seçim ayrı eylemdir. Birleştirilmiş MP4 veya boşluksuz geçiş garantisi değildir.
+
+Hazır D01/D02 örneklerinin Stüdyo girişleri mevcut paket eşlemeleriyle ayrı kalır. Yeni plan için davranışa bakarak eski videoları otomatik atamak yerine her klibin içerik/sürekliliğini insan incelemesiyle doğrulayın. Yeniden üretimde yeni plan kimliği oluşursa eski eşlemeler devralınmaz. Bu mobil bağlantının yeni kontrollü testleri hazırlanmıştır; bu oturumdaki Flutter komutu çıktı vermeden beklendiği için normal PowerShell doğrulaması ve gerçek yeni plan/video kabulü henüz gereklidir.
 
 ## Yeni kullanıcı işaretli D01 videosu — API 1.1 yerel bağlantısı
 
@@ -21,11 +35,6 @@ Pilot adresini ve yalnız oturumluk ekip anahtarını girip açıkça başlatın
 Sonuçta analiz edilen ROI/çağrı işaretleri, ham ve EMA adayları, çağrı başlangıcı/bitişine göre zaman farkları gösterilir. Negatif fark hata veya klinik sonuç değildir. Adaya dokunmak aynı videoda başlangıca gider, duraklatmayı korur ve önizlemeye kaydırır. Aday bulunmayan completed sonuç desteklenir; “tepki yok” sınıfı değildir. İş/hash, kaynak ve işaretler sözleşmeyle uyuşmazsa sonuç uygulanmaz.
 
 Yerel kabul denemesi: önce hedefli test/analizi normal PowerShell'de çalıştırın; ardından API1.1 backend ile daha önce profillenmemiş kısa24FPS videoda ROI ve iki çağrı işareti →202 → durum takibi → completed/boş aday veya aday sonucu → adaya git/duraklat/kaydır akışını kontrol edin. Sonra iki hazır örneği otomatik modda açın. Bu yeni mobil yol gerçek videoyla henüz doğrulanmadı; bu oturumda Flutter komutları çıktı vermeden bekledi ve yalnız başlatılan komutlar iptal edildi.
-
-Bu uygulamanın iki ana alanı **Video Analizi** ve **Simülasyon ve Eğitim**’dir.
-Senaryo/prompt hazırlama ve model karşılaştırması proje ekibinin araçlarıdır.
-Üretilen anlatı ve planlar taslaktır; tanı, klinik puan veya gözlenmiş davranış değildir.
-
 
 Bu uygulamanın iki ana alanı **Video Analizi** ve **Simülasyon ve Eğitim**’dir.
 Senaryo/prompt hazırlama ve model karşılaştırması proje ekibinin araçlarıdır.

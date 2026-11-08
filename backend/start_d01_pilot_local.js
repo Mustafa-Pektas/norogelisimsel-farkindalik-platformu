@@ -13,7 +13,7 @@ async function main() {
   const repo = path.resolve(__dirname, '..');
   const data = path.dirname(repo);
   const python = path.join(data, '.venv_headpose', 'Scripts', 'python.exe');
-  const fastPython = path.join(data, 'calisma', 'venv_d01_hybrid_20261107_01', 'Scripts', 'python.exe');
+  const fastPython = process.env.PILOT_D01_FAST_PYTHON || path.join(data, 'calisma', 'venv_d01_hybrid_20261107_01', 'Scripts', 'python.exe');
   const faceModel = path.join(data, 'calisma', 'Video Analizinin Feasibility Testi', 'face_landmarker.task');
   const weights = path.join(data, 'araclar', '6DRepNet360_Full-Rotation_300W_LP+Panoptic.pth');
   const official = path.join(data, 'dis_kaynaklar', '6DRepNet360');
@@ -31,6 +31,7 @@ async function main() {
     BACKEND_MODE: 'deployment', GENERATION_MAX_CONCURRENT: '1',
     TEAM_ACCESS_KEY: payload.accessKey, PILOT_D01_ENABLED: 'true',
     PILOT_D01_FAST_PYTHON: fastPython, PILOT_D01_FACE_MODEL: faceModel,
+    PILOT_D01_AUDIO_MODEL: process.env.PILOT_D01_AUDIO_MODEL,
     PILOT_D01_PYTHON: python, PILOT_D01_WEIGHTS: weights,
     PILOT_D01_OFFICIAL_SOURCE: official, PILOT_D01_JOBS_DIR: path.join(runRoot, 'jobs'),
     PILOT_D01_TIMEOUT_MS: '900000', PILOT_D01_KILL_GRACE_MS: '10000',

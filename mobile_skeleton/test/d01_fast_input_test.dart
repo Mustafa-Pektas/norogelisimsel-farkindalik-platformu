@@ -17,6 +17,50 @@ D01PilotResult result(Map<String,dynamic> json) => D01PilotResult.fromJson(json,
   expectedVideoHash: fixture()['videoHash'] as String, expectedFastInput: input);
 
 void main() {
+  Map<String, dynamic> automaticFixture(String status) {
+    final json=fixture();
+    for(final key in ['call_start_s','call_end_s']) {
+      (json['manualTimes'] as Map)[key]={'time_s':null,'source':null};
+    }
+    final accepted=status=='accepted';
+    json['callTiming']={'schemaVersion':'d01-call-timing-1.0','source':accepted?'automatic_word_timing':'unknown',
+      'startS':accepted ? .401 : null,'endS':accepted ? 1.152 : null,'audioStatus':status,
+      'matchCount':accepted?1:status=='ambiguous'?2:0,'name':'Deniz','language':'tr'};
+    if(!accepted) {
+      for(final mode in ['raw','ema_050']) {
+        final c=((json['movements'] as Map)[mode] as List).single as Map;
+        c['start_minus_manual_call_start_s']=null;c['start_minus_manual_call_end_s']=null;c['callPhase']='call_unknown';
+      }
+    }
+    return json;
+  }
+  D01PilotResult automaticResult(Map<String,dynamic> json) => D01PilotResult.fromJson(json,
+    expectedJobId:id,expectedVideoHash:fixture()['videoHash'] as String,
+    expectedFastInput:const D01FastInput(targetPoint:[.3,.46]));
+  test('Automatic timing uses effective call, leaves manual times empty and rejects inconsistent source', () {
+    final json=automaticFixture('accepted');final r=automaticResult(json);
+    expect(r.callStart,isNull);expect(r.effectiveCallStart,.401);expect(r.callTimingSource,'automatic_word_timing');
+    expect(r.raw.single.callPhase,'after_call');
+    (json['callTiming'] as Map)['matchCount']=2;
+    expect(()=>automaticResult(json),throwsA(isA<D01PilotException>()));
+    for(final status in ['not_found','ambiguous','low_confidence','unavailable','failed']) {
+      final unknown=automaticResult(automaticFixture(status));
+      expect(unknown.raw.length,1);expect(unknown.effectiveCallStart,isNull);expect(unknown.raw.single.callStartDifference,isNull);
+    }
+  });
+  testWidgets('Automatic word timing is shown without manual confirmation', (tester) async {
+    final api=ControlledPilotApi();
+    api.makeTask=(){final t=ControlledPilotTask();t.readStatus=()async=>D01PilotStatus.fromJson({'jobId':id,'status':'completed'});
+      t.readResult=()async=>automaticResult(automaticFixture('accepted'));return t;};
+    await tester.pumpWidget(MaterialApp(home:Scaffold(body:SingleChildScrollView(child:D01PilotPanel(
+      fastAnalysis:true,targetPoint:const [.3,.46],video:File('controlled.mp4'),videoIdentity:Object(),duration:const Duration(seconds:7),openingVideo:false,
+      onSeek:(_)async{},api:api,initialAccessKey:'session-only',pollInterval:const Duration(milliseconds:1))))));
+    final start=find.byKey(const ValueKey('pilot-start'));await tester.ensureVisible(start);await tester.tap(start);await tester.pumpAndSettle();
+    expect(find.textContaining('Otomatik çağrı zamanı: 0.401 sn – 1.152 sn'),findsOneWidget);
+    expect(find.textContaining('konuşanı, gerçek seslenmeyi veya çocuğun tepki verdiğini doğrulamaz'),findsOneWidget);
+    expect(api.fastInputs.single!.callStart,isNull);
+    await tester.pumpWidget(const SizedBox.shrink());await tester.pump();
+  });
   test('API1.2 preserves missing ends, phases, coverage and hash binding', () {
     final r=result(fixture()); expect(r.fast,isTrue);expect(r.raw.single.end,isNull);
     expect(r.raw.single.callPhase,'after_call');expect(r.coverage['poseFrames'],43);

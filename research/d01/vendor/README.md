@@ -28,3 +28,10 @@ kaynaklarını belirtir:
 
 Bu dosyayla model ağırlığı, video veya paketli deney çıktısı dağıtılmaz.
 Üçüncü taraf yazılımların kendi lisans ve atıf koşulları geçerlidir.
+
+Otomatik kelime zamanı adaptörü `../automatic_call.py`, aynı ZIP'in
+`kod/audio_label_tool/audio_labels.py` dosyasındaki `normalize` ve tam isim
+eşleştirmesini; `kod/isme_tepki/analiz.py` içindeki faster-whisper kelime
+zamanlaması çağrısını yeniden kullanır. Kullanıcı bu uyarlamayı ayrıca istedi.
+Orijinal araçta çıktılar incelenmemiş taslaktır; yeni pilot da ASR zamanlarını
+tahmin olarak tutar, kullanıcı onayı veya klinik doğrulama uydurmaz.

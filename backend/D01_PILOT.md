@@ -1,5 +1,44 @@
 # Deneysel D01 analiz işi — yerel bağlantı
 
+## Otomatik çağrı kelime zamanı — 8 Kasım 2026, yerel uygulama / gerçek kabul açık
+
+Hızlı yol, manuel çağrı alanları boşken de Türkçe **Deniz** kelimesini yerel faster-whisper small/CPU/int8 ile arar. ZIP `audio_label_tool/audio_labels.py` NFC/Türkçe harf/noktalama normalizasyonu ve tam kelime eşleşmesi; `isme_tepki/analiz.py` kelime zaman damgalı transcribe/generator tüketimi yeniden kullanıldı. İsim dışında konuşma dökümü API'ye aktarılmaz. Tek eşleşme için sonlu/video içi pozitif kelime aralığı, kelime olasılığı ≥0,80, segment no_speech_prob ≤0,50 ve avg_logprob ≥−1 sabit teknik kabul kontrolleridir; kalibre edilmiş güven veya klinik eşik değildir. Birden çok eşleşmede seçim yapılmaz. İsim yokluğu, düşük güven, hazır olmayan model/bağımlılık ve normal ses istisnaları baş hareketi sonucunu engellemez; zaman/farklar null olur. Mevcut iptal/iş timeout'u bütün işi kesmeye devam eder. Manuel iki işaret verilirse etkin zaman olarak önceliklidir; otomatik ses gözlemi ayrıca yapılır. Başlangıç noktası/ROI/hareket eşikleri değişmedi.
+
+`PILOT_D01_FAST_PYTHON` iki bağımlılığı da içeren ayrı araştırma Python'unu, `PILOT_D01_AUDIO_MODEL` önceden hazırlanmış yerel mutlak model klasörünü belirtir. Python yalnız yerel dosya yükler (`local_files_only=True`); model/tokenizer/preprocessor hazır değilse analizin içinde indirme başlatmaz. Model indirmesi yalnız aşağıdaki açık kurulum adımındadır. Eski `.venv_headpose` ve hibrit ortamına paket kurulmaz; yeni ortam görsel paketleri salt okunur kullanır, yeni ses paketleri `--ignore-installed` ile yalnız yeni ortama kurulur. Hazırlık dosyası paket sürümlerini ve model SHA256'larını kaydeder.
+
+Normal Windows PowerShell, **tek seferlik hazırlık** (video analizi başlatmaz):
+
+```powershell
+Set-Location C:\Projeler\Norogelisim\mobil_rag_223bc7d
+& .\research\d01\setup_audio_environment.ps1
+if ($LASTEXITCODE -ne 0) { throw 'Ses hazırlığı tamamlanmadı' }
+```
+
+Hazırlık başarılı olunca yalnız ilgili terminal oturumunda:
+
+```powershell
+$env:PILOT_D01_FAST_PYTHON = 'C:\Projeler\Norogelisim\calisma\venv_d01_audio_20261108_01\Scripts\python.exe'
+$env:PILOT_D01_AUDIO_MODEL = 'C:\Projeler\Norogelisim\calisma\models\d01_faster_whisper_small'
+# İki gerçek yerel API işi: yeni çıktı klasörü, hazır manuel işaretler yalnız SONRADAN karşılaştırılır.
+$audioAcceptance = Join-Path 'C:\Projeler\Norogelisim\outputs\d01_headpose_method_compare' ('audio_api_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '_' + [guid]::NewGuid().ToString('N'))
+node backend/test/real_fast_api_check.js --run --automatic-call --sources research/d01/parameters/audio_deniz_acceptance.json --output-dir $audioAcceptance
+if ($LASTEXITCODE -ne 0) { throw 'Gerçek ses/API kabulü başarısız; kayıtları koruyun' }
+```
+
+Bu betik yalnız kendi loopback backend/çocuk süreçlerini açıp kapatır; sır rastgele bellekte oluşur. `--automatic-call` modunda iki çağrı alanı HTTP'ye **gönderilmez**. `acceptance.json` otomatik başlangıç/bitiş, ses ek süresi ve yaklaşık manuel işaretlere farkları içerir. Kaynaklar: eski ilk klip0,000–0,650 sn ve `20261024200833.mp4`0,401–1,152 sn; bunlar onaylı ground truth değildir. API adımı tamamlanınca ayrı emülatör backend'i için bu oturumdaki iki ortam ayarıyla aşağıdaki mevcut stdin-anahtarlı başlatıcı kullanılır; otomatik API betiği emülatör backend'inin yerine geçmez.
+
+API1.2'ye isteğe bağlı sürümlü `callTiming` eklenir:
+
+```json
+{"schemaVersion":"d01-call-timing-1.0","source":"automatic_word_timing","startS":0.4,"endS":1.1,"audioStatus":"accepted","matchCount":1,"name":"Deniz","language":"tr"}
+```
+
+Bu sayılar yalnız sözleşme örneğidir. `source`: `automatic_word_timing`/`manual_user_input`/`unknown`; ses durumları `accepted`, `not_found`, `ambiguous`, `low_confidence`, `unavailable`, `failed`. Belirsiz etkin zamanlar null'dır. `manualTimes` yalnız gerçekten gönderilmiş manuel alanları tutar, otomatik zamanlarla doldurulmaz. Eski `start_minus_manual_call_*` alan adları uyumluluk için korunur; yeni `callTiming` varsa farkların kaynağı **etkin çağrı zamanı**dır. `callPhase` bu etkin başlangıca göre hesaplanır; çağrı öncesi hareket yeni tepki sayılmaz. Eski `callTiming` içermeyen1.2 ve1.0/1.1 sonuçları okunmaya devam eder. Yeni otomatik sonuç için güncel mobil istemci gerekir; eski istemcinin çalıştığı varsayılmaz.
+
+Mobil “Otomatik çağrı zamanı” ve kelime zamanı tahmini açıklamasını gösterir; belirsizlikte çağrıya göre değerlendirme yapılmadığını belirtir. Kelimeyi bulmak konuşanı, gerçek seslenmeyi veya çocuğun tepkisini doğrulamaz; baş hareketi ve poz kapsamı aynen görünür. `audio_s` ek ses süresi; `audio_model_load_s` ve `audio_transcribe_s` onun alt kapsamlarıdır, üst üste toplanmaz.
+
+**Bu tur doğrulama:**14 kontrollü Python ve37 kontrollü backend testi geçti. Flutter komutu çıktısız kaldı, kendi komutu iptal edildi; Dart telemetri dosyası OS Error5 verdi. İlk ses paket kurulumu ayrı ortamda `No matching distribution found for faster-whisper` ile durdu. Dolayısıyla gerçek iki-klip ses ölçümü, manuel farklar, gerçek sesli API kabulü ve mobil prova **henüz yapılmadı**; süre uydurulmadı. Önceki16 panel testi önceki sürüme aittir. Model/kurulum engeli çözülmeden otomatik çağrı bağlantısı doğrulanmış sayılmaz.
+
 ## Güncel yerel hızlı yol — 8 Kasım 2026, API 1.2
 
 **Son doğrulama:** kullanıcı normal Windows PowerShell'de iki videolu gerçek hızlı API kontrolünün geçtiğini bildirdi; anne–çocuk videosunun mobil görünür sonuç süresi 19,926 sn, poz kapsamı 100/190 kare, ilk bitiş belirsizdir. Son bitiş sunumu değişikliğinde `d01_pilot_panel_test.dart` içindeki 16 test kullanıcı tarafından geçti. Aşağıdaki ilk hazırlık/başarısız deneme kayıtları tarihsel olup bu doğrulamalarla karıştırılmamalıdır; güncel tüm mobil grubun bu commit için yeniden çalıştırıldığı iddia edilmez. Kaynak atfı ve kullanıcı paylaşım izni: [vendor/README.md](../research/d01/vendor/README.md).

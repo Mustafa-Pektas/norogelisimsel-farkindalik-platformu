@@ -211,6 +211,9 @@ if (!j) return null;
     job.method = 'mediapipe_pnp_flow'; job.sourceType = 'automatic_face_tracking'; job.manual = manual; job.targetPoint = point ?? null;
     const args = ['-X', 'utf8', '-B', path.resolve(__dirname, '../research/d01/fast_cli.py'), '--video', video,
       '--face-model', model, '--output-dir', path.join(dir, 'run')];
+    if (env.PILOT_D01_AUDIO_MODEL && path.isAbsolute(env.PILOT_D01_AUDIO_MODEL)) {
+      args.push('--audio-model', env.PILOT_D01_AUDIO_MODEL);
+    }
     if (point) { write(path.join(dir, 'target_point.json'), point); args.push('--target-point', path.join(dir, 'target_point.json')); }
     if (Object.keys(manual).length) {
       write(path.join(dir, 'manual.json'), { video_path: video, video_sha256: job.videoHash, candidate_status: 'manual_candidate_unreviewed',

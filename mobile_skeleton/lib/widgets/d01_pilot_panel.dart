@@ -89,7 +89,9 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
 
   double? _visibleElapsed;
   D01FastInput get _fastInput => D01FastInput(
-    targetPoint: widget.userMarked && widget.targetPoint != null ? List<double>.unmodifiable(widget.targetPoint!) : null,
+    targetPoint: widget.userMarked && widget.targetPoint != null
+        ? List<double>.unmodifiable(widget.targetPoint!)
+        : null,
     callStart: _callStart,
     callEnd: _callEnd,
   );
@@ -134,7 +136,9 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
     }
     if (!_inputValid) {
       setState(
-        () => _message = widget.fastAnalysis ? 'Hedef yüzü ve isteğe bağlı çağrı işaretlerinin sırasını kontrol edin.' : 'Baş bölgesini ve video içinde sıralı çağrı zamanlarını işaretleyin.',
+        () => _message = widget.fastAnalysis
+            ? 'Hedef yüzü ve isteğe bağlı çağrı işaretlerinin sırasını kontrol edin.'
+            : 'Baş bölgesini ve video içinde sıralı çağrı zamanlarını işaretleyin.',
       );
       return;
     }
@@ -156,7 +160,9 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
     widget.onBusyChanged?.call(true);
     _elapsed.reset();
     _elapsed.start();
-    _visibleClock..reset()..start();
+    _visibleClock
+      ..reset()
+      ..start();
     setState(() {
       _visibleElapsed = null;
       _stage = 'uploading';
@@ -225,12 +231,23 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
           _status = status;
           _result = result;
           WidgetsBinding.instance.addPostFrameCallback((_) async {
-            if (!mounted || generation != _generation || !identical(_result, result)) { return; }
+            if (!mounted ||
+                generation != _generation ||
+                !identical(_result, result)) {
+              return;
+            }
             final anchorContext = _resultAnchor.currentContext;
-            if (anchorContext == null || !anchorContext.mounted) { return; }
+            if (anchorContext == null || !anchorContext.mounted) {
+              return;
+            }
             try {
-              await Scrollable.ensureVisible(anchorContext, duration: const Duration(milliseconds: 250));
-            } catch (_) { return; }
+              await Scrollable.ensureVisible(
+                anchorContext,
+                duration: const Duration(milliseconds: 250),
+              );
+            } catch (_) {
+              return;
+            }
             if (mounted &&
                 generation == _generation &&
                 identical(_result, result)) {
@@ -327,9 +344,16 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
   String _time(double? t) =>
       t == null ? 'bilinmiyor' : '${t.toStringAsFixed(3)} sn';
 
-  bool _canSeek(D01MotionCandidate c) => !widget.openingVideo &&
-    (_result?.fast == true ? c.start != null && c.start! >= 0 && c.start! < widget.duration.inMicroseconds / 1e6 &&
-      (c.end == null || c.end! >= c.start! && c.end! <= widget.duration.inMicroseconds / 1e6) : c.canSeek(widget.duration));
+  bool _canSeek(D01MotionCandidate c) =>
+      !widget.openingVideo &&
+      (_result?.fast == true
+          ? c.start != null &&
+                c.start! >= 0 &&
+                c.start! < widget.duration.inMicroseconds / 1e6 &&
+                (c.end == null ||
+                    c.end! >= c.start! &&
+                        c.end! <= widget.duration.inMicroseconds / 1e6)
+          : c.canSeek(widget.duration));
   Widget _candidate(D01MotionCandidate c, String method) => ListTile(
     key: ValueKey('pilot-$method-${c.id}'),
     contentPadding: EdgeInsets.zero,
@@ -584,26 +608,59 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
                 'Poz ölçülemeyen aralık: ${_time((gap['startS'] as num).toDouble())} – ${_time((gap['endS'] as num).toDouble())}',
               ),
             Text(
-              result.callStart == null
+              result.callTimingSource == 'automatic_word_timing'
+                  ? 'Otomatik çağrı zamanı: ${_time(result.effectiveCallStart)} – ${_time(result.effectiveCallEnd)} (kelime zamanı tahmini)'
+                  : result.callTimingSource == 'unknown'
+                  ? 'Otomatik çağrı zamanı belirsiz; çağrıya göre değerlendirme yapılamaz.'
+                  : result.callStart == null
                   ? 'Çağrı zamanı bilinmiyor; çağrıya göre değerlendirme yapılamaz.'
                   : 'Kullanıcı çağrı işareti: ${_time(result.callStart)} – ${_time(result.callEnd)}',
             ),
+            if (result.callTimingSource != null)
+              Text(switch (result.audioStatus) {
+                'not_found' => 'Deniz kelimesi bulunamadı; bu, seslenme olmadığı anlamına gelmez.',
+                'ambiguous' => 'Birden fazla olası Deniz eşleşmesi var; çağrı zamanı seçilmedi.',
+                'low_confidence' =>
+                  'Kelime zamanlaması kabul kontrollerini karşılamadı.',
+                'unavailable' => 'Ses modeli veya bağımlılığı hazır değil; baş hareketi sonucu korundu.',
+                'failed' =>
+                  'Ses adımı tamamlanamadı; baş hareketi sonucu korundu.',
+                _ => 'Deniz kelimesinin bulunması konuşanı, gerçek seslenmeyi veya çocuğun tepki verdiğini doğrulamaz.',
+              }),
             ExpansionTile(
               title: const Text('Ölçüm süreleri'),
               children: [
-                TextButton(key: const ValueKey('pilot-copy-measurement'), onPressed: _visibleElapsed == null ? null : () async {
-                  final generation = _generation;
-                  try {
-                    await Clipboard.setData(ClipboardData(text: jsonEncode({
-                      'schemaVersion': 'd01-mobile-observation-1.0', 'jobId': result.jobId,
-                      'videoHash': result.videoHash, 'method': 'mediapipe_pnp_flow',
-                      'startToVisibleSeconds': _visibleElapsed, 'serverTimings': result.timings,
-                      'coverage': result.coverage, 'clinicalClassification': null,
-                    })));
-                  } catch (_) {
-                    if (mounted && generation == _generation) { setState(() => _message = 'Ölçüm özeti kopyalanamadı.'); }
-                  }
-                }, child: const Text('Ölçüm özetini kopyala')),
+                TextButton(
+                  key: const ValueKey('pilot-copy-measurement'),
+                  onPressed: _visibleElapsed == null
+                      ? null
+                      : () async {
+                          final generation = _generation;
+                          try {
+                            await Clipboard.setData(
+                              ClipboardData(
+                                text: jsonEncode({
+                                  'schemaVersion': 'd01-mobile-observation-1.0',
+                                  'jobId': result.jobId,
+                                  'videoHash': result.videoHash,
+                                  'method': 'mediapipe_pnp_flow',
+                                  'startToVisibleSeconds': _visibleElapsed,
+                                  'serverTimings': result.timings,
+                                  'coverage': result.coverage,
+                                  'clinicalClassification': null,
+                                }),
+                              ),
+                            );
+                          } catch (_) {
+                            if (mounted && generation == _generation) {
+                              setState(
+                                () => _message = 'Ölçüm özeti kopyalanamadı.',
+                              );
+                            }
+                          }
+                        },
+                  child: const Text('Ölçüm özetini kopyala'),
+                ),
                 for (final e in result.timings.entries)
                   ListTile(
                     title: Text(e.key),
