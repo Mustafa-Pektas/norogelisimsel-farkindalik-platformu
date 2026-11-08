@@ -13,11 +13,13 @@ async function main() {
   const repo = path.resolve(__dirname, '..');
   const data = path.dirname(repo);
   const python = path.join(data, '.venv_headpose', 'Scripts', 'python.exe');
+  const fastPython = path.join(data, 'calisma', 'venv_d01_hybrid_20261107_01', 'Scripts', 'python.exe');
+  const faceModel = path.join(data, 'calisma', 'Video Analizinin Feasibility Testi', 'face_landmarker.task');
   const weights = path.join(data, 'araclar', '6DRepNet360_Full-Rotation_300W_LP+Panoptic.pth');
   const official = path.join(data, 'dis_kaynaklar', '6DRepNet360');
   const cli = path.join(repo, 'research', 'd01', 'pilot_cli.py');
   const protocol = path.join(repo, 'research', 'd01', 'parameters', 'pilot_v1.json');
-  for (const file of [python, weights, cli, protocol, path.join(official, 'sixdrepnet360', 'test.py')]) {
+  for (const file of [python, fastPython, faceModel, weights, cli, protocol, path.join(official, 'sixdrepnet360', 'test.py')]) {
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) throw new Error('local_runtime_path_missing');
   }
   const outputParent = path.join(data, 'outputs', 'd01_headpose_6drepnet360');
@@ -28,6 +30,7 @@ async function main() {
   const env = {
     BACKEND_MODE: 'deployment', GENERATION_MAX_CONCURRENT: '1',
     TEAM_ACCESS_KEY: payload.accessKey, PILOT_D01_ENABLED: 'true',
+    PILOT_D01_FAST_PYTHON: fastPython, PILOT_D01_FACE_MODEL: faceModel,
     PILOT_D01_PYTHON: python, PILOT_D01_WEIGHTS: weights,
     PILOT_D01_OFFICIAL_SOURCE: official, PILOT_D01_JOBS_DIR: path.join(runRoot, 'jobs'),
     PILOT_D01_TIMEOUT_MS: '900000', PILOT_D01_KILL_GRACE_MS: '10000',
@@ -69,7 +72,7 @@ async function main() {
       app = createApp({ env, generate: async () => { throw new Error('provider_disabled_in_local_pilot'); } });
       fs.writeFileSync(path.join(runRoot, 'local_server.json'), JSON.stringify({
         startedUtc: new Date().toISOString(), address: 'http://127.0.0.1:8000',
-        python, weights, officialSource: official, cli, protocol,
+        python, fastPython, faceModel, weights, officialSource: official, cli, protocol,
         jobsDirectory: env.PILOT_D01_JOBS_DIR, analysisTimeoutMs: 900000, killGraceMs: 10000,
         dotenvLoaded: false, accessKeySaved: false, automaticAnalysis: false,
       }, null, 2), { flag: 'wx', mode: 0o600 });

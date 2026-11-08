@@ -1,5 +1,104 @@
 # Deneysel D01 analiz işi — yerel bağlantı
 
+## Güncel yerel hızlı yol — 8 Kasım 2026, API 1.2
+
+**Son doğrulama:** kullanıcı normal Windows PowerShell'de iki videolu gerçek hızlı API kontrolünün geçtiğini bildirdi; anne–çocuk videosunun mobil görünür sonuç süresi 19,926 sn, poz kapsamı 100/190 kare, ilk bitiş belirsizdir. Son bitiş sunumu değişikliğinde `d01_pilot_panel_test.dart` içindeki 16 test kullanıcı tarafından geçti. Aşağıdaki ilk hazırlık/başarısız deneme kayıtları tarihsel olup bu doğrulamalarla karıştırılmamalıdır; güncel tüm mobil grubun bu commit için yeniden çalıştırıldığı iddia edilmez. Kaynak atfı ve kullanıcı paylaşım izni: [vendor/README.md](../research/d01/vendor/README.md).
+
+Mevcut POST/GET/status/result/DELETE yolları kullanılır. Multipart `method=mediapipe_pnp_flow` hızlı CPU Tasks/PnP+optik akış yolunu seçer. `video` zorunlu; `targetPoint=[x,y]` isteğe bağlı normalize ilk-kare yüz noktasıdır (0–1, dikdörtgen değildir). `callStartS`/`callEndS` birlikte isteğe bağlı, milisaniye çözünürlüğünde kullanıcı işaretleridir. Gönderilmezse çağrı ve farklar null kalır. Hareket sınırı, çalıştırılabilir yol veya ROI bu yönteme gönderilmez. 24 FPS / 30 sn / 25 MiB sınırı korunur.
+
+Sunucuya ait mutlak `PILOT_D01_FAST_PYTHON` ve `PILOT_D01_FACE_MODEL` yolları gerekir. Yerel başlatıcı mevcut `calisma/venv_d01_hybrid_20261107_01/Scripts/python.exe` ve `calisma/Video Analizinin Feasibility Testi/face_landmarker.task` dosyasını kullanır. Yeni paket veya model indirilmedi. Bu yerel yapılandırmadır; uzak sunucu güncellenmedi. Eski yöntem alanı olmayan API1.0/1.1 istekleri ve iki hazır ROI profili aynı 6D yolunda korunur; eski yerel 4/14 thread davranışı değiştirilmedi. Mobil pilot ekranının etkin yolu hızlı yöntemdir; 6D karşılaştırması araştırma referansıdır.
+
+`research/d01/vendor/friend_vision.py` ZIP'teki değişmemiş FaceTrack/LK/PnP kodudur. Tasks çoklu yüz araması ve muhafazakâr konum/görünüm eşleştirmesi adaptörde yapılır. Başlangıçta birden fazla olası yüz varsa seçilmez. İsteğe bağlı tek dokunuş yüzü belirtir; kişi yaşı veya çocuk kimliği otomatik doğrulanmaz. Uzun kayıptan sonra başka yüze yeniden bağlanılmaz. Optik akışta matris/açı null; PnP reddi ve takip kaybı da eksik ölçümdür. Bu mühendislik sınırları hedef kimliğinin kesin korunduğu iddiası değildir.
+
+API1.2: kabul edilen jobId/videoHash ile eşleşen `source.type=automatic_face_tracking`, `coverage`, `missingPoseIntervals`, `manualTimes`, ham/EMA `movements`, `callPhase` ve `timings` döner. Başlangıç/bitiş/doğrulama zamanları ayrı; bilinmeyen bitiş null. Çağrıdan önce başlayan aday sonradan yeni tepki diye etiketlenmez. `settling=[]`; yerleşme veya doğru kişiye yönelme hesaplanmış gibi gösterilmez. Detay JSONL/ham hata/yerel yol API'ye verilmez.
+
+Süre kapsamları: `upload_s` backend kabulünden yükleme bitimine; `child_process_s` çocuk başlatılmasından kapanışına; Python `total_s` kendi toplamıdır. Model, ön kontrol, takip/PnP ve son işleme süreleri Python toplamının alt kapsamlarıdır; bunlar birbiriyle toplanmaz. Ayrı optik akış süresi ölçülmedi. Mobil, açık Başlat eyleminden sonuç çizilip görünür konuma kaydırılmasına kadar oturumluk süre ölçer; ağ kesintisiyle aynı işe devam edilmesi bu süreye dahildir. Anahtar içermeyen ölçüm özeti isteğe bağlı kopyalanabilir.
+
+**Bu tur:** 39 kontrollü backend ve 6 takip/CLI testi geçti. İki gerçek hızlı Python koşusu tamamlandı; bunlar mobil uçtan uca süre değildir. Gerçek loopback HTTP yüklemesi kabul edildi fakat alt süreç `cli_start_failed` ile başlayamadı; bu oturumda Node→Python gerçek kabulü doğrulanmadı. Test backend'i kapandı. Flutter testi çıktısız kaldı ve yalnız kendi komutu iptal edildi; doğrudan Dart analizinde telemetri dosyasına erişim engeli çıktı. Normal PowerShell doğrulaması ve son emülatör kabulü açık.
+
+### Son yerel kabul — normal Windows PowerShell
+
+Önce mobil kontrolleri çalıştırın:
+
+```powershell
+Set-Location C:\Projeler\Norogelisim\mobil_rag_223bc7d\mobile_skeleton
+& C:\dev\flutter\bin\flutter.bat test --no-pub test/d01_fast_input_test.dart test/d01_marked_input_test.dart test/d01_pilot_service_test.dart test/d01_pilot_panel_test.dart test/video_analysis_source_test.dart
+if ($LASTEXITCODE -ne 0) { throw 'Mobil testler başarısız' }
+& C:\dev\flutter\bin\flutter.bat analyze --no-pub
+```
+
+Ayrı PowerShell'de yerel backend (gerçek .env okunmaz, mevcut port doluysa süreç sonlandırılmaz):
+
+```powershell
+Set-Location C:\Projeler\Norogelisim\mobil_rag_223bc7d
+$pilotSecret = Read-Host 'Oturumluk ekip anahtarını girin' -AsSecureString
+$pilotCredential = [System.Net.NetworkCredential]::new('', $pilotSecret)
+try { @{accessKey=$pilotCredential.Password} | ConvertTo-Json -Compress | node backend/start_d01_pilot_local.js }
+finally { $pilotCredential = $null; $pilotSecret = $null }
+```
+
+Diğer PowerShell:
+
+```powershell
+Set-Location C:\Projeler\Norogelisim\mobil_rag_223bc7d\mobile_skeleton
+& C:\dev\flutter\bin\flutter.bat run --no-pub --dart-define=D01_PILOT_SERVER_URL=http://10.0.2.2:8000
+```
+
+Video Analizi → Deneysel D01: önce denetlenmiş `20261024200833.mp4`, sonra 595bd04e… işindeki anne/çocuk videosu. Her video için ilk karede çocuğun yüzüne tek dokunuş yapın; oynatma ilerlemişse ilk dokunuş yalnız başa alır, yüz noktasını ilk karede tekrar seçin. Çağrıyı biliyorsanız oynatıcıdan iki sınırı işaretleyin; bilmiyorsanız ikisini boş bırakın. Aynı oturum anahtarını girip açıkça Başlat'a basın. Sonuçta kapsam/kayıp ve bilinmeyen bitişi, ham/EMA adaylarını kontrol edin; adaya dokunma aynı videoyu duraklatılmış olarak görünür kılmalı. Ölçüm özetini kopyalayın. İkinci videonun manuel hareket sınırları yoktur; hata hesabı yapılamaz. Bu son adım henüz yapılmadı; süreler uydurulmadı.
+
+
+
+## Profil dışı kullanıcı işaretli video — yerel API 1.1
+
+Bu bölüm güncel genişletmedir; aşağıdaki iki-video/alan sınırı notları tarihsel1.0 sözleşmesini anlatır. Mobil arayüz bu adımda değiştirilmedi; yeni yolun1.1 sonucunu henüz okuyamaz.
+
+Mevcut `POST /api/pilot-d01/jobs` ve GET durum/sonuç/DELETE yolları kullanılır. Auth, tek aktif iş (kuyruk yok), iptal/timeout,25 MiB dosya sınırı ve1 MiB genel JSON sınırı korunur. İki hazır SHA profili ROI alanı verilmeden otomatik ROI ve `d01-pilot-api-1.0` yanıtıyla çalışır. Hazır profil için ROI gönderilirse `profile_roi_fixed` döner; otomatik ROI sessizce değişmez. Profil tablosu düzenlenmedi.
+
+Profil dışı videoda multipart alanları:
+
+| Alan | Anlam |
+|---|---|
+| `video` | Tek video dosyası; en fazla25 MiB |
+| `roi` | JSON metni: yalnız tamsayı `x,y,width,height`; kaynak görüntü pikselleri, sol üst başlangıç. Ekran/thumbnail koordinatı değildir. |
+| `callStartS`, `callEndS` | İkisi zorunlu; sonlu, negatif olmayan ondalık saniye, en fazla milisaniye çözünürlüğü; bitiş başlangıçtan önce olamaz. |
+
+Örnek alanlar (gerçek çağrı başlatmaz):
+
+```text
+video: <seçilen yeni dosyanın baytları>
+roi: {"x":220,"y":140,"width":320,"height":320}
+callStartS: 0.401
+callEndS: 1.152
+```
+
+Kullanıcı ROI'si dolgusuz ve görüntünün içinde olmalı. Yeni yol **24 FPS, en fazla30 saniye/720 çözümlenmiş kare**, sabit boyut ve en fazla8388608 piksel/kare ile sınırlıdır. Bunlar kaynak kullanım sınırlarıdır; davranış/klinik eşikler değildir. Python `--user-marked` ön kontrolü tüm kısa videoyu **model yüklemeden** çözümler; gerçek kare boyutlarını, kare sayısını, OpenCV zamanlarının24 FPS çizgisiyle1ms içinde uyumunu ve çağrı aralığını doğrular. Süre, çözümlenen CFR video karelerinin kapsadığı zamandır (`count/24`); ses izi süresi, bağımsız PTS/AV senkron doğrulaması veya LibVLC zamanı değildir.24FPS dışı/uyumsuz zaman çizgisi yeniden örneklenmez, yanlış ROI kırpılarak/dolguyla düzeltilmez. Başın doğru seçildiği veya seslenmenin doğru işaretlendiği anlamsal olarak onaylanmaz.
+
+Yükleme alanları yapısal olarak doğruysa202 döner. Bu, geometri/süre doğrulaması veya tamamlanmış analiz demek değildir. Özel video için202 ek alanları `videoHash` ve `sourceType: user_marked` içerir. Gerçek medya ön kontrolü aynı iş içinde çalışır; başarısızsa GET durumunda failed ve güvenli `invalid_roi`, `invalid_manual_times`, `unsupported_fps`, `unsupported_timeline`, `video_too_long` veya `invalid_video` kodu görülür. Model yüklenmez; slot çocuk süreç gerçekten kapanınca bırakılır. ROI verilmemiş bilinmeyen video422 `roi_required`; bozuk ROI/eksik veya ters çağrı aralığı400 olur. Multipart sınırı yalnız bu yol için1 dosya+3 kısa alan, alan başına256 bayt, parça sınırı5 oldu (Busboy sınır olayı payı dahil).
+
+Özel sonucun yeni alanları (şema örneği; ölçülmüş analiz değildir):
+
+```json
+{
+  "schemaVersion": "d01-pilot-api-1.1",
+  "jobId": "<UUID>",
+  "profileId": null,
+  "videoHash": "<yüklenen baytların sunucuda hesaplanan SHA256 değeri>",
+  "source": {
+    "schemaVersion": "d01-input-source-1.0",
+    "type": "user_marked",
+    "roi": {"x":220,"y":140,"width":320,"height":320,"padding_ltrb_source_px":[0,0,0,0],"human_supplied":true},
+    "video": {"width":1280,"height":720,"fps":24,"durationS":7,"decodedFrames":168,"durationSource":"decoded_CFR_video_frame_extent"},
+    "validation": "media_bounds_only_not_content_or_ROI_quality_approval"
+  }
+}
+```
+
+Mevcut `manualTimes`, ham/EMA `movements`, ayrı doğrulama zamanları, sayılar ve yerleşme özetleri korunur. Manuel çağrı zamanlarının kaynağı `manual_user_input`, durum `unreviewed`; hareket işaretleri kabul edilmez/null kalır. Çağrıya göre zaman farkları negatif olabilir, davranış/tepki sınıfı değildir. `algorithmicTarget=not_determined`, `clockAlignmentVerified=false` kalır.
+
+**Hash allowlist değildir:** backend her yüklemenin SHA'sını hesaplar; CLI sonucu/manuel dosya/ayrıntı hash'leri aynı işe bağlanır. Allowlist yalnız otomatik hazır ROI seçer; profil dışı video doğru kullanıcı girdileriyle kabul edilir.1.1 kaynağı, ROI ve çözümlenen medya bilgisi sonuçta kontrol edilerek aktarılır; yerel dosya yolu veya traceback API'ye çıkmaz. Mobil sonraki adımda1.1 kaynağını, dolu çağrı zamanlarını ve yüklenen baytlar/iş/hash ilişkisini doğrulamalıdır; mevcut1.0 profiller korunmalıdır.
+
+Yerel kontrollü kontroller: `node --test --test-isolation=none backend/test/d01_pilot_jobs.test.js backend/test/deployment_mode.test.js` **31 geçti**; araştırma Python'uyla `python -m unittest test_pilot_cli test_pilot_metrics` **26 geçti**. Backend sahte çocuk süreç kullanır; Python kontrollü kısa video çözümlemesi, sahte runtime ve bozuk girdi kontrolleridir. Bu sonuçlar yeni gerçek videonun model doğruluğu, mobil uçtan uca kullanım veya uzak dağıtım kanıtı değildir. Gerçek model/API üretimi ve sunucu değişikliği bu adımda yapılmadı.
+
 ## Emülatör için kalıcı yerel oturum — 29 Ekim 2026 hazırlığı
 
 Mobil pilotun22 video testi, dört dosyalık60 test grubu ve temiz Flutter analizi **kullanıcı tarafından** bildirildi; bu hazırlıkta yeniden çalıştırılmadı. Son gerçek yerel Node→Python koşusu168 geçerli/0 başarısız kareyle656.502 sn'de tamamlanmıştı; emülatör bağlantısının gerçek analiz denemesi henüz yapılmadı. Aşağıdaki eski timeout kayıtları tarihsel denemelerdir.

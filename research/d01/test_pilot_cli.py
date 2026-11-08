@@ -97,6 +97,80 @@ class PilotCliTests(unittest.TestCase):
         self.assertEqual(state['execution']['effective_intraop_threads'],2)
         self.assertEqual(json.loads((self.args.output_dir/'settings.json').read_text())['protocol']['cpu_threads'],4)
 
+    def marked_setup(self):
+        self.args.user_marked=True;self.args.recorded_raw=None;self.args.recorded_report=None
+        self.args.manual=self.root/'marked.json'
+        self.annotation=dict(video_sha256=p.sha(self.video),marks={
+            'call_start_s':dict(media_time_ms=0,time_source='manual_user_input'),
+            'call_end_s':dict(media_time_ms=100,time_source='manual_user_input')})
+        self.args.manual.write_text(json.dumps(self.annotation))
+        return dict(width=10,height=10,fps=24,declared_frame_count=12,decoded_frame_count=12,duration_s=.5)
+
+    def test_marked_bounds_and_times_fail_before_model_loading(self):
+        info=self.marked_setup()
+        scenarios=[('invalid_roi',dict(x=9),None),('invalid_roi',dict(x=-1),None),
+            ('invalid_roi',dict(width=0),None),('invalid_roi',dict(x=True),None),
+            ('invalid_manual_times',{},dict(call_end_s=dict(media_time_ms=501))),
+            ('invalid_manual_times',{},dict(call_start_s=dict(media_time_ms=101))),
+            ('invalid_manual_times',{},dict(call_end_s=None))]
+        for i,(code,changes,marks) in enumerate(scenarios):
+            self.args.output_dir=self.root/f'bad_{i}'
+            roi=dict(x=0,y=0,width=10,height=10,padding_ltrb_source_px=[0,0,0,0],human_supplied=True,**{})
+            roi.update(changes);self.roi.write_text(json.dumps(roi))
+            annotation=json.loads(json.dumps(self.annotation));annotation['marks'].update(marks or {})
+            self.args.manual.write_text(json.dumps(annotation))
+            forbidden=lambda *args: self.fail('Invalid input loaded a model')
+            with self.subTest(code=code,changes=changes,marks=marks),self.assertRaises(p.PilotInputError):
+                p.run(self.args,runtime_factory=forbidden,marked_info_reader=lambda path:info)
+            state=json.loads((self.args.output_dir/'state.json').read_text())
+            self.assertEqual(state['code'],code);self.assertFalse(state['model_loaded'])
+
+    def test_marked_success_uses_existing_pipeline_and_posthoc_manual_report(self):
+        info=self.marked_setup()
+        self.args.official_source=self.root/'official'
+        source=self.args.official_source/'sixdrepnet360';source.mkdir(parents=True)
+        protocol=json.loads(self.protocol.read_text())
+        for name in protocol['official_source_sha256']:
+            file=source/name;file.write_text('# controlled fixture')
+            protocol['official_source_sha256'][name]=p.sha(file)
+        self.protocol.write_text(json.dumps(protocol))
+        called=[]
+        class FakeRuntime:
+            def __init__(self,*args):called.append(args);self.checks={};self.environment={'torch_threads':4}
+        with patch.object(p,'live_rows',lambda *args:iter(self.rows)):
+            result=p.run(self.args,runtime_factory=FakeRuntime,marked_info_reader=lambda path:info)
+        self.assertEqual(len(called),1)
+        self.assertEqual(result['user_marked_input']['source_type'],'user_marked')
+        self.assertEqual(result['user_marked_input']['video_metadata']['duration_s'],.5)
+        self.assertEqual(result['manual']['marks']['call_end_s']['time_s'],.1)
+        self.assertEqual(result['video']['sha256'],p.sha(self.video))
+        self.assertEqual(json.loads((self.args.output_dir/'state.json').read_text())['status'],'completed')
+
+    def test_marked_manual_video_hash_mismatch_fails_before_model(self):
+        info=self.marked_setup();self.annotation['video_sha256']='0'*64
+        self.args.manual.write_text(json.dumps(self.annotation))
+        with self.assertRaisesRegex(p.PilotInputError,'hash mismatch'):
+            p.run(self.args,runtime_factory=lambda *a:self.fail('Model loaded'),marked_info_reader=lambda path:info)
+
+    def test_decoded_media_metadata_and_roi_call_bounds_without_any_model(self):
+        import cv2
+        for fps in (24,30):
+            video=self.root/f'controlled_{fps}.avi'
+            writer=cv2.VideoWriter(str(video),cv2.VideoWriter_fourcc(*'MJPG'),fps,(64,48))
+            self.assertTrue(writer.isOpened())
+            for _ in range(48):writer.write(np.zeros((48,64,3),dtype=np.uint8))
+            writer.release()
+            if fps==30:
+                with self.assertRaises(p.PilotInputError) as error:p.inspect_marked_video(video)
+                self.assertEqual(error.exception.code,'unsupported_fps');continue
+            info=p.inspect_marked_video(video)
+            self.assertEqual((info['width'],info['height'],info['decoded_frame_count'],info['duration_s']),(64,48,48,2.0))
+            roi=dict(x=10,y=5,width=30,height=30,padding_ltrb_source_px=[0,0,0,0])
+            marks=dict(marks={k:dict(media_time_ms=v) for k,v in [('call_start_s',0),('call_end_s',2000)]})
+            self.assertEqual(p.validate_marked_input(roi,info,marks)['source_type'],'user_marked')
+            marks['marks']['call_end_s']['media_time_ms']=2001
+            with self.assertRaises(p.PilotInputError):p.validate_marked_input(roi,info,marks)
+
     def test_call_only_manual_is_posthoc_missing_movement_remains_unknown(self):
         self.make_rows(40,movement=True)
         manual=self.root/'manual.json';manual.write_text(json.dumps(dict(video_path=str(self.video),marks={

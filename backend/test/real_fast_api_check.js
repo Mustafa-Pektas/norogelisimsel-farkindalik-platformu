@@ -1,0 +1,72 @@
+// Explicit local acceptance only. Never loaded by node --test.
+const fs = require('node:fs');
+const path = require('node:path');
+const http = require('node:http');
+const crypto = require('node:crypto');
+const assert = require('node:assert/strict');
+async function main() {
+  const at = key => process.argv[process.argv.indexOf(key) + 1];
+  if (!process.argv.includes('--run') || !process.argv.includes('--output-dir') || !process.argv.includes('--sources')) throw new Error('explicit_arguments_required');
+  const root = path.resolve(at('--output-dir')); fs.mkdirSync(root, { recursive: false });
+  const repo = path.resolve(__dirname, '../..'), data = path.dirname(repo);
+  const sources = JSON.parse(fs.readFileSync(at('--sources'), 'utf8'));
+  const key = crypto.randomBytes(32).toString('hex');
+  const env = { BACKEND_MODE:'deployment',TEAM_ACCESS_KEY:key,GENERATION_MAX_CONCURRENT:'1',PILOT_D01_ENABLED:'true',
+    PILOT_D01_PYTHON:path.join(data,'.venv_headpose/Scripts/python.exe'),
+    PILOT_D01_WEIGHTS:path.join(data,'araclar/6DRepNet360_Full-Rotation_300W_LP+Panoptic.pth'),
+    PILOT_D01_OFFICIAL_SOURCE:path.join(data,'dis_kaynaklar/6DRepNet360'),PILOT_D01_JOBS_DIR:path.join(root,'jobs'),
+    PILOT_D01_FAST_PYTHON:path.join(data,'calisma/venv_d01_hybrid_20261107_01/Scripts/python.exe'),
+    PILOT_D01_FACE_MODEL:path.join(data,'calisma/Video Analizinin Feasibility Testi/face_landmarker.task'),
+    PILOT_D01_TIMEOUT_MS:'120000',PILOT_D01_KILL_GRACE_MS:'10000' };
+  const {createApp}=require('../server');
+  const app=createApp({env,generate:async()=>{throw new Error('provider_disabled');}}),server=http.createServer(app);
+  const report=[];
+  try {
+    await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+    const address=`http://127.0.0.1:${server.address().port}`;
+    async function request(method,suffix,body,expected) {
+      const r=await fetch(address+'/api/pilot-d01/jobs'+suffix,{method,headers:{Authorization:`Bearer ${key}`},body,signal:AbortSignal.timeout(15000)});
+      const json=await r.json();assert.equal(r.status,expected,`HTTP ${r.status}: ${json.code ?? ''}`);return json;
+    }
+    for (let i=0;i<sources.length;i++) {
+      const source=sources[i],bytes=fs.readFileSync(source.video),digest=crypto.createHash('sha256').update(bytes).digest('hex');
+      assert.equal(digest,source.sha256);
+      const started=performance.now(),form=new FormData();form.set('video',new Blob([bytes]),'pilot.mp4');
+      form.set('method','mediapipe_pnp_flow');form.set('targetPoint',JSON.stringify(source.targetPoint));
+      if(source.callStartS!==null){form.set('callStartS',source.callStartS.toFixed(3));form.set('callEndS',source.callEndS.toFixed(3));}
+      const accepted=await request('POST','',form,202);assert.equal(accepted.videoHash,digest);
+      let state; const deadline=performance.now()+135000;
+      do {
+        state=await request('GET','/'+accepted.jobId,undefined,200);
+        if(['completed','failed','interrupted'].includes(state.status)) break;
+        await new Promise(r=>setTimeout(r,250));
+      } while(performance.now()<deadline);
+      assert.equal(state.status,'completed',state.code ?? 'client_wait_limit');
+      const result=await request('GET','/'+accepted.jobId+'/result',undefined,200);
+      assert.equal(result.schemaVersion,'d01-pilot-api-1.2');assert.equal(result.videoHash,digest);assert.equal(result.jobId,accepted.jobId);
+      assert.equal(result.manualTimes.response_start_s.time_s,null);assert.equal(JSON.stringify(result).includes(root),false);
+      assert.equal(result.counts.processed,result.source.video.decodedFrames);
+      const job=JSON.parse(fs.readFileSync(path.join(root,'jobs',accepted.jobId,'job.json')));
+      assert.ok(job.childClosedAt>=job.childStartedAt);
+      assert.equal(job.childExitCode,0);
+      report.push({index:i,jobId:accepted.jobId,status:state.status,videoHash:digest,counts:result.counts,coverage:result.coverage,
+        upload_to_result_s:(performance.now()-started)/1000,mobile_visible_elapsed_s:null,timings:result.timings});
+      fs.writeFileSync(path.join(root,`api_result_${i}.json`),JSON.stringify(result,null,2));
+      fs.writeFileSync(path.join(root,'acceptance.json'),JSON.stringify({runs:report,mobileAcceptance:'not_run'},null,2));
+      console.log(JSON.stringify(report.at(-1)));
+    }
+  } catch (error) {
+    const states=fs.readdirSync(env.PILOT_D01_JOBS_DIR).filter(n=>/^[0-9a-f-]{36}$/.test(n)).map(n=>{
+      const job=JSON.parse(fs.readFileSync(path.join(env.PILOT_D01_JOBS_DIR,n,'job.json')));
+      return {jobId:job.jobId,status:job.status,code:job.code ?? null,startFailure:job.startFailure ?? null,
+        childExitCode:job.childExitCode ?? null,childExitSignal:job.childExitSignal ?? null};
+    });
+    fs.writeFileSync(path.join(root,'failure.json'),JSON.stringify({completedRuns:report,jobs:states,errorCode:error.code ?? 'acceptance_failed',mobileVisibleElapsed:null},null,2));
+    throw error;
+  } finally {
+    await app.locals.pilotD01.shutdown();server.closeAllConnections?.();
+    await new Promise(r=>server.close(r));
+    fs.writeFileSync(path.join(root,'closed.json'),JSON.stringify({backendClosed:!server.listening,ownChildrenClosed:true}));
+  }
+}
+if(require.main===module)main().catch(e=>{console.error('fast_acceptance_failed:',e.code ?? e.message);process.exitCode=1;});
