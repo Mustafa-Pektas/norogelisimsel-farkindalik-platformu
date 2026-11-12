@@ -52,6 +52,9 @@ def run(args):
     checkpoint()
     protected={str(p.resolve()):sha(p) for p in [args.video,args.face_model,Path(__file__),Path(__file__).with_name('fast_tracking.py'),Path(__file__).parent/'vendor/friend_vision.py']+[p for p in [args.manual,args.target_point] if p is not None]}
     try:
+        pose_engine=getattr(args,'pose_engine','mediapipe_pnp_flow')
+        if pose_engine not in ('mediapipe_pnp_flow','cascade_stride4_onnx'):
+            raise ValueError('Unsupported pose engine')
         t=time.perf_counter();info=inspect_marked_video(args.video);timings['media_preflight_s']=time.perf_counter()-t
         checksum=sha(args.video)
         if sha(args.face_model)!='64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff':raise PilotInputError('invalid_video','Unexpected local Tasks asset')
@@ -68,6 +71,8 @@ def run(args):
         if args.target_point:
             point=json.loads(args.target_point.read_text())
             if not isinstance(point,list) or len(point)!=2 or any(type(v) not in (int,float) or not 0<=v<=1 for v in point):raise PilotInputError('invalid_target','Normalized initial target point invalid')
+        if pose_engine=='cascade_stride4_onnx' and point is None:
+            raise PilotInputError('invalid_target','Stride4 requires an explicit target point')
         manual_start,manual_end=call_start,call_end
         checkpoint(stage='automatic_call',video_metadata=info)
         audio=detect_call(args.video,getattr(args,'audio_model',None),info['duration_s'])
@@ -77,9 +82,18 @@ def run(args):
         timings['audio_transcribe_s']=audio['timings'].get('transcribe_s')
         timing=effective_timing(audio,manual_start,manual_end)
         call_start,call_end=timing['startS'],timing['endS']
-        atomic(out/'settings.json',dict(video_hash=checksum,video=info,target_point=point,manual_call_times=[manual_start,manual_end],protocol='d01-fast-1.0',face_model_sha256=sha(args.face_model),association=dict(min_iou=.15,max_histogram_l2=.45,max_loss_s=2.5,no_reacquisition_after_long_loss=True),automatic_call=dict(name='Deniz',language='tr',local_files_only=True,word_probability_min=.8,segment_no_speech_max=.5,segment_avg_logprob_min=-1.,not_clinical_thresholds=True)))
+        atomic(out/'settings.json',dict(video_hash=checksum,video=info,target_point=point,manual_call_times=[manual_start,manual_end],protocol='d01-fast-1.0',face_model_sha256=sha(args.face_model),association=dict(min_iou=.15,max_histogram_l2=.45,max_loss_s=2.5,no_reacquisition_after_long_loss=pose_engine!='cascade_stride4_onnx'),automatic_call=dict(name='Deniz',language='tr',local_files_only=True,word_probability_min=.8,segment_no_speech_max=.5,segment_avg_logprob_min=-1.,not_clinical_thresholds=True)))
         checkpoint(stage='model_load',video_metadata=info)
-        t=time.perf_counter();tracker=FastTracker(args.face_model,point);timings['model_load_s']=time.perf_counter()-t
+        t=time.perf_counter()
+        if pose_engine=='cascade_stride4_onnx':
+            from stride4_tracking import Stride4Tracker
+            tracker=Stride4Tracker(args.face_model,point,args.stride4_source,args.onnx_model)
+            atomic(details/'pose_engine.json',tracker.provenance)
+        else:
+            tracker=FastTracker(args.face_model,point)
+        timings['model_load_s']=time.perf_counter()-t
+        timings.update(getattr(tracker,'load_timings',{}))
+        checkpoint(pose_engine=pose_engine)
         checkpoint(stage='tracking',model_loaded=True)
         import cv2
         cap=cv2.VideoCapture(str(args.video));elapsed_tracking=0.
@@ -106,13 +120,14 @@ def run(args):
                 start_minus_manual_call_end_s=None if c['start_s'] is None or call_end is None else c['start_s']-call_end,
                 callPhase=call_phase(c['start_s'],call_start,call_end)) for c in detection['candidates']]
         timings['candidate_postprocess_s']=time.perf_counter()-t
+        engine_counts=dict(repnetCalls=getattr(tracker,'repnet_calls',None))
         tracker.close();tracker=None;t=time.perf_counter()
         counts=Counter(r['track_source'] for r in rows)
-        runtime=environment(device='Tasks CPU')
-        for name in ['mediapipe','opencv-contrib-python']:
+        runtime=environment(device='CPU Tasks + ONNX Runtime' if pose_engine=='cascade_stride4_onnx' else 'Tasks CPU')
+        for name in ['mediapipe','opencv-contrib-python','onnxruntime']:
             try:runtime['packages'][name]=importlib.metadata.version(name)
             except importlib.metadata.PackageNotFoundError:runtime['packages'][name]=None
-        result=dict(schema_version='d01-fast-result-1.0',method='mediapipe_pnp_flow',video_hash=checksum,video_metadata=info,
+        result=dict(schema_version='d01-fast-result-1.0',method='mediapipe_pnp_flow',poseEngine=pose_engine,engineCounts=engine_counts,video_hash=checksum,video_metadata=info,
             counts=dict(processed=len(rows),valid=sum(r['valid'] for r in rows),invalid=sum(not r['valid'] for r in rows)),
             coverage=dict(poseFrames=sum(r['valid'] for r in rows),flowOnlyFrames=sum(r['track_source']=='optical_flow' and not r['valid'] for r in rows),
                 lostFrames=sum(r['track_source']=='lost' for r in rows),ambiguousFrames=sum(r['identity_status']=='target_ambiguous' for r in rows),totalFrames=len(rows)),
@@ -139,4 +154,7 @@ if __name__=='__main__':
     for k in ('video','face-model','output-dir'):parser.add_argument('--'+k,type=Path,required=True)
     parser.add_argument('--manual',type=Path);parser.add_argument('--target-point',type=Path)
     parser.add_argument('--audio-model',type=Path,help='Prepared local faster-whisper directory only; never download during analysis')
+    parser.add_argument('--pose-engine',choices=['mediapipe_pnp_flow','cascade_stride4_onnx'],default='mediapipe_pnp_flow')
+    parser.add_argument('--stride4-source',type=Path)
+    parser.add_argument('--onnx-model',type=Path)
     run(parser.parse_args())

@@ -6,6 +6,12 @@ const finite = v => typeof v === 'number' && Number.isFinite(v);
 function fastMainResult(job, run, state, result) {
   const bad = () => { throw new Error('invalid fast result'); };
   const meta = result.video_metadata; const counts = result.counts;
+  const poseEngine = result.poseEngine ?? 'mediapipe_pnp_flow';
+  if (!['mediapipe_pnp_flow','cascade_stride4_onnx'].includes(poseEngine) ||
+      poseEngine !== (job.poseEngine ?? 'mediapipe_pnp_flow')) bad();
+  if (poseEngine !== (state.pose_engine ?? 'mediapipe_pnp_flow')) bad();
+  const repnetCalls=result.engineCounts?.repnetCalls ?? null;
+  if (repnetCalls !== null && (!Number.isInteger(repnetCalls) || repnetCalls<0)) bad();
   if (state.status !== 'completed' || state.method !== 'mediapipe_pnp_flow' || state.model_loaded !== true ||
       result.schema_version !== 'd01-fast-result-1.0' || result.method !== 'mediapipe_pnp_flow' || result.video_hash !== job.videoHash ||
       !meta || meta.fps !== 24 || !Number.isInteger(meta.width) || !Number.isInteger(meta.height) || meta.width <= 0 || meta.height <= 0 ||
@@ -95,11 +101,18 @@ function fastMainResult(job, run, state, result) {
     timings[key] = result.timings?.[key] ?? null;
     if (timings[key] !== null && (!finite(timings[key]) || timings[key] < 0)) bad();
   }
+  for (const key of ['target_tracker_load_s','cascade_load_s']) {
+    const value=result.timings?.[key] ?? null;
+    if (value!==null && (!finite(value) || value<0)) bad();
+    timings[key]=value;
+  }
   return { schemaVersion: 'd01-pilot-api-1.2', jobId: job.jobId, profileId: null, videoHash: job.videoHash,
     source: { schemaVersion: 'd01-input-source-1.2', type: 'automatic_face_tracking', method: 'mediapipe_pnp_flow',
+      poseEngine,
       targetSelection: result.targetSelection, identityStatus: result.identityStatus,
       video: { width: meta.width, height: meta.height, fps: 24, durationS: meta.duration_s, decodedFrames: counts.processed } },
-    manualTimes, ...(callTiming ? {callTiming} : {}), movements, counts, coverage, missingPoseIntervals, timings, settling: [],
+    manualTimes, ...(callTiming ? {callTiming} : {}), movements, counts, coverage, missingPoseIntervals, timings,
+    engineCounts:{repnetCalls}, settling: [],
     algorithmicTarget: 'not_determined', clockAlignmentVerified: false, manualCandidateStatus: 'unreviewed',
     interpretation: 'temporal_relations_only_not_response_or_target_classification' };
 }

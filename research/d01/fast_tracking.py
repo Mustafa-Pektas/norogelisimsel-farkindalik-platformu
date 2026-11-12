@@ -1,11 +1,13 @@
 """Tasks multi-face association + unchanged supplied FaceTrack flow/PnP.
 
-No age/child classifier. Ambiguity is missing data; long loss is never silently
-reinitialized to whichever adult remains. A point is optional human identity input.
+No age/child classifier. Ambiguity is missing data. Default long loss is final;
+Stride4 may explicitly enable unique position/appearance-matched reacquisition.
+A point is optional human identity input.
 """
 from pathlib import Path
 import importlib.util
 import hashlib
+import math
 from types import SimpleNamespace
 import numpy as np
 
@@ -17,11 +19,13 @@ def box_iou(a,b):
 
 
 class IdentitySelection:
-    def __init__(self, point=None):
+    def __init__(self, point=None, *, allow_reacquisition=False):
         self.point=point;self.started=False;self.established=False;self.box=None;self.hist=None
         self.last=None;self.status='not_selected';self.provenance='not_determined'
+        self.allow_reacquisition=allow_reacquisition;self.reacquired=False;self.reacquisition_gap_s=None
 
     def choose(self, faces, t, predicted_box=None):
+        self.reacquired=False;self.reacquisition_gap_s=None
         if not self.started:
             self.started=True
             choices=[f for f in faces if self.point is None or f['box'][0]<=self.point[0]<=f['box'][2] and f['box'][1]<=self.point[1]<=f['box'][3]]
@@ -32,7 +36,8 @@ class IdentitySelection:
             self.provenance='manual_initial_point' if self.point is not None else 'single_face_candidate_role_unverified'
         else:
             if not self.established:return None
-            if t-self.last>2.5:
+            long_gap=t-self.last>2.5
+            if long_gap and not self.allow_reacquisition:
                 self.status='identity_lost_no_reacquisition';return None
             box=predicted_box or self.box
             choices=[]
@@ -40,9 +45,11 @@ class IdentitySelection:
                 overlap=box_iou(box,face['box']);distance=float(np.linalg.norm(np.array(face['hist'])-self.hist))
                 if overlap>=.15 and distance<=.45:choices.append(face)
             if len(choices)!=1:
-                self.status='target_ambiguous' if len(choices)>1 else 'pose_missing_track_unconfirmed'
+                self.status='target_ambiguous' if len(choices)>1 else 'identity_lost_waiting_landmarks' if long_gap else 'pose_missing_track_unconfirmed'
                 return None
             chosen=choices[0]
+            if long_gap:
+                self.reacquired=True;self.reacquisition_gap_s=t-self.last
         self.box=chosen['box'];self.hist=chosen['hist'];self.last=t;self.status='face_landmarks'
         return chosen
 
@@ -55,12 +62,12 @@ def call_phase(start, call_start, call_end):
 
 
 class FastTracker:
-    def __init__(self, task, point=None):
+    def __init__(self, task, point=None, *, allow_reacquisition=False):
         import cv2
         import mediapipe as mp
         from mediapipe.tasks.python import vision
         from mediapipe.tasks import python
-        self.cv2=cv2;self.mp=mp;self.selector=IdentitySelection(point);self.t=0.;self.faces=0
+        self.cv2=cv2;self.mp=mp;self.selector=IdentitySelection(point,allow_reacquisition=allow_reacquisition);self.t=0.;self.faces=0;self.visible_boxes=[]
         path=Path(__file__).parent/'vendor/friend_vision.py'
         if hashlib.sha256(path.read_bytes()).hexdigest()!='4fbe1f9049ccacef00fdfd73028b5a697e57978abdb05de950f9e51012c8a9e4':raise ValueError('Supplied vision provenance mismatch')
         self.detector=vision.FaceLandmarker.create_from_options(vision.FaceLandmarkerOptions(
@@ -96,13 +103,21 @@ class FastTracker:
                 hist=self.cv2.calcHist([crop],[0,1,2],None,[4,4,4],[0,256]*3).ravel();hist/=max(float(hist.sum()),1.)
                 faces.append(dict(box=box,hist=hist,points=points))
         self.faces=len(faces)
+        self.visible_boxes=[face['box'] for face in faces]
         chosen=self.selector.choose(faces,self.t,self.track.box if self.selector.established else None)
         return SimpleNamespace(multi_face_landmarks=[] if chosen is None else [SimpleNamespace(landmark=chosen['points'])])
 
     def update(self,frame,t):
+        previous=(self.selector.last,self.selector.box,self.selector.hist) if getattr(self.selector,'allow_reacquisition',False) else None
         self.t=t;track=self.track.update(frame,t)
+        # Selection alone is not enough if the supplied FaceTrack rejects the
+        # landmark geometry. Keep the previous confirmed appearance/time.
+        if getattr(self.selector,'reacquired',False) and track['landmarks'] is None:
+            self.selector.last,self.selector.box,self.selector.hist=previous
+            self.selector.status='identity_lost_waiting_landmarks';self.selector.reacquired=False
+            self.selector.reacquisition_gap_s=None
         status=self.selector.status
-        usable=self.selector.established and status not in ('target_ambiguous','identity_lost_no_reacquisition')
+        usable=self.selector.established and status not in ('target_ambiguous','identity_lost_no_reacquisition','identity_lost_waiting_landmarks')
         source=track['source'] if usable else 'lost'
         pose=self.module.head_pose(track['landmarks'],frame.shape[1],frame.shape[0],12) if usable else {}
         matrix=None
@@ -110,7 +125,16 @@ class FastTracker:
             from motion_candidates import rotation
             matrix=rotation(self.cv2.Rodrigues(np.array(pose['rotation_vector']))[0])
         valid=matrix is not None
+        confirmed=[v for v in (getattr(self.selector,'last',None),getattr(self.track,'last_observed',None))
+            if isinstance(v,(int,float)) and math.isfinite(v)]
+        # Use the older confirmation if FaceTrack rejected newer landmarks.
+        last_confirmed=min(confirmed) if confirmed else None
         return dict(track_source=source,identity_status=status,face_count=self.faces,target_provenance=self.selector.provenance,
+            last_confirmed_landmark_time_s=last_confirmed,
+            landmark_age_s=t-last_confirmed if last_confirmed is not None else None,
+            target_reacquired=getattr(self.selector,'reacquired',False),
+            reacquisition_time_s=t if getattr(self.selector,'reacquired',False) else None,
+            reacquisition_gap_s=getattr(self.selector,'reacquisition_gap_s',None),
             valid=valid,rotation_matrix=matrix.tolist() if valid else None,
             pitch_deg=pose.get('pitch_deg') if valid else None,yaw_deg=pose.get('yaw_deg') if valid else None,roll_deg=pose.get('roll_deg') if valid else None,
             measurement_status='face_landmarks_pose' if valid else 'face_landmarks_pose_rejected' if track['landmarks'] is not None and usable else 'optical_flow_only' if source=='optical_flow' else 'tracking_lost',
