@@ -40,7 +40,7 @@ def detect_call(video,model_path,duration,model_factory=None):
     result=dict(status='unavailable',startS=None,endS=None,matchCount=None,name='Deniz',language='tr',code='audio_not_configured')
     try:
         path=None if model_path is None else Path(model_path)
-        if path is None or not path.is_absolute() or not all((path/f).is_file() for f in ('model.bin','config.json','tokenizer.json','preprocessor_config.json')):
+        if path is None or not path.is_absolute() or not all((path/f).is_file() for f in ('model.bin','config.json','tokenizer.json')):
             return result
         if model_factory is None:
             try:from faster_whisper import WhisperModel

@@ -13,7 +13,7 @@ async function main() {
   const automaticCall = process.argv.includes('--automatic-call');
   if (automaticCall && !envPathReady(process.env.PILOT_D01_AUDIO_MODEL)) throw new Error('prepared_audio_model_required');
   function envPathReady(p) { return typeof p === 'string' && path.isAbsolute(p) &&
-    ['model.bin','config.json','tokenizer.json','preprocessor_config.json'].every(f=>fs.existsSync(path.join(p,f))); }
+    ['model.bin','config.json','tokenizer.json'].every(f=>fs.existsSync(path.join(p,f))); }
   const key = crypto.randomBytes(32).toString('hex');
   const env = { BACKEND_MODE:'deployment',TEAM_ACCESS_KEY:key,GENERATION_MAX_CONCURRENT:'1',PILOT_D01_ENABLED:'true',
     PILOT_D01_PYTHON:path.join(data,'.venv_headpose/Scripts/python.exe'),

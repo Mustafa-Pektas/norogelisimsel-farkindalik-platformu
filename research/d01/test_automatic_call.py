@@ -10,6 +10,26 @@ def word(name='Deniz!',a=.4,b=1.1,p=.95):return N(word=name,start=a,end=b,probab
 
 
 class AudioTests(unittest.TestCase):
+    def test_three_core_files_load_offline_without_preprocessor_config(self):
+        with TemporaryDirectory() as root:
+            path=Path(root)
+            for f in ('model.bin','config.json','tokenizer.json'):(path/f).touch()
+            self.assertFalse((path/'preprocessor_config.json').exists())
+            calls=[]
+            def factory(model_path,**kwargs):
+                calls.append(model_path)
+                self.assertTrue(kwargs['local_files_only'])
+                return N(transcribe=lambda *a,**k: (iter([segment([word()])]),None))
+            result=detect_call('video',path,7,factory)
+            self.assertEqual(calls,[str(path)])
+            self.assertEqual(result['status'],'accepted')
+            for filename in ('model.bin','config.json','tokenizer.json'):
+                with self.subTest(missing=filename):
+                    (path/filename).unlink()
+                    result=detect_call('video',path,7,factory)
+                    self.assertEqual(result['code'],'audio_not_configured')
+                    self.assertEqual(len(calls),1)
+                    (path/filename).touch()
     def test_same_turkish_exact_name_normalisation(self):
         self.assertEqual(normalize(' DENİZ! '),'deniz')
         r=evaluate_words([segment([word()])],7)
