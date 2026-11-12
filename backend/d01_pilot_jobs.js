@@ -25,6 +25,8 @@ function alive(pid) {
 function createPilotJobs(env, { runner = spawn, profiles: suppliedProfiles, now = Date.now,
   timers = { setTimeout, clearTimeout } } = {}) {
   const timing = backendTiming(env);
+  const fastEngine = env.PILOT_D01_FAST_ENGINE ?? 'mediapipe_pnp_flow';
+  if (!['mediapipe_pnp_flow','cascade_stride4_onnx'].includes(fastEngine)) throw new Error('Invalid PILOT_D01_FAST_ENGINE');
   const cpuThreads = env.PILOT_D01_CPU_THREADS;
   if (cpuThreads !== undefined && !['1', '2', '4'].includes(cpuThreads)) {
     throw new Error('PILOT_D01_CPU_THREADS must be 1, 2 or 4, or omitted');
@@ -206,11 +208,23 @@ if (!j) return null;
         if (!Array.isArray(point) || point.length !== 2 || !point.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) throw new Error('point');
       } catch { return fail(400, 'invalid_target'); }
     }
+    if (fastEngine === 'cascade_stride4_onnx') {
+      if (!point) return fail(400, 'invalid_target');
+      const source = env.PILOT_D01_STRIDE4_SOURCE, onnx = env.PILOT_D01_ONNX_MODEL;
+      if (![source,onnx].every(p=>typeof p==='string' && path.isAbsolute(p) && fs.existsSync(p)) ||
+          !fs.statSync(source).isDirectory() || !fs.statSync(onnx).isFile() ||
+          !['estimators/hybrid_estimator.py','estimators/repnet360.py','common/geometry.py'].every(p=>fs.existsSync(path.join(source,p)))) {
+        return fail(503,'fast_runtime_not_configured');
+      }
+    }
     const dir = dirOf(job.jobId), video = path.join(dir, 'upload.mp4');
     job.videoHash = hash(fs.readFileSync(video)); job.profileId = null;
     job.method = 'mediapipe_pnp_flow'; job.sourceType = 'automatic_face_tracking'; job.manual = manual; job.targetPoint = point ?? null;
+    job.poseEngine = fastEngine;
     const args = ['-X', 'utf8', '-B', path.resolve(__dirname, '../research/d01/fast_cli.py'), '--video', video,
       '--face-model', model, '--output-dir', path.join(dir, 'run')];
+    if (fastEngine === 'cascade_stride4_onnx') args.push('--pose-engine',fastEngine,
+      '--stride4-source',env.PILOT_D01_STRIDE4_SOURCE,'--onnx-model',env.PILOT_D01_ONNX_MODEL);
     if (env.PILOT_D01_AUDIO_MODEL && path.isAbsolute(env.PILOT_D01_AUDIO_MODEL)) {
       args.push('--audio-model', env.PILOT_D01_AUDIO_MODEL);
     }

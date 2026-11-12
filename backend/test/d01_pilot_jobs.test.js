@@ -60,6 +60,12 @@ function fixture(t, mode = 'deployment', extra = {}) {
           missingPoseIntervals:[{startS:0,endS:.04,frames:2}],targetSelection:args.includes('--target-point')?'manual_initial_point':'single_face_candidate_role_unverified',identityStatus:'continuity_candidate_not_biometric_identity',
           timings:{media_preflight_s:.01,model_load_s:.02,tracking_pnp_s:.03,candidate_postprocess_s:.01,report_preparation_s:.01,total_s:.08},
           detail_files:{frames:{path:'details/controlled.json',sha256:hash(Buffer.from('{}'))}}}));
+        if (args.includes('--pose-engine')) {
+          const file=path.join(run,'result.json');const result=JSON.parse(fs.readFileSync(file));
+          result.poseEngine=at('--pose-engine');fs.writeFileSync(file,JSON.stringify(result));
+          const stateFile=path.join(run,'state.json');const state=JSON.parse(fs.readFileSync(stateFile));
+          state.pose_engine=result.poseEngine;fs.writeFileSync(stateFile,JSON.stringify(state));
+        }
         if (callTiming) {
           const file=path.join(run,'result.json');const result=JSON.parse(fs.readFileSync(file));
           result.callTiming=callTiming;result.timings.audio_s=.04;
@@ -285,6 +291,36 @@ test('Fast input requires paired optional calls and bounded target; pre-call mov
 test('Fast runtime missing is explicit, not a fallback to 6D or Gemini',async t=>{
   const f=fixture(t,'deployment',{envOverrides:{PILOT_D01_FAST_PYTHON:undefined}});
   assert.equal((await f.upload({method:'mediapipe_pnp_flow'})).body.code,'fast_runtime_not_configured');assert.equal(f.children.length,0);
+});
+
+test('Server-selected Stride4 keeps target, automatic calls, API 1.2 and rejects engine mismatch',async t=>{
+  const f=fixture(t,'deployment',{envOverrides:{PILOT_D01_FAST_ENGINE:'cascade_stride4_onnx'}});
+  f.env.PILOT_D01_STRIDE4_SOURCE=path.join(f.env.PILOT_D01_OFFICIAL_SOURCE,'benchmark');
+  for (const name of ['estimators/hybrid_estimator.py','estimators/repnet360.py','common/geometry.py']) {
+    const file=path.join(f.env.PILOT_D01_STRIDE4_SOURCE,name);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'controlled');
+  }
+  f.env.PILOT_D01_ONNX_MODEL=f.env.PILOT_D01_WEIGHTS;
+  assert.equal((await f.upload({method:'mediapipe_pnp_flow'})).status,400);
+  const accepted=await f.upload({method:'mediapipe_pnp_flow',targetPoint:'[0.3,0.4]'});
+  assert.equal(accepted.status,202);const child=f.children[0];const at=k=>child.args[child.args.indexOf(k)+1];
+  assert.equal(at('--pose-engine'),'cascade_stride4_onnx');assert.equal(at('--stride4-source'),f.env.PILOT_D01_STRIDE4_SOURCE);
+  assert.deepEqual(JSON.parse(fs.readFileSync(at('--target-point'))),[.3,.4]);assert.ok(!child.args.includes('--manual'));
+  assert.equal((await f.upload({method:'mediapipe_pnp_flow',targetPoint:'[0.3,0.4]'})).status,429);
+  child.finish('completed',{schemaVersion:'d01-call-timing-1.0',source:'automatic_word_timing',startS:0,endS:.04,audioStatus:'accepted',matchCount:1,name:'Deniz',language:'tr'});
+  const reply=await request(f.app,'GET',`/api/pilot-d01/jobs/${accepted.body.jobId}/result`);
+  assert.equal(reply.status,200);assert.equal(reply.body.schemaVersion,'d01-pilot-api-1.2');
+  assert.equal(reply.body.source.method,'mediapipe_pnp_flow');assert.equal(reply.body.source.poseEngine,'cascade_stride4_onnx');
+  assert.equal(reply.body.callTiming.startS,0);assert.equal(reply.body.counts.valid,3);
+  assert.equal(reply.body.manualTimes.call_start_s.time_s,null);assert.equal(JSON.stringify(reply.body).includes(f.env.PILOT_D01_STRIDE4_SOURCE),false);
+  const {fastMainResult}=require('../d01_fast_result');
+  assert.throws(()=>fastMainResult({poseEngine:'cascade_stride4_onnx'},'',{}, {poseEngine:'mediapipe_pnp_flow'}));
+});
+
+test('Invalid server engine fails explicitly; Stride4 missing runtime never silently uses MediaPipe',async t=>{
+  assert.throws(()=>createPilotJobs({PILOT_D01_FAST_ENGINE:'random'}),/PILOT_D01_FAST_ENGINE/);
+  const f=fixture(t,'deployment',{envOverrides:{PILOT_D01_FAST_ENGINE:'cascade_stride4_onnx'}});
+  assert.equal((await f.upload({method:'mediapipe_pnp_flow',targetPoint:'[0.3,0.4]'})).body.code,'fast_runtime_not_configured');
+  assert.equal(f.children.length,0);
 });
 
 test('Automatic Deniz timing is distinct from manual; unavailable/name absent preserves head candidates',async t=>{

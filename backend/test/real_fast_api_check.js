@@ -16,13 +16,17 @@ async function main() {
     ['model.bin','config.json','tokenizer.json'].every(f=>fs.existsSync(path.join(p,f))); }
   const key = crypto.randomBytes(32).toString('hex');
   const env = { BACKEND_MODE:'deployment',TEAM_ACCESS_KEY:key,GENERATION_MAX_CONCURRENT:'1',PILOT_D01_ENABLED:'true',
-    PILOT_D01_PYTHON:path.join(data,'.venv_headpose/Scripts/python.exe'),
-    PILOT_D01_WEIGHTS:path.join(data,'araclar/6DRepNet360_Full-Rotation_300W_LP+Panoptic.pth'),
-    PILOT_D01_OFFICIAL_SOURCE:path.join(data,'dis_kaynaklar/6DRepNet360'),PILOT_D01_JOBS_DIR:path.join(root,'jobs'),
+    PILOT_D01_PYTHON:process.env.PILOT_D01_PYTHON || path.join(data,'.venv_headpose/Scripts/python.exe'),
+    PILOT_D01_WEIGHTS:process.env.PILOT_D01_WEIGHTS || path.join(data,'araclar/6DRepNet360_Full-Rotation_300W_LP+Panoptic.pth'),
+    PILOT_D01_OFFICIAL_SOURCE:process.env.PILOT_D01_OFFICIAL_SOURCE || path.join(data,'dis_kaynaklar/6DRepNet360'),PILOT_D01_JOBS_DIR:path.join(root,'jobs'),
     PILOT_D01_FAST_PYTHON:process.env.PILOT_D01_FAST_PYTHON || path.join(data,'calisma/venv_d01_hybrid_20261107_01/Scripts/python.exe'),
     PILOT_D01_AUDIO_MODEL:process.env.PILOT_D01_AUDIO_MODEL,
-    PILOT_D01_FACE_MODEL:path.join(data,'calisma/Video Analizinin Feasibility Testi/face_landmarker.task'),
-    PILOT_D01_TIMEOUT_MS:'120000',PILOT_D01_KILL_GRACE_MS:'10000' };
+    PILOT_D01_FAST_ENGINE:process.env.PILOT_D01_FAST_ENGINE,
+    PILOT_D01_STRIDE4_SOURCE:process.env.PILOT_D01_STRIDE4_SOURCE,
+    PILOT_D01_ONNX_MODEL:process.env.PILOT_D01_ONNX_MODEL,
+    PILOT_D01_FACE_MODEL:process.env.PILOT_D01_FACE_MODEL || path.join(data,'calisma/Video Analizinin Feasibility Testi/face_landmarker.task'),
+    PILOT_D01_TIMEOUT_MS:process.env.PILOT_D01_TIMEOUT_MS ?? '120000',PILOT_D01_KILL_GRACE_MS:process.env.PILOT_D01_KILL_GRACE_MS ?? '10000' };
+  const timing=require('../pilot_timing').backendTiming(env);
   const {createApp}=require('../server');
   const app=createApp({env,generate:async()=>{throw new Error('provider_disabled');}}),server=http.createServer(app);
   const report=[];
@@ -41,7 +45,7 @@ async function main() {
       if(Array.isArray(source.targetPoint))form.set('targetPoint',JSON.stringify(source.targetPoint));
       if(!automaticCall && source.callStartS!==null){form.set('callStartS',source.callStartS.toFixed(3));form.set('callEndS',source.callEndS.toFixed(3));}
       const accepted=await request('POST','',form,202);assert.equal(accepted.videoHash,digest);
-      let state; const deadline=performance.now()+135000;
+      let state; const deadline=performance.now()+timing.timeoutMs+timing.killGraceMs+5000;
       do {
         state=await request('GET','/'+accepted.jobId,undefined,200);
         if(['completed','failed','interrupted'].includes(state.status)) break;
@@ -50,6 +54,7 @@ async function main() {
       assert.equal(state.status,'completed',state.code ?? 'client_wait_limit');
       const result=await request('GET','/'+accepted.jobId+'/result',undefined,200);
       assert.equal(result.schemaVersion,'d01-pilot-api-1.2');assert.equal(result.videoHash,digest);assert.equal(result.jobId,accepted.jobId);
+      assert.equal(result.source.poseEngine ?? 'mediapipe_pnp_flow',env.PILOT_D01_FAST_ENGINE ?? 'mediapipe_pnp_flow');
       assert.equal(result.manualTimes.response_start_s.time_s,null);assert.equal(JSON.stringify(result).includes(root),false);
       assert.equal(result.counts.processed,result.source.video.decodedFrames);
       if(automaticCall) {
@@ -60,7 +65,7 @@ async function main() {
       const job=JSON.parse(fs.readFileSync(path.join(root,'jobs',accepted.jobId,'job.json')));
       assert.ok(job.childClosedAt>=job.childStartedAt);
       assert.equal(job.childExitCode,0);
-      report.push({index:i,jobId:accepted.jobId,status:state.status,videoHash:digest,counts:result.counts,coverage:result.coverage,
+      report.push({index:i,jobId:accepted.jobId,status:state.status,videoHash:digest,poseEngine:result.source.poseEngine,engineCounts:result.engineCounts,counts:result.counts,coverage:result.coverage,
         upload_to_result_s:(performance.now()-started)/1000,mobile_visible_elapsed_s:null,timings:result.timings,
         ...(automaticCall ? {callTiming:result.callTiming,manualComparison:{status:'approximate_candidate_not_ground_truth',
           referenceStartS:source.callStartS,referenceEndS:source.callEndS,

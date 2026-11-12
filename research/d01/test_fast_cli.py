@@ -53,9 +53,13 @@ class CliTests(unittest.TestCase):
                     self.assertLessEqual(sum(c.args[0] for c in sleep.call_args_list),.15+1e-9)
                 self.assertEqual(json.loads(target.read_text()),dict(status='running'))
 
-    def run_controlled(self,root,manual=None):
+    def run_controlled(self,root,manual=None,pose_engine='mediapipe_pnp_flow'):
         root=Path(root);video=root/'video.mp4';video.write_bytes(b'controlled-not-video');task=root/'face.task';task.write_bytes(b'controlled-not-model')
         args=SimpleNamespace(video=video,face_model=task,output_dir=root/'run',manual=manual,target_point=None)
+        args.pose_engine=pose_engine
+        if pose_engine=='cascade_stride4_onnx':
+            args.target_point=root/'target.json';args.target_point.write_text('[0.3,0.4]')
+            args.stride4_source=root;args.onnx_model=task
         actual_sha=fast_cli.sha
         def checksum(p):return '64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff' if Path(p)==task else actual_sha(p)
         with patch.object(fast_cli,'inspect_marked_video',return_value=dict(width=64,height=48,fps=24,decoded_frame_count=10,duration_s=10/24)),patch.object(fast_cli,'sha',side_effect=checksum),patch.object(fast_cli,'FastTracker',Tracker),patch.object(cv2,'VideoCapture',return_value=Capture()):
@@ -65,6 +69,7 @@ class CliTests(unittest.TestCase):
         with TemporaryDirectory() as root:
             r=self.run_controlled(root)
             self.assertEqual(r['counts'],dict(processed=10,valid=10,invalid=0))
+            self.assertTrue(json.loads((Path(root)/'run/settings.json').read_text())['association']['no_reacquisition_after_long_loss'])
             self.assertIsNone(r['manualTimes']['call_start_s']['time_s'])
             self.assertEqual(r['movements'],dict(raw=[],ema_050=[]))
             state=json.loads((Path(root)/'run/state.json').read_text());self.assertEqual(state['status'],'completed')
@@ -98,6 +103,22 @@ class CliTests(unittest.TestCase):
             self.assertEqual(r['callTiming']['source'],'automatic_word_timing')
             self.assertEqual(r['callTiming']['startS'],.1)
             self.assertIsNone(r['manualTimes']['call_start_s']['time_s'])
+
+    def test_stride4_reuses_durable_pipeline_and_automatic_call_contract(self):
+        class Cascade(Tracker):
+            def __init__(self,*args):self.provenance={'engine':'cascade_stride4_onnx','stride':4}
+        for status in ('accepted','not_found'):
+            with TemporaryDirectory() as root:
+                audio=dict(status=status,startS=.1 if status=='accepted' else None,endS=.2 if status=='accepted' else None,
+                    matchCount=1 if status=='accepted' else 0,name='Deniz',language='tr',timings=dict(total_s=.02))
+                with patch('stride4_tracking.Stride4Tracker',Cascade),patch.object(fast_cli,'detect_call',return_value=audio):
+                    result=self.run_controlled(root,pose_engine='cascade_stride4_onnx')
+                self.assertEqual(result['poseEngine'],'cascade_stride4_onnx')
+                self.assertFalse(json.loads((Path(root)/'run/settings.json').read_text())['association']['no_reacquisition_after_long_loss'])
+                self.assertEqual(result['counts']['processed'],10)
+                self.assertEqual(result['callTiming']['audioStatus'],status)
+                self.assertIsNone(result['manualTimes']['call_start_s']['time_s'])
+                self.assertTrue((Path(root)/'run/details/pose_engine.json').is_file())
 
 
 if __name__=='__main__':unittest.main()

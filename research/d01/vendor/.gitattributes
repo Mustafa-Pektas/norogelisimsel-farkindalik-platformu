@@ -1,0 +1,2 @@
+# FastTracker verifies the unchanged supplied source by byte hash.
+friend_vision.py text eol=lf
