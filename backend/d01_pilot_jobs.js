@@ -4,6 +4,8 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { spawn } = require('node:child_process');
 const multer = require('multer');
+const { isDeepStrictEqual } = require('node:util');
+const { fastMainResult } = require('./d01_fast_result');
 const { backendTiming } = require('./pilot_timing');
 const MAX_VIDEO = 25 * 1024 * 1024;
 const RETENTION = 24 * 60 * 60 * 1000;
@@ -88,7 +90,7 @@ if (!j) return null;
       if (fs.existsSync(stateFile)) {
         const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
         if (Number.isInteger(state.processed_frames)) processedFrames = state.processed_frames;
-        const total = state.video_metadata?.declared_frame_count ?? state.video_metadata?.frame_count;
+        const total = state.video_metadata?.decoded_frame_count ?? state.video_metadata?.declared_frame_count ?? state.video_metadata?.frame_count;
         if (Number.isInteger(total)) totalFrames = total;
       }
     } catch {}
@@ -118,6 +120,7 @@ if (!j) return null;
     const run = path.join(dirOf(job.jobId), 'run');
     const read = (name, max) => { const p = path.join(run, name); if (fs.statSync(p).size > max) throw new Error('oversize'); return JSON.parse(fs.readFileSync(p)); };
     const state = read('state.json', 65536); const result = read('result.json', 131072);
+    if (job.method === 'mediapipe_pnp_flow') return fastMainResult(job, run, state, result);
     if (state.status !== 'completed' || state.mode !== 'cpu_inference' || state.model_loaded !== true ||
         result.schema_version !== 'd01-pilot-result-1.0' || result.protocol_version !== 'd01-pilot-fixed-1.0' || result.model_inference_performed !== true ||
         result.video?.sha256 !== job.videoHash || !Array.isArray(result.settling?.conditions) ||
@@ -154,7 +157,25 @@ if (!j) return null;
         return safe;
       });
     }
-    return { schemaVersion: 'd01-pilot-api-1.0', jobId: job.jobId, profileId: job.profileId, videoHash: job.videoHash,
+    let source;
+    if (job.sourceType === 'user_marked') {
+      const marked = result.user_marked_input; const media = marked?.video_metadata;
+      if (marked?.schema_version !== 'd01-user-marked-input-1.0' || marked.source_type !== 'user_marked' ||
+          !isDeepStrictEqual(marked.roi, job.roi) || media?.fps !== 24 ||
+          !Number.isInteger(media.width) || media.width <= 0 || !Number.isInteger(media.height) || media.height <= 0 ||
+          !Number.isInteger(media.decoded_frame_count) || media.decoded_frame_count !== state.processed_frames || media.decoded_frame_count > 720 ||
+          !Number.isFinite(media.duration_s) || media.duration_s <= 0 || media.duration_s > 30 ||
+          Math.abs(media.duration_s - media.decoded_frame_count / 24) > .001 ||
+          job.roi.x + job.roi.width > media.width || job.roi.y + job.roi.height > media.height ||
+          Object.values(job.manual).some(t => t > media.duration_s)) throw new Error('invalid marked source');
+      source = { schemaVersion: 'd01-input-source-1.0', type: 'user_marked', roi: job.roi,
+        video: { width: media.width, height: media.height, fps: media.fps, durationS: media.duration_s,
+          decodedFrames: media.decoded_frame_count, durationSource: 'decoded_CFR_video_frame_extent' },
+        validation: 'media_bounds_only_not_content_or_ROI_quality_approval' };
+    }
+    return { schemaVersion: job.sourceType === 'user_marked' ? 'd01-pilot-api-1.1' : 'd01-pilot-api-1.0',
+      jobId: job.jobId, profileId: job.profileId ?? null, videoHash: job.videoHash,
+      ...(source ? { source } : {}),
       manualTimes: manual, movements: movement, settling: result.settling.conditions.map(c => ({
         method: ['raw', 'ema_050'].includes(c.method) ? c.method : null, radiusDeg: [10, 15].includes(c.radius_deg) ? c.radius_deg : null,
         candidateId: /^candidate_\d+$/.test(c.source_candidate_id) ? c.source_candidate_id : null,
@@ -163,14 +184,53 @@ if (!j) return null;
       algorithmicTarget: 'not_determined', manualCandidateStatus: 'unreviewed', clockAlignmentVerified: false,
       interpretation: 'temporal_relations_only_not_response_or_target_classification' };
   }
+  function startFast(job, fields) {
+    const fail = (status, code) => { finish(job, 'failed', code); return { status, code }; };
+    if (Object.keys(fields).some(k => !['method', 'targetPoint', 'callStartS', 'callEndS'].includes(k))) return fail(400, 'invalid_target');
+    const python = env.PILOT_D01_FAST_PYTHON;
+    const model = env.PILOT_D01_FACE_MODEL;
+    if (![python, model].every(p => p && path.isAbsolute(p) && fs.existsSync(p) && fs.statSync(p).isFile())) return fail(503, 'fast_runtime_not_configured');
+    const manual = {};
+    try {
+      for (const [field, key] of [['callStartS', 'call_start_s'], ['callEndS', 'call_end_s']]) {
+        if (fields[field] === undefined) continue;
+        if (!/^\d+(\.\d{1,3})?$/.test(fields[field]) || !Number.isFinite(Number(fields[field]))) throw new Error('time');
+        manual[key] = Number(fields[field]);
+      }
+      if (![0, 2].includes(Object.keys(manual).length) || (manual.call_end_s !== undefined && manual.call_end_s < manual.call_start_s)) throw new Error('time');
+    } catch { return fail(400, 'invalid_manual_times'); }
+    let point;
+    if (fields.targetPoint !== undefined) {
+      try {
+        point = JSON.parse(fields.targetPoint);
+        if (!Array.isArray(point) || point.length !== 2 || !point.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) throw new Error('point');
+      } catch { return fail(400, 'invalid_target'); }
+    }
+    const dir = dirOf(job.jobId), video = path.join(dir, 'upload.mp4');
+    job.videoHash = hash(fs.readFileSync(video)); job.profileId = null;
+    job.method = 'mediapipe_pnp_flow'; job.sourceType = 'automatic_face_tracking'; job.manual = manual; job.targetPoint = point ?? null;
+    const args = ['-X', 'utf8', '-B', path.resolve(__dirname, '../research/d01/fast_cli.py'), '--video', video,
+      '--face-model', model, '--output-dir', path.join(dir, 'run')];
+    if (env.PILOT_D01_AUDIO_MODEL && path.isAbsolute(env.PILOT_D01_AUDIO_MODEL)) {
+      args.push('--audio-model', env.PILOT_D01_AUDIO_MODEL);
+    }
+    if (point) { write(path.join(dir, 'target_point.json'), point); args.push('--target-point', path.join(dir, 'target_point.json')); }
+    if (Object.keys(manual).length) {
+      write(path.join(dir, 'manual.json'), { video_path: video, video_sha256: job.videoHash, candidate_status: 'manual_candidate_unreviewed',
+        marks: Object.fromEntries(Object.entries(manual).map(([k, t]) => [k, { media_time_ms: Math.round(t * 1000), time_source: 'manual_user_input', candidate_status: 'unreviewed' }])) });
+      args.push('--manual', path.join(dir, 'manual.json'));
+    }
+    launch(job, args, python, dir);
+  }
   function start(job, fields) {
     if (active?.job !== job || job.status !== 'uploading') return;
+    if (fields.method === 'mediapipe_pnp_flow') return startFast(job, fields);
     try {
-      if (Object.keys(fields).some(k => !['callStartS', 'callEndS'].includes(k))) throw new Error('fields');
+      if (Object.keys(fields).some(k => !['callStartS', 'callEndS', 'roi'].includes(k))) throw new Error('fields');
       const manual = {};
       for (const [field, key] of [['callStartS', 'call_start_s'], ['callEndS', 'call_end_s']]) {
         if (fields[field] === undefined || fields[field] === '') continue;
-        if (typeof fields[field] !== 'string' || !/^\d+(\.\d+)?$/.test(fields[field]) || !Number.isFinite(Number(fields[field])) || Number(fields[field]) > 7) throw new Error('time');
+        if (typeof fields[field] !== 'string' || !/^\d+(\.\d+)?$/.test(fields[field]) || !Number.isFinite(Number(fields[field]))) throw new Error('time');
         const ms = Number(fields[field]) * 1000;
         if (Math.abs(ms - Math.round(ms)) > 1e-6) throw new Error('precision');
         manual[key] = Number(fields[field]);
@@ -180,41 +240,70 @@ if (!j) return null;
     } catch { finish(job, 'failed', 'invalid_manual_times'); return { status: 400, code: 'invalid_manual_times' }; }
     const dir = dirOf(job.jobId); const video = path.join(dir, 'upload.mp4');
     const digest = hash(fs.readFileSync(video)); const profile = profiles.find(p => p.sha256 === digest);
-    if (!profile) { finish(job, 'failed', 'unsupported_video'); return { status: 422, code: 'unsupported_video' }; }
-    job.videoHash = digest; job.profileId = profile.id;
-    write(path.join(dir, 'roi.json'), profile.roi);
+    if (!profile && fields.roi === undefined) { finish(job, 'failed', 'roi_required'); return { status: 422, code: 'roi_required' }; }
+    if (profile && fields.roi !== undefined) { finish(job, 'failed', 'profile_roi_fixed'); return { status: 400, code: 'profile_roi_fixed' }; }
+    let roi = profile?.roi;
+    if (!profile) {
+      try {
+        const input = JSON.parse(fields.roi);
+        if (!input || Object.keys(input).sort().join(',') !== 'height,width,x,y' ||
+            !['x', 'y', 'width', 'height'].every(k => Number.isSafeInteger(input[k])) ||
+            input.x < 0 || input.y < 0 || input.width <= 0 || input.height <= 0 ||
+            Object.values(input).some(v => v > 16384)) throw new Error('roi');
+        roi = { x: input.x, y: input.y, width: input.width, height: input.height,
+          padding_ltrb_source_px: [0, 0, 0, 0], human_supplied: true };
+      } catch { finish(job, 'failed', 'invalid_roi'); return { status: 400, code: 'invalid_roi' }; }
+      if (job.manual.call_start_s === undefined || job.manual.call_end_s === undefined) {
+        finish(job, 'failed', 'invalid_manual_times'); return { status: 400, code: 'invalid_manual_times' };
+      }
+    }
+    job.videoHash = digest; job.profileId = profile?.id ?? null; job.sourceType = profile ? 'reviewed_profile' : 'user_marked'; job.roi = roi;
+    write(path.join(dir, 'roi.json'), roi);
     const args = ['-X', 'utf8', '-B', cli, '--video', video, '--weights', env.PILOT_D01_WEIGHTS,
       '--roi', path.join(dir, 'roi.json'), '--protocol', protocol, '--official-source', env.PILOT_D01_OFFICIAL_SOURCE, '--output-dir', path.join(dir, 'run')];
     if (cpuThreads !== undefined) args.push('--cpu-threads', cpuThreads);
+    if (!profile) args.push('--user-marked');
     job.requestedCpuThreads = cpuThreads === undefined ? 4 : Number(cpuThreads);
     if (Object.keys(job.manual).length) {
       write(path.join(dir, 'manual.json'), { video_path: video, video_sha256: digest, candidate_status: 'manual_candidate_unreviewed',
         marks: Object.fromEntries(Object.entries(job.manual).map(([k, t]) => [k, { media_time_ms: Math.round(t * 1000), time_source: 'manual_user_input', candidate_status: 'unreviewed' }])) });
       args.push('--manual', path.join(dir, 'manual.json'));
     }
+    launch(job, args, env.PILOT_D01_PYTHON, dir);
+  }
+  function launch(job, args, python, dir) {
     job.status = 'running'; save(job);
     // Explicit environment: never inherit backend Gemini/team secrets into Python.
     const childEnv = {};
     for (const k of ['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL']) if (process.env[k]) childEnv[k] = process.env[k];
     childEnv.PYTHONIOENCODING = 'utf-8'; childEnv.MPLCONFIGDIR = path.join(dir, 'matplotlib_config');
+    const recordStartFailure = (error, phase) => {
+      // Local job diagnostic only; never serialize error.message/stack/argv/env.
+      job.startFailure = { phase, code: ['EPERM', 'EACCES', 'ENOENT', 'ENOTDIR', 'EINVAL', 'EMFILE', 'ENOMEM'].includes(error?.code) ? error.code : 'UNKNOWN' };
+      finish(job, 'failed', 'cli_start_failed');
+    };
     let child;
-    try { child = runner(env.PILOT_D01_PYTHON, args, { shell: false, windowsHide: true, cwd: dir, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] }); }
-    catch { finish(job, 'failed', 'cli_start_failed'); return; }
-    active.child = child; job.childPid = child.pid; save(job);
+    try { child = runner(python, args, { shell: false, windowsHide: true, cwd: dir, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (error) { recordStartFailure(error, 'spawn_throw'); return; }
+    active.child = child; job.childPid = child.pid; job.childStartedAt = now(); save(job);
     let logBytes = 0; const logFile = path.join(dir, 'cli.log');
     fs.writeFileSync(logFile, '', { mode: 0o600 });
     const log = data => { const b = Buffer.from(data); const keep = b.subarray(0, Math.max(0, 65536 - logBytes)); fs.appendFileSync(logFile, keep); logBytes += keep.length; };
     child.stdout?.on('data', log); child.stderr?.on('data', log);
     const timeout = timers.setTimeout(() => { if (active?.job === job) interrupt(job.jobId, 'analysis_timeout'); }, timing.timeoutMs); timeout.unref?.();
-    child.once('error', () => { if (!child.pid) { timers.clearTimeout(timeout); finish(job, 'failed', 'cli_start_failed'); } });
-    child.once('close', code => {
+    child.once('error', error => { if (!child.pid) { timers.clearTimeout(timeout); recordStartFailure(error, 'spawn_error_event'); } });
+    child.once('close', (code, signal) => {
+      job.childClosedAt = now();
+      job.childExitCode = Number.isInteger(code) ? code : null;
+      job.childExitSignal = ['SIGTERM','SIGKILL','SIGINT'].includes(signal) ? signal : null;
       timers.clearTimeout(timeout); if (active?.job === job) timers.clearTimeout(active.killTimer);
-      if (TERMINAL.has(job.status)) return;
+      // A failed-start job may already be terminal; retain close diagnostics locally.
+      if (TERMINAL.has(job.status)) { save(job); return; }
       if (job.cancelCode) return finish(job, 'interrupted', job.cancelCode);
       let state;
       try { state = JSON.parse(fs.readFileSync(path.join(dir, 'run/state.json'))); } catch { /* safe error below */ }
       if (state?.status === 'interrupted') return finish(job, 'interrupted', 'cli_interrupted');
-      if (code !== 0) return finish(job, 'failed', 'cli_failed');
+      if (code !== 0) return finish(job, 'failed', ['invalid_roi', 'invalid_manual_times', 'unsupported_fps', 'unsupported_timeline', 'video_too_long', 'invalid_video', 'invalid_target', 'fast_cli_failed'].includes(state?.code) ? state.code : 'cli_failed');
       try { const safe = mainResult(job); write(path.join(dir, 'api_result.json'), safe); finish(job, 'completed', null); }
       catch { finish(job, 'failed', 'invalid_cli_result'); }
     });
@@ -229,7 +318,7 @@ if (!j) return null;
     active.killTimer = timers.setTimeout(() => child.kill('SIGKILL'), timing.killGraceMs); active.killTimer.unref?.(); return true;
   }
   const upload = multer({ storage: multer.diskStorage({ destination(req, file, cb) { cb(null, dirOf(req.pilotJob.jobId)); },
-    filename(req, file, cb) { cb(null, 'upload.mp4'); } }), limits: { fileSize: MAX_VIDEO, files: 1, fields: 2, fieldSize: 128, parts: 4 } }).single('video');
+    filename(req, file, cb) { cb(null, 'upload.mp4'); } }), limits: { fileSize: MAX_VIDEO, files: 1, fields: 4, fieldSize: 256, parts: 6 } }).single('video');
   function install(app) {
     app.post('/api/pilot-d01/jobs', (req, res) => {
       const job = reserve(); if (!job) return res.status(429).json({ code: 'pilot_busy', error: 'Pilot analiz meşgul; kuyruk oluşturulmadı.' });
@@ -238,10 +327,12 @@ if (!j) return null;
       upload(req, res, error => {
         if (error || !req.file) { finish(job, 'failed', error?.code === 'LIMIT_FILE_SIZE' ? 'video_too_large' : 'invalid_upload'); return res.status(error?.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ code: error?.code === 'LIMIT_FILE_SIZE' ? 'video_too_large' : 'invalid_upload' }); }
         if (job.status !== 'uploading') return res.status(400).json({ code: 'upload_interrupted' });
+        job.uploadCompletedAt = now();
         let failure;
         try { failure = start(job, req.body); } catch { finish(job, 'failed', 'pilot_io_error'); failure = { status: 500, code: 'pilot_io_error' }; }
         if (failure) return res.status(failure.status).json({ code: failure.code });
-        res.status(202).json({ jobId: job.jobId, status: job.status });
+        res.status(202).json({ jobId: job.jobId, status: job.status,
+          ...(['user_marked', 'automatic_face_tracking'].includes(job.sourceType) ? { videoHash: job.videoHash, sourceType: job.sourceType } : {}) });
       });
     });
     app.get('/api/pilot-d01/jobs/:id', (req, res) => { const s = ID.test(req.params.id) && status(req.params.id); res.status(s ? 200 : 404).json(s || { code: 'job_not_found' }); });

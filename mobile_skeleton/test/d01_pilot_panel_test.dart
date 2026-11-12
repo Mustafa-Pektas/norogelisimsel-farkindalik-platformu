@@ -123,6 +123,24 @@ void main() {
       expect(find.textContaining('Pilot tamamlandı'), findsOneWidget);
       expect(find.textContaining('Ham matrislerden'), findsOneWidget);
       expect(find.textContaining('EMA α=0.50'), findsOneWidget);
+      final rawCard = find.byKey(const ValueKey('pilot-raw-candidate_001'));
+      expect(
+        find.descendant(of: rawCard, matching: find.text('Başlangıç adayı: 1.500 sn')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: rawCard,
+          matching: find.textContaining('Düşük hız ölçütüne göre bitiş adayı: 2.500 sn'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: rawCard, matching: find.textContaining('Bitiş doğrulaması: 2.700 sn')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('ana dönüşün görsel olarak tamamlandığı anı göstermeyebilir'), findsOneWidget);
+      expect(find.textContaining('Aday aralığı:'), findsNothing);
       await tap(tester, 'pilot-raw-candidate_001');
       await tap(tester, 'pilot-ema-candidate_001');
       expect(sought, [
@@ -134,6 +152,38 @@ void main() {
       await close(tester);
       expect(task.closes, 1);
       expect(task.cancels, 0);
+    },
+  );
+
+  testWidgets(
+    'Missing candidate end stays undetermined with separate confirmation',
+    (tester) async {
+      final api = ControlledPilotApi();
+      final task = ControlledPilotTask();
+      task.readStatus = () async => D01PilotStatus.fromJson(pilotStatusJson('completed'));
+      task.readResult = () async {
+        final json = pilotResultJson();
+        final movements = json['movements'] as Map<String, dynamic>;
+        for (final method in ['raw', 'ema_050']) {
+          final candidate = (movements[method] as List).single as Map<String, dynamic>;
+          candidate['movement_end_s'] = null;
+          candidate['end_confirmation_time_s'] = null;
+        }
+        return D01PilotResult.fromJson(json, expectedJobId: pilotTestId);
+      };
+      api.makeTask = () => task;
+      await mount(tester, api);
+      await tap(tester, 'pilot-start');
+      await tester.pump();
+      await tester.pump();
+      for (final method in ['raw', 'ema']) {
+        final card = find.byKey(ValueKey('pilot-$method-candidate_001'));
+        expect(find.descendant(of: card, matching: find.text('Başlangıç adayı: 1.500 sn')), findsOneWidget);
+        expect(find.descendant(of: card, matching: find.textContaining('Bitiş belirlenemedi')), findsOneWidget);
+        expect(find.descendant(of: card, matching: find.textContaining('Bitiş doğrulaması: bilinmiyor')), findsOneWidget);
+      }
+      expect(find.textContaining('Düşük hız ölçütüne göre bitiş adayı:'), findsNothing);
+      await close(tester);
     },
   );
 

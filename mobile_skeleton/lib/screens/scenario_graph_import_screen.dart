@@ -9,6 +9,7 @@ import '../models/behavior_cards.dart';
 import '../models/scenario_graph.dart';
 import '../models/scenario_clip_plan.dart';
 import '../services/clip_plan_generation_service.dart';
+import '../services/clip_video_store.dart';
 import '../services/http_scenario_generation_service.dart';
 import 'clip_production_plan_screen.dart';
 import '../models/scenario_input.dart';
@@ -32,6 +33,7 @@ class ScenarioGraphImportScreen extends StatefulWidget {
     this.generationService = const UnavailableScenarioGenerationService(),
     this.draftStore = const ScenarioDraftStore(),
     this.clipPlanService = const HttpScenarioGenerationService(),
+    this.clipVideoStore,
     this.incomingResult,
   });
 
@@ -42,6 +44,7 @@ class ScenarioGraphImportScreen extends StatefulWidget {
   final ScenarioGenerationService generationService;
   final ScenarioDraftStore draftStore;
   final ClipPlanGenerationService clipPlanService;
+  final ClipVideoStore? clipVideoStore;
   final ScenarioGenerationResult? incomingResult;
 
   static const d01InputAssetPath = 'assets/scenarios/d01_scenario_input.json';
@@ -700,6 +703,7 @@ class _ScenarioGraphImportScreenState extends State<ScenarioGraphImportScreen> {
     try {
       await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
         ClipProductionPlanScreen(providedPlan: (graph: _planGraph!, plan: _clipPlan!), rawPlanJson: _clipPlanRaw,
+          videoStore: widget.clipVideoStore,
           sourceContext: _editorResult == null ? null : {..._editorResult!.toJson(),
             'originalSource': 'model_output', 'source': _generationEdited ? 'model_output_edited' : 'model_output',
             'edited': _generationEdited, 'editorJson': _json.text, 'planId': _clipPlan!.planId,

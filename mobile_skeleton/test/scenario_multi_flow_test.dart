@@ -19,6 +19,7 @@ import 'package:neuro_awareness_app/services/scenario_graph_converter.dart';
 import 'package:neuro_awareness_app/services/scenario_draft_store.dart';
 import 'package:neuro_awareness_app/services/clip_plan_generation_service.dart';
 import 'package:neuro_awareness_app/services/http_scenario_generation_service.dart';
+import 'support/fake_graph_playback.dart';
 
 final _refs = ['D01','D02','D03'].map((id) => ScenarioBehaviorRef(behaviorId: id, cardVersion: '0.2')).toList();
 ScenarioGenerationRequest _request({bool linear = false}) => ScenarioGenerationRequest(
@@ -193,8 +194,9 @@ void main() {
     testWidgets('Tek form çoklu seçim ve $linear düzenini aktif sahne/prompt planına taşır', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1100,1000)); addTearDown(() => tester.binding.setSurfaceSize(null));
       final service = _Generation(), plans = _Plans(), store = _Store();
+      final videos = EmptyClipVideoStore();
       await tester.pumpWidget(MaterialApp(home: SyntheticVideoStudioScreen(generationService: service,
-        clipPlanService: plans, scenarioDraftStore: store)));
+        clipPlanService: plans, scenarioDraftStore: store, playbackVideoStore: videos)));
       await tester.pumpAndSettle(); await _tap(tester,'studio-engine-server');
       await _selectAgeGroup(tester, '18_24'); await _field(tester,'scenario-request-context','  Evde oyun.  ');
       if (linear) {
@@ -277,6 +279,8 @@ void main() {
       expect(plans.requests.single.graph.endSceneIds, hasLength(linear ? 1 : 8));
       await _tap(tester,'scenario-view-clip-plan');
       final screen = tester.widget<ClipProductionPlanScreen>(find.byType(ClipProductionPlanScreen));
+      expect(screen.videoStore, same(videos));
+      expect(videos.loadedPlanIds, [screen.providedPlan!.plan.planId]);
       expect(screen.providedPlan!.graph.scenarioId,store.value!.editorScenarioId);
       expect((screen.sourceContext!['request'] as Map)['behaviors'],hasLength(3));
       final title = find.descendant(of:find.byKey(const ValueKey('clip-scene:start')),matching:find.byType(ListTile));

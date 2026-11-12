@@ -17,6 +17,7 @@ import 'package:neuro_awareness_app/screens/synthetic_video_studio_screen.dart';
 import 'package:neuro_awareness_app/services/http_scenario_generation_service.dart';
 import 'package:neuro_awareness_app/services/scenario_draft_store.dart';
 import 'package:neuro_awareness_app/services/server_api_service.dart';
+import 'support/fake_graph_playback.dart';
 
 final _request = ScenarioGenerationRequest(behaviorId: 'D01', cardVersion: '0.2', ageGroup: ScenarioAgeGroup.months24To36,
   sceneContext: '  Deniz evde küplerle oynar.  ', additionalInstructions: 'Sabit kamera.');
@@ -211,8 +212,9 @@ void main() {
   });
   testWidgets('Tek form normal ve A/B/C/D için aynıdır; seçilen sonuç çağrısız editöre, aynı kimlikle plana gider', (tester) async {
     await _size(tester); final server = _Server(), store = _Store();
+    final videos = EmptyClipVideoStore();
     await tester.pumpWidget(MaterialApp(home: SyntheticVideoStudioScreen(initialOntologyCode: 'D01', initialAgeMonths: 31,
-      comparisonService: server.service(), scenarioDraftStore: store)));
+      comparisonService: server.service(), scenarioDraftStore: store, playbackVideoStore: videos)));
     await tester.pumpAndSettle(); expect(server.bodies, isEmpty);
     await _tap(tester, 'studio-engine-server');
     await _field(tester, 'scenario-request-context', _request.sceneContext);
@@ -268,6 +270,8 @@ void main() {
     expect((server.bodies.last['graph'] as Map)['scenarioId'], id);
     await _tap(tester, 'scenario-view-clip-plan');
     final plan = tester.widget<ClipProductionPlanScreen>(find.byType(ClipProductionPlanScreen));
+    expect(plan.videoStore, same(videos));
+    expect(videos.loadedPlanIds, [plan.providedPlan!.plan.planId]);
     expect(plan.providedPlan!.graph.scenarioId, id); expect(plan.sourceContext!['scenarioId'], id);
     expect(plan.sourceContext!['rawResponse'], _raw('A')); expect(plan.sourceContext!['arm'], 'A');
     expect(plan.sourceContext.toString(), isNot(contains(_Server.key)));
