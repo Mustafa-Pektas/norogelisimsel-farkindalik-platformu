@@ -377,6 +377,7 @@ class _SyntheticVideoStudioScreenState extends State<SyntheticVideoStudioScreen>
       await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ScenarioGraphImportScreen(
         initialScenarioContent: true, incomingResult: result,
         draftStore: widget.scenarioDraftStore ?? const ScenarioDraftStore(),
+        clipVideoStore: widget.playbackVideoStore,
         clipPlanService: widget.clipPlanService ?? service ?? _httpService)));
     } finally { _openingWorkspace = false; }
   }

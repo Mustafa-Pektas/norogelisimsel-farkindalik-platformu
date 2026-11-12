@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "d01-pilot-api-1.2",
+  "jobId": "12345678-1234-4123-8123-123456789abc",
+  "profileId": null,
+  "videoHash": "b6e12246983f8852f2cef4397b328ec9c0412294564a17212a4021a653eaf605",
+  "source": {
+    "schemaVersion": "d01-input-source-1.2",
+    "type": "automatic_face_tracking",
+    "method": "mediapipe_pnp_flow",
+    "targetSelection": "manual_initial_point",
+    "identityStatus": "continuity_candidate_not_biometric_identity",
+    "video": {
+      "width": 1280,
+      "height": 720,
+      "fps": 24,
+      "durationS": 7,
+      "decodedFrames": 168
+    }
+  },
+  "manualTimes": {
+    "call_start_s": {
+      "time_s": 0.401,
+      "source": "manual_user_input"
+    },
+    "call_end_s": {
+      "time_s": 1.152,
+      "source": "manual_user_input"
+    },
+    "response_start_s": {
+      "time_s": null,
+      "source": null
+    },
+    "response_end_s": {
+      "time_s": null,
+      "source": null
+    }
+  },
+  "movements": {
+    "raw": [
+      {
+        "candidate_id": "candidate_001",
+        "movement_start_s": 1.5833333333333333,
+        "movement_end_s": null,
+        "start_confirmation_time_s": 1.6666666666666665,
+        "end_confirmation_time_s": null,
+        "start_minus_manual_call_start_s": 1.1823333333333332,
+        "start_minus_manual_call_end_s": 0.43133333333333335,
+        "callPhase": "after_call"
+      }
+    ],
+    "ema_050": [
+      {
+        "candidate_id": "candidate_001",
+        "movement_start_s": 1.5833333333333333,
+        "movement_end_s": null,
+        "start_confirmation_time_s": 1.6666666666666665,
+        "end_confirmation_time_s": null,
+        "start_minus_manual_call_start_s": 1.1823333333333332,
+        "start_minus_manual_call_end_s": 0.43133333333333335,
+        "callPhase": "after_call"
+      }
+    ]
+  },
+  "counts": {
+    "processed": 168,
+    "valid": 43,
+    "invalid": 125
+  },
+  "coverage": {
+    "poseFrames": 43,
+    "flowOnlyFrames": 60,
+    "lostFrames": 65,
+    "ambiguousFrames": 0,
+    "totalFrames": 168
+  },
+  "missingPoseIntervals": [
+    {
+      "startS": 1.7916666666666665,
+      "endS": 6.958333333333333,
+      "frames": 125
+    }
+  ],
+  "timings": {
+    "media_preflight_s": 0.5625691999999844,
+    "model_load_s": 1.4797479999999723,
+    "tracking_pnp_s": 8.227607299999931,
+    "candidate_postprocess_s": 0.03928670000004786,
+    "report_preparation_s": 0.15428210000004583,
+    "total_s": 12.62318849999997,
+    "upload_s": null,
+    "child_process_s": null
+  },
+  "settling": [],
+  "algorithmicTarget": "not_determined",
+  "clockAlignmentVerified": false,
+  "manualCandidateStatus": "unreviewed",
+  "interpretation": "temporal_relations_only_not_response_or_target_classification"
+}

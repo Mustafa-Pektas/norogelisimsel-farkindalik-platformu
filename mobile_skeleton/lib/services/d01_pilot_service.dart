@@ -6,12 +6,15 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/d01_pilot_result.dart';
+import '../models/d01_marked_input.dart';
 
 abstract interface class D01PilotApi {
   D01PilotTask create({
     required File video,
     required String address,
     required String accessKey,
+    D01MarkedInput? markedInput,
+    D01FastInput? fastInput,
   });
 }
 
@@ -38,6 +41,8 @@ class HttpD01PilotApi implements D01PilotApi {
     required File video,
     required String address,
     required String accessKey,
+    D01MarkedInput? markedInput,
+    D01FastInput? fastInput,
   }) {
     final uri = Uri.tryParse(address.trim());
     if (uri == null ||
@@ -50,6 +55,15 @@ class HttpD01PilotApi implements D01PilotApi {
       throw const D01PilotException('invalid_address');
     }
     final key = accessKey.trim();
+    if (fastInput != null &&
+        (markedInput != null ||
+            !fastInput.validFor(const Duration(seconds: 30)))) {
+      throw const D01PilotException('invalid_manual_times');
+    }
+    if (markedInput != null &&
+        !markedInput.validFor(const Duration(seconds: 30))) {
+      throw const D01PilotException('invalid_manual_times');
+    }
     if (!RegExp(r'^[\x21-\x7e]+$').hasMatch(key)) {
       throw const D01PilotException('unauthorized');
     }
@@ -59,6 +73,11 @@ class HttpD01PilotApi implements D01PilotApi {
       key,
       clientFactory ?? http.Client.new,
       timeout,
+      markedInput,
+      fastInput == null ? null : D01FastInput(
+        targetPoint: fastInput.targetPoint == null ? null : List<double>.unmodifiable(fastInput.targetPoint!),
+        callStart: fastInput.callStart, callEnd: fastInput.callEnd,
+      ),
     );
   }
 }
@@ -70,7 +89,12 @@ class _HttpPilotTask implements D01PilotTask {
     this.accessKey,
     this.clientFactory,
     this.timeout,
+    this.markedInput,
+    this.fastInput,
   );
+  final D01FastInput? fastInput;
+  final D01MarkedInput? markedInput;
+  String? _acceptedHash;
   final File video;
   final Uri address;
   final String accessKey;
@@ -171,9 +195,42 @@ class _HttpPilotTask implements D01PilotTask {
         ..files.add(
           http.MultipartFile.fromBytes('video', bytes, filename: 'pilot.mp4'),
         );
-      // No call times, paths, ROI, recorded matrices or model commands are sent.
-      final accepted = D01PilotStatus.fromJson(await _send(upload, 202));
+      final fast = fastInput;
+      if (fast != null) {
+        upload.fields['method'] = 'mediapipe_pnp_flow';
+        if (fast.targetPoint != null)
+          upload.fields['targetPoint'] = jsonEncode(fast.targetPoint);
+        if (fast.callStart != null) {
+          upload.fields['callStartS'] = (fast.callStart!.inMilliseconds / 1000)
+              .toStringAsFixed(3);
+          upload.fields['callEndS'] = (fast.callEnd!.inMilliseconds / 1000)
+              .toStringAsFixed(3);
+        }
+      }
+      final marked = markedInput;
+      if (marked != null) {
+        upload.fields['roi'] = jsonEncode(marked.roi.toJson());
+        upload.fields['callStartS'] = (marked.callStart.inMilliseconds / 1000)
+            .toStringAsFixed(3);
+        upload.fields['callEndS'] = (marked.callEnd.inMilliseconds / 1000)
+            .toStringAsFixed(3);
+      }
+      // Never send local paths, model commands or movement labels.
+      final acceptedJson = await _send(upload, 202);
+      final accepted = D01PilotStatus.fromJson(acceptedJson);
       _jobId = accepted.jobId;
+      if (markedInput != null || fastInput != null) {
+        final hash = acceptedJson['videoHash'];
+        if (hash is! String ||
+            !RegExp(r'^[0-9a-f]{64}$').hasMatch(hash) ||
+            acceptedJson['sourceType'] !=
+                (fastInput == null
+                    ? 'user_marked'
+                    : 'automatic_face_tracking')) {
+          throw const D01PilotException('invalid_contract');
+        }
+        _acceptedHash = hash;
+      }
       return accepted;
     } on D01PilotException {
       rethrow;
@@ -200,6 +257,9 @@ class _HttpPilotTask implements D01PilotTask {
     final r = D01PilotResult.fromJson(
       await _send(http.Request('GET', _uri('/${_id()}/result')), 200),
       expectedJobId: _id(),
+      expectedVideoHash: _acceptedHash,
+      expectedMarkedInput: markedInput,
+      expectedFastInput: fastInput,
     );
     var matchingBytes = false;
     try {
