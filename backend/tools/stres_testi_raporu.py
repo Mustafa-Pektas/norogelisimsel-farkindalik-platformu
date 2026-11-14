@@ -6,14 +6,16 @@ Girdi : rag_stress_test.js --save-outputs çıktıları (aşama başına bir JSO
 
 Kalite denetimi (her başarılı çıktı; sunucu zaten JSON yapısını doğrular):
   K1 Yapı           — sunucu sözleşme doğrulaması geçti (success)
-  K2 Türkçe         — metin Türkçe
-  K3 Tanı dili yok  — otizm / tanı / gecikme / atipik / risk vb. terim yok
+  K2 Türkçe karakter— Türkçe yazılmış ve Türkçe karakterler korunmuş (ASCII'ye indirgenmemiş)
+  K3 Tanı dili yok  — anlatı metninde (başlıklar hariç) otizm / tanı / teşhis / gelişimsel gecikme / atipik / risk vb. yok
   K4 Davranışa uygun— istenen davranışın (D01/D02/D04) temel öğeleri metinde var
   K5 Dallar farklı  — en az iki farklı sonuç dalı; devam metinleri birbirinin kopyası değil
-  K6 Yaş tutarlı    — metinde ay/yaş geçiyorsa istenen yaş bandında
+  K6 Yaş tutarlı    — metinde ay/yaş (ör. "30-36 ay") geçiyorsa istenen yaş bandında
   K7 Uzunluk makul  — başlangıç ve dal metinleri çok kısa/uzun değil
   K8 Kart kuralı    — D01'de yetişkin adı tekrar seslenmiyor; D02'de çocuğa dokunup başını çevirmiyor
+  K9 Meta sızıntı yok — anlatıya yönerge/meta yorum karışmamış ("taslak önerisi", "uzman incelemesi", "bu senaryoda"...)
   U1 Gözlenebilirlik (uyarı) — iç durum fiilleri (düşünür, hisseder, anlar...) sayısı
+  U2 Başlık etiketi (uyarı)  — dal başlığında "Tipik/Atipik" etiketi (sistemin iç etiketi; kullanıcıya gösterilirse gözden geçirilmeli)
 Kullanım:
   python stres_testi_raporu.py --phase "1 kullanıcı=p1.json" --phase "4 kullanıcı=p2.json" ... --out-dir rapor
       [--manual manuel_inceleme.json]
@@ -32,22 +34,35 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 AGE_BANDS = {"12_18": (12, 18), "18_24": (18, 24), "24_36": (24, 36)}
-DIAG = re.compile(r"\b(otiz\w*|otisti\w*|osb|tanı\w*|teşhis\w*|bozukluk\w*|sendrom\w*|gecikm\w*|geriliğ\w*|gerilik\w*|"
-                  r"atipik\w*|anormal\w*|hastalı\w*|risk\w*|patoloj\w*|semptom\w*|belirti\w*)", re.I)
-MENTAL = re.compile(r"\b(düşünür|düşünüyor|hisseder|hissediyor|anlar|anlıyor|fark eder|merak eder|ister|istiyor|"
-                    r"sever|seviyor|mutlu olur|üzülür|sıkılır|heyecanlanır)\b", re.I)
-BEHAVIOR_KEYS = {
-    "D01": [r"(ad[ıi]n[ıi]|ismini|isim|seslen|çağır|\bder\b|söyler|adıyla)", r"(dön|bak|yönel)"],
-    "D02": [r"(işaret|parma[kğ]|gösterir)", r"(bak|yönel|takip|döner|çevir)"],
-    "D04": [r"(fincan|bebe[kğ]|oyuncak)", r"(gibi|içir|besle|uyut|taklit|yapar)"],
+_FOLD = str.maketrans("çğıöşüÇĞİÖŞÜâîû", "cgiosucgiosuaiu")
+
+
+def fold(s: str) -> str:
+    """Türkçe karakterleri ASCII'ye indirger; denetimler aksan farkından etkilenmesin."""
+    return (s or "").replace("İ", "i").translate(_FOLD).lower()
+
+
+# Anlatı metninde (başlıklar hariç) tanı/klinik dil — katlanmış (ASCII) metinde, tam kelime biçimleri
+DIAG = re.compile(r"\b(otiz\w*|otisti\w*|osb|tani|tanisi|tanisini|tanisina|tani koy\w*|teshis\w*|bozukluk\w*|sendrom\w*|"
+                  r"gelisimsel gecikme\w*|gerilik\w*|geriligi|atipik\w*|anormal\w*|hastalik\w*|riskli|risk|risk[il]\w*|"
+                  r"patoloj\w*|semptom\w*|belirti|belirtisi|belirtileri)\b")
+LABEL = re.compile(r"\b(atipik|tipik)\b")
+MENTAL = re.compile(r"\b(dusunur|dusunuyor|hisseder|hissediyor|anlar|anliyor|fark eder|merak eder|ister|istiyor|"
+                    r"sever|seviyor|mutlu olur|uzulur|sikilir|heyecanlanir)\b")
+BEHAVIOR_KEYS = {  # katlanmış metinde aranır
+    "D01": [r"(adini|ismini|isim|seslen|cagir|\bder\b|soyler|adiyla)", r"(don|bak|yonel)"],
+    "D02": [r"(isaret|parma[kg]|gosterir)", r"(bak|yonel|takip|doner|cevir)"],
+    "D04": [r"(fincan|bebe[kg]|oyuncak)", r"(gibi|icir|besle|uyut|taklit|yapar|hayali)"],
 }
 RULE_VIOLATION = {
-    "D01": re.compile(r"(tekrar|yeniden|ikinci kez|bir kez daha|birkaç kez)[^.]{0,40}(seslen|çağır|ad[ıi]n[ıi]|ismini|söyle)", re.I),
-    "D02": re.compile(r"(çocu[gğ]un|çocuğa)[^.]{0,30}(dokun|başını çevir|elinden tut)", re.I),
+    "D01": re.compile(r"(tekrar|yeniden|ikinci kez|bir kez daha|birkac kez)[^.]{0,40}(seslen|cagir|adini|ismini|soyle)"),
+    "D02": re.compile(r"(cocugun|cocuga)[^.]{0,30}(dokun|basini cevir|elinden tut)"),
 }
-TR_WORDS = re.compile(r"\b(ve|bir|ile|çocuk|yetişkin|sahne|oyun|bu|olarak|doğru)\b", re.I)
-CHECKS = ["K1 Yapı", "K2 Türkçe", "K3 Tanı dili yok", "K4 Davranışa uygun", "K5 Dallar farklı",
-          "K6 Yaş tutarlı", "K7 Uzunluk makul", "K8 Kart kuralı"]
+META = re.compile(r"(taslak oneri\w*|uzman incelem\w*|ekip incelem\w*|klinik (bir )?esik|prototip\w*|bu senaryo\w*|"
+                  r"senaryoda\b|uyarlan\w*|temsili|temsil ed\w*|basari sinir\w*|hukum veril\w*|yonerge geregi|kart(ta|in) belirt\w*)")
+TR_WORDS = re.compile(r"\b(ve|bir|ile|cocuk|yetiskin|sahne|oyun|bu|olarak|dogru)\b")
+CHECKS = ["K1 Yapı", "K2 Türkçe karakter", "K3 Tanı dili yok", "K4 Davranışa uygun", "K5 Dallar farklı",
+          "K6 Yaş tutarlı", "K7 Uzunluk makul", "K8 Kart kuralı", "K9 Meta sızıntı yok"]
 
 
 def words(s: str) -> set:
@@ -97,23 +112,36 @@ def check_output(rec: Dict[str, Any], request: Dict[str, Any]) -> Dict[str, Any]
         return res
     start, alts, branches, scenes = scenario_texts(v)
     full = " ".join([start] + branches + scenes)
+    titles_raw = [str(a.get("title") or "") for a in alts if isinstance(a, dict)]
+    narrative = " ".join([start, *scenes] + [" ".join(str(a.get(k) or "") for k in ("continuation", "ending"))
+                                             for a in alts if isinstance(a, dict)])
+    f_full, f_narr = fold(full), fold(narrative)
     tr_chars = len(re.findall(r"[çğıöşüÇĞİÖŞÜ]", full))
-    res["K2 Türkçe"] = tr_chars >= 5 and len(TR_WORDS.findall(full)) >= 3
-    diag = sorted({m.group(0).lower() for m in DIAG.finditer(full)})
+    res["K2 Türkçe karakter"] = tr_chars >= 5 and len(TR_WORDS.findall(f_full)) >= 3
+    diag = sorted({m.group(0) for m in DIAG.finditer(f_narr)})
     res["K3 Tanı dili yok"] = not diag
     keys = BEHAVIOR_KEYS.get(behavior)
-    res["K4 Davranışa uygun"] = all(re.search(k, full, re.I) for k in keys) if keys else None
+    res["K4 Davranışa uygun"] = all(re.search(k, f_full) for k in keys) if keys else None
     conts = [str(a.get("continuation") or "") for a in alts if isinstance(a, dict)]
-    titles = [str(a.get("title") or "").strip().lower() for a in alts if isinstance(a, dict)]
+    titles = [t.strip().lower() for t in titles_raw]
     sim = max((jaccard(a, b) for a, b in combinations(conts, 2)), default=1.0)
     res["K5 Dallar farklı"] = len(conts) >= 2 and len(set(titles)) == len(titles) and sim < 0.6
-    ages = [int(x) for x in re.findall(r"(\d{1,2})\s*aylık", full)] + [int(x) * 12 for x in re.findall(r"(\d)\s*yaş", full)]
+    ages = []
+    for a, b in re.findall(r"(\d{1,2})\s*(?:-|–|ila|ile)\s*(\d{1,2})\s*ay", f_full):
+        ages += [int(a), int(b)]
+    rest = re.sub(r"(\d{1,2})\s*(?:-|–|ila|ile)\s*(\d{1,2})\s*ay", " ", f_full)
+    ages += [int(x) for x in re.findall(r"(\d{1,2})\s*ay(?:lik|lık)?\b", rest)]
+    ages += [int(x) * 12 for x in re.findall(r"\b(\d)\s*yas", rest)]
     res["K6 Yaş tutarlı"] = True if (not ages or not band) else all(band[0] <= a <= band[1] for a in ages)
     lens_ok = 60 <= len(start) <= 1500 and all(20 <= len(b) <= 1200 for b in branches) if branches else False
     res["K7 Uzunluk makul"] = lens_ok
     rule = RULE_VIOLATION.get(behavior)
-    res["K8 Kart kuralı"] = True if rule is None else not rule.search(full)
-    res["U1 iç durum fiili"] = len(MENTAL.findall(full))
+    res["K8 Kart kuralı"] = True if rule is None else not rule.search(f_full)
+    meta = sorted({m.group(0) for m in META.finditer(f_narr)})
+    res["K9 Meta sızıntı yok"] = not meta
+    res["meta ifadeler"] = meta
+    res["U1 iç durum fiili"] = len(MENTAL.findall(f_full))
+    res["U2 başlıkta tipik/atipik"] = sum(bool(LABEL.search(fold(t))) for t in titles_raw)
     res["tanı terimleri"] = diag
     res["dal benzerliği"] = round(sim, 2)
     res["yaş ifadeleri"] = ages
@@ -185,6 +213,7 @@ def quality_rows(records, key_fn, key_name):
             row[c] = None if not vals else round(100 * sum(vals) / len(vals), 1)
         row["Tümü geçti %"] = round(100 * sum(all(q.get(c) in (True, None) for c in CHECKS) for q in qs) / len(qs), 1)
         row["İç durum fiili (ort.)"] = round(float(np.mean([q.get("U1 iç durum fiili", 0) for q in qs])), 2)
+        row["Başlıkta tipik/atipik %"] = round(100 * sum(q.get("U2 başlıkta tipik/atipik", 0) > 0 for q in qs) / len(qs), 1)
         rows.append(row)
     return rows
 
@@ -219,6 +248,8 @@ def failures(records, limit=12):
                 detail.append("terimler: " + ", ".join(q["tanı terimleri"]))
             if "K6 Yaş tutarlı" in bad:
                 detail.append(f"yaş: {q.get('yaş ifadeleri')}")
+            if q.get("meta ifadeler"):
+                detail.append("meta: " + ", ".join(q["meta ifadeler"][:4]))
             if "K5 Dallar farklı" in bad:
                 detail.append(f"dal benzerliği {q.get('dal benzerliği')}")
             out.append({"Aşama": r["phase"], "İstek": r["index"], "Girdi": r["inputId"], "Kol": r.get("arm") or "—",
