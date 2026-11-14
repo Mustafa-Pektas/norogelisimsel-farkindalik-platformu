@@ -49,6 +49,7 @@ function parseArgs(argv) {
     else if (key === '--queue-wait-ms') opts.queueWaitMs = need();
     else if (key === '--continue-on-quota') opts.continueOnQuota = true;
     else if (key === '--save-outputs') opts.saveOutputs = true;
+    else if (key === '--rate-per-min') opts.ratePerMin = Number(need());
     else throw Error(`Bilinmeyen argüman: ${key}`);
   }
   if (!['local', 'remote'].includes(opts.mode)) throw Error('--mode local veya remote olmalı');
@@ -58,6 +59,7 @@ function parseArgs(argv) {
   if (opts.latencyMs.length === 1) opts.latencyMs = [opts.latencyMs[0], opts.latencyMs[0]];
   if (opts.latencyMs.some(v => !Number.isFinite(v) || v < 0) || opts.latencyMs[0] > opts.latencyMs[1]) throw Error('--latency-ms min-max biçiminde olmalı');
   if (!(opts.failRate >= 0 && opts.failRate <= 1)) throw Error('--fail-rate 0..1 olmalı');
+  if (opts.ratePerMin !== undefined && !(opts.ratePerMin > 0)) throw Error('--rate-per-min pozitif olmalı');
   if (opts.mode === 'remote') {
     if (!opts.server) throw Error('remote kipte --server zorunlu');
     if (!Number.isInteger(opts.maxRequests) || opts.maxRequests < 1) throw Error('remote kipte --max-requests (ücret üst sınırı) zorunlu');
@@ -174,12 +176,21 @@ async function runJob(job, base, key, save = false) {
   return attachOutput(record, res, save);
 }
 
-async function runPool(jobs, concurrency, worker, onRecord) {
+// ratePerMin: istek BAŞLATMA hızı üst sınırı (sağlayıcının dakika başı sınırını aşmamak için); 0 = sınırsız.
+async function runPool(jobs, concurrency, worker, onRecord, ratePerMin = 0) {
   const results = new Array(jobs.length);
-  let next = 0, stop = false;
+  let next = 0, stop = false, nextSlot = 0;
+  const interval = ratePerMin > 0 ? 60000 / ratePerMin : 0;
   async function lane() {
     while (!stop && next < jobs.length) {
       const job = jobs[next++];
+      if (interval) {
+        const now = performance.now();
+        const at = Math.max(now, nextSlot);
+        nextSlot = at + interval;
+        if (at > now) await new Promise(resolve => setTimeout(resolve, at - now));
+        if (stop) break;
+      }
       const record = await worker(job);
       results[job.index] = record;
       if (onRecord(record) === 'stop') stop = true;
@@ -271,7 +282,7 @@ async function main(argv = process.argv.slice(2), { log = true } = {}) {
     if (log) process.stdout.write(record.outcome === 'success' ? '.' : 'x');
     if (opts.mode === 'remote' && record.outcome === 'provider_quota' && !opts.continueOnQuota) { quotaStops++; return 'stop'; }
     return undefined;
-  });
+  }, opts.ratePerMin || 0);
   const wallMs = performance.now() - started;
   if (server) await new Promise(resolve => server.close(resolve));
   const summary = summarize(records, wallMs);

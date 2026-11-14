@@ -296,27 +296,32 @@ def findings(runs, speed_rows):
     if ref_row:
         out.append(f"Referans {ref_name} sunucuda {ref_row['Uçtan uca (ms/kare)']:.0f} ms/kare çalışıyor; "
                    f"3,5 dk'lık bir video ≈ {ref_row['3,5 dk video (dk)']:.0f} dk sürer ({ref_row['15 dk sınırına sığar']}: 15 dk sınırı).")
-    # Doğruluk: referansa en yakın hızlı modeller
-    good = []
-    for r in speed_rows:
-        n = r["Model"]
-        if n == ref_name:
-            continue
-        ds = []
-        for run in runs:
-            m, ref = run["models"].get(n), run["ref"]
-            if not m or not ref:
+    # Doğruluk: referansa en yakın hızlı modeller (iki tolerans düzeyi)
+    def within(tol):
+        good = []
+        for r in speed_rows:
+            n = r["Model"]
+            if n == ref_name:
                 continue
-            for k in ("onset_s", "end_s"):
-                d = delta(m["d01_first_head_turn"].get(k), ref["d01_first_head_turn"].get(k))
-                ds.append(abs(d) if d is not None else 9.9)
-            ds.append(0 if m["lost_frames_count"] == 0 else 9.9)
-        if ds and max(ds) <= 0.15:
-            good.append((r["Uçtan uca (ms/kare)"], n))
-    if good:
-        best = sorted(good)[0]
-        out.append(f"Her iki videoda referansla dönüş başlangıç/bitişi ±0,15 s içinde, kayıpsız ve en hızlı model: "
-                   f"{best[1]} ({best[0]:.0f} ms/kare). Uyan diğer modeller: {', '.join(n for _, n in sorted(good)[1:]) or '—'}.")
+            ds = []
+            for run in runs:
+                m, ref = run["models"].get(n), run["ref"]
+                if not m or not ref:
+                    continue
+                for k in ("onset_s", "end_s"):
+                    d = delta(m["d01_first_head_turn"].get(k), ref["d01_first_head_turn"].get(k))
+                    ds.append(abs(d) if d is not None else 9.9)
+                ds.append(0 if m["lost_frames_count"] == 0 else 9.9)
+            if ds and max(ds) <= tol + 1e-9:
+                good.append((r["Uçtan uca (ms/kare)"], n, r["3,5 dk video (dk)"]))
+        return sorted(good)
+    for tol in (0.15, 0.25):
+        good = within(tol)
+        if good:
+            best = good[0]
+            out.append(f"Her iki videoda referansla dönüş başlangıç/bitişi ±{tol:.2f} s içinde ve kayıpsız en hızlı model: "
+                       f"{best[1]} ({best[0]:.0f} ms/kare; 3,5 dk video ≈ {best[2]:.1f} dk). "
+                       f"Bu toleransa uyan diğerleri: {', '.join(n for _, n, _ in good[1:]) or '—'}.")
     out.append(f"15 dk sınırına 3,5 dk'lık videoyu sığdıran model sayısı: {len(ok_rows)}/{len(speed_rows)}.")
     for run in runs:
         e = ((run["ref"] or {}).get("d01_events") or {})
