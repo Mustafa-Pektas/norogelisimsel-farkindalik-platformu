@@ -72,6 +72,7 @@ def run_benchmark(
     out_path: Optional[str] = None,
     write_report: bool = True,
     reference_model: Optional[str] = None,
+    monthly_price_tl: Optional[float] = 400.0,
 ) -> Dict[str, Any]:
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video bulunamadı: {video_path}")
@@ -367,7 +368,8 @@ def run_benchmark(
 
     if write_report and report_entries:
         print("--> Konsolide raporlar üretiliyor (PDF / Excel / HTML)...", flush=True)
-        outs = write_reports(output_dir, benchmark_summary, report_entries, fps, reference_name=reference_model)
+        outs = write_reports(output_dir, benchmark_summary, report_entries, fps, reference_name=reference_model,
+                             monthly_price_tl=monthly_price_tl)
         benchmark_summary["reports"] = outs
         for kind, p in outs.items():
             print(f"    [RAPOR] {kind.upper():5s}: {p if p else 'ATLANDI (bağımlılık eksik)'}", flush=True)
@@ -431,6 +433,9 @@ if __name__ == "__main__":
     parser.add_argument("--reference-model", type=str, default=None,
                         help="Uyum ölçütü için referans model adı (varsayılan: 6DRepNet360_Heavy_Reference, yoksa Cascade_PnP_to_6DRepNet360)")
 
+    parser.add_argument("--aylik-ucret-tl", type=float, default=400.0,
+                        help="Sunucunun aylık ücreti (TL); rapordaki video başı maliyet için (varsayılan: 400)")
+
     args = parser.parse_args()
     res = run_benchmark(
         video_path=args.video,
@@ -443,6 +448,7 @@ if __name__ == "__main__":
         out_path=args.out,
         write_report=not args.no_report,
         reference_model=args.reference_model,
+        monthly_price_tl=args.aylik_ucret_tl,
     )
     print_markdown_table(res)
 

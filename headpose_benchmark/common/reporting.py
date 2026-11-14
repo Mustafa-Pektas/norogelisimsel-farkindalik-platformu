@@ -31,6 +31,33 @@ from common.geometry import rotation_matrix_to_euler, estimate_scene_gaze_target
 
 REFERENCE_FALLBACKS = ["6DRepNet360_Heavy_Reference", "Cascade_PnP_to_6DRepNet360"]
 
+# Maliyet hesabı: 3,5 dk @ 24 FPS (pilot üst sınırı), sunucu aylık ücreti (TL) ve 15 dk analiz sınırı
+LONG_VIDEO_FRAMES = 210 * 24
+DEFAULT_MONTHLY_PRICE_TL = 400.0
+ANALYSIS_LIMIT_S = 900
+SECONDS_PER_MONTH = 30 * 24 * 3600
+
+STATE_COLORS = {"BEKLEME": "#e5e7eb", "BAKIYOR": "#fdba74", "DURDU": "#93c5fd",
+                "GERI_DONUYOR": "#c4b5fd", "GERI_DONDU": "#86efac", "BELIRSIZ": "#fca5a5"}
+STATE_TR = {"BEKLEME": "Bekleme", "BAKIYOR": "Baktı (dönüyor)", "DURDU": "Durdu (bakıyor)",
+            "GERI_DONUYOR": "Geri dönüyor", "GERI_DONDU": "Geri döndü", "BELIRSIZ": "Belirsiz"}
+DURUM_TR = {"geri_dondu": "baktı → durdu → geri döndü", "yavas_geri_donus": "baktı → durdu → yavaş geri döndü",
+            "geri_dondu_bitis_belirsiz": "geri dönüş başladı, bitişi yok", "geri_donus_yok": "baktı → durdu (dönmedi)",
+            "durma_gozlenemedi": "baktı, durma gözlenemedi", "kucuk_hareket": "küçük hareket (<12°)",
+            "bakis_yok": "çağrı sonrası hareket yok"}
+
+FSM_NOTE = ("Durum makinesi: BEKLEME → BAKTI (çağrıdan sonraki ilk baş hareketi, ω ≥ 45 °/s ve zirve sapma ≥ 12°) → "
+            "DURDU (ω ≤ 20 °/s; bakış süresi burada sayılır) → GERİ DÖNÜYOR (sonraki hareket) → GERİ DÖNDÜ (sapma, zirvenin "
+            "%35'inin veya 6°'nin altına iner). Hız eşiğini aşmadan dönüş 'yavaş geri dönüş' olarak işaretlenir. "
+            "Eşikler mühendislik parametresidir, uzman kalibrasyonu bekler.")
+COST_NOTE = ("Ölçülen uçtan uca kare süresinden: 3,5 dk video (5040 kare) süresi = ms/kare × 5040 + model yükleme. "
+             "Sunucu aynı anda tek analiz çalıştırır; aylık kapasite = 30 gün / video süresi; video başı maliyet = "
+             "aylık sunucu ücreti / aylık kapasite.")
+FLOW_NOTE = ("Optik akış, poz modeli olmadan yalnız piksel hareketinden 'baş durdu mu' sorusu için denendi. Kural 1 (artık "
+             "akış): yüz kutusundaki akıştan medyan öteleme çıkarılır, kalan düzensiz hareket dönmeyi temsil eder. Kural 2 "
+             "(durgunluk): toplam akış çağrı öncesi düzeyin %35'inin altına inince baş durmuş sayılır. Sonuç, poz tabanlı "
+             "referans dönüş bitişiyle karşılaştırılır.")
+
 PDF_NAME = "tum_modeller_raporu.pdf"
 XLSX_NAME = "karsilastirma_tablosu.xlsx"
 HTML_NAME = "tum_modeller_raporu.html"
@@ -153,6 +180,8 @@ def prepare_model_data(entry: Dict[str, Any], video: Dict[str, Any], fps: float)
         "onset": onset, "end": end,
         "reaction_ms": round((onset - call0) * 1000.0) if (onset is not None and call0 is not None) else None,
         "duration_s": round(end - onset, 3) if (onset is not None and end is not None) else None,
+        "events": tm.get("d01_events") or {},
+        "segments": tm.get("d01_event_segments") or [],
         "candidates": {
             "EMA_050": tm.get("ema_050_candidates") or [],
             "EMA_025": tm.get("ema_025_candidates") or [],
@@ -240,6 +269,109 @@ def model_metric_pairs(m: Dict[str, Any]) -> List[List[Any]]:
     return [[k, v] for k, v in row.items() if k != "Model"] + extra
 
 
+# --------------------------------------------------------------------------------------- yeni bölümler
+def speed_cost_rows(models: List[Dict[str, Any]], monthly_price: Optional[float]) -> List[Dict[str, Any]]:
+    """Hız ve maliyet: bu koşudaki ölçümden 3,5 dk video projeksiyonu."""
+    rows = []
+    for m in models:
+        s = m["stat"]
+        per_frame = s["total_wall_time_s"] / max(1, s["total_frames_processed"])
+        long_s = per_frame * LONG_VIDEO_FRAMES + s.get("setup_time_ms", 0) / 1000.0
+        per_month = SECONDS_PER_MONTH / long_s
+        rows.append({
+            "Model": m["name"],
+            "Medyan (ms/kare)": _f(s["timing_warmup_excluded"]["median_latency_ms"], 1),
+            "Uçtan uca (ms/kare)": _f(per_frame * 1000, 1),
+            "Gerçek zamanlı": "evet" if per_frame * 1000 <= 1000 / 24 else "hayır",
+            "3,5 dk video (dk)": _f(long_s / 60, 1),
+            "15 dk sınırı": "sığar" if long_s <= ANALYSIS_LIMIT_S else "sığmaz",
+            "Aylık kapasite (video)": int(per_month),
+            "Video başı maliyet (TL)": None if monthly_price is None else _f(monthly_price / per_month, 3),
+        })
+    rows.sort(key=lambda r: r["Uçtan uca (ms/kare)"] or 0)
+    return rows
+
+
+def event_rows(models: List[Dict[str, Any]], ref: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    re_ = (ref or {}).get("events") or {}
+    rows = []
+    for m in models:
+        e = m.get("events") or {}
+        is_ref = ref is not None and m["name"] == ref["name"]
+        d = None if (is_ref or e.get("geri_dondu_s") is None or re_.get("geri_dondu_s") is None) \
+            else round(e["geri_dondu_s"] - re_["geri_dondu_s"], 3)
+        rows.append({
+            "Model": m["name"] + (" (REFERANS)" if is_ref else ""),
+            "Baktı (s)": _f(e.get("bakti_s"), 3),
+            "Durdu (s)": _f(e.get("durdu_s"), 3),
+            "Bakış süresi (s)": _f(e.get("bakis_suresi_s"), 2),
+            "Geri dönüş başl. (s)": _f(e.get("geri_donus_baslangic_s"), 3),
+            "Geri döndü (s)": _f(e.get("geri_dondu_s"), 3),
+            "Zirve sapma (°)": _f(e.get("zirve_sapma_deg"), 1),
+            "Sonuç": DURUM_TR.get(e.get("durum"), e.get("durum")),
+            "Δ Geri döndü vs Ref (s)": d,
+        })
+    return rows
+
+
+def flow_rows(summary: Dict[str, Any], ref: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    f = summary.get("optical_flow_stop")
+    if not f:
+        return []
+    st = f.get("stillness") or {}
+    r_on, r_end = (ref or {}).get("onset"), (ref or {}).get("end")
+    dlt = lambda a, b: None if a is None or b is None else round(float(a) - float(b), 3)
+    return [
+        {"Yöntem": "Poz tabanlı (referans model, ω kuralı)", "Hareket başlangıcı (s)": _f(r_on, 3),
+         "Durma (s)": _f(r_end, 3), "Δ Durma vs Ref (s)": None, "Durum": "referans"},
+        {"Yöntem": "Optik akış — artık akış kuralı", "Hareket başlangıcı (s)": _f(f.get("first_movement_start_s"), 3),
+         "Durma (s)": _f(f.get("first_movement_stop_s"), 3),
+         "Δ Durma vs Ref (s)": dlt(f.get("first_movement_stop_s"), r_end), "Durum": f.get("status")},
+        {"Yöntem": "Optik akış — durgunluk kuralı", "Hareket başlangıcı (s)": None,
+         "Durma (s)": _f(st.get("first_still_s"), 3),
+         "Δ Durma vs Ref (s)": dlt(st.get("first_still_s"), r_end), "Durum": st.get("status")},
+    ]
+
+
+def flow_png(summary: Dict[str, Any], ref: Optional[Dict[str, Any]], fps: float, dpi: int = 110) -> Optional[bytes]:
+    f = summary.get("optical_flow_stop")
+    if not f or not f.get("series"):
+        return None
+    plt = _mpl()
+    st = f.get("stillness") or {}
+    n = len(f["series"])
+    t = np.arange(n) / float(fps or 24)
+    calls = summary["video"]["roi"].get("calls") or []
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(15, 6.5), sharex=True)
+    a1.plot(t, np.array([np.nan if v is None else v for v in f["series"]], dtype=float) * 100, color="#0891b2", lw=1.6,
+            label="Artık akış (öteleme çıkarılmış), % yüz genişliği/kare")
+    if f.get("start_threshold"):
+        a1.axhline(f["start_threshold"] * 100, color="#dc2626", ls="--", lw=1, label="başlama eşiği")
+        a1.axhline(f["stop_threshold"] * 100, color="#16a34a", ls="--", lw=1, label="durma eşiği")
+    mot = st.get("series") or [None] * n
+    a2.plot(t, np.array([np.nan if v is None else v for v in mot], dtype=float) * 100, color="#475569", lw=1.6,
+            label="Toplam akış, % yüz genişliği/kare")
+    if st.get("threshold"):
+        a2.axhline(st["threshold"] * 100, color="#16a34a", ls="--", lw=1, label="durgunluk eşiği")
+    for i, ax in enumerate((a1, a2)):
+        _shade_calls(ax, calls, label=(i == 0))
+        if ref and ref.get("onset") is not None and ref.get("end") is not None:
+            ax.axvspan(ref["onset"], ref["end"], color="#86efac", alpha=0.4, lw=0, label="Poz (referans) dönüş penceresi")
+        ax.grid(alpha=0.25)
+    if f.get("first_movement_stop_s") is not None:
+        a1.axvline(f["first_movement_stop_s"], color="#0891b2", lw=2, label="akış: durma")
+    if st.get("first_still_s") is not None:
+        a2.axvline(st["first_still_s"], color="#475569", lw=2, label="akış: durgunluk")
+    a1.legend(loc="upper right", fontsize=7.5, ncol=2)
+    a2.legend(loc="upper right", fontsize=7.5, ncol=2)
+    a2.set_xlabel("Zaman (s)")
+    fig.suptitle("Optik Akışla Hareket / Durma Denemesi (poz modeli kullanılmadan)", fontsize=14, fontweight="bold")
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
 # --------------------------------------------------------------------------------------- grafikler
 def _mpl():
     import matplotlib
@@ -272,8 +404,18 @@ def draw_model_panels(fig, gs_slice, m: Dict[str, Any]):
         ax.plot(t, raw, color="#9ca3af", lw=0.9, label="Ham (SO(3))")
         ax.plot(t, ema, color="#2563eb", lw=1.8, label="EMA_050")
         ax.set_ylabel(lbl)
+    # Olay durum makinesi evreleri yalnız sapma panelinde (diğer paneller eskisi gibi)
+    seen_states = set()
+    for state, s0, s1 in m.get("segments") or []:
+        if state == "BEKLEME":
+            continue
+        axes[3].axvspan(s0, s1, color=STATE_COLORS.get(state, "#eee"), alpha=0.45, lw=0,
+                        label=None if state in seen_states else STATE_TR.get(state, state))
+        seen_states.add(state)
     axes[3].plot(t, p["pose_change"], color="#7c3aed", lw=1.8, label="Baştan sapma")
     axes[3].axhline(12.0, color="#7c3aed", ls=":", lw=1, label="12° eşiği")
+    if (m.get("events") or {}).get("geri_donus_esigi_deg"):
+        axes[3].axhline(m["events"]["geri_donus_esigi_deg"], color="#16a34a", ls=":", lw=1, label="Geri dönüş eşiği")
     axes[3].set_ylabel("Sapma (°)")
     axes[4].plot(t, p["omega_raw"], color="#9ca3af", lw=0.8, label="ω anlık (ham)")
     axes[4].plot(t, p["omega"], color="#2563eb", lw=1.8, label="ω medyan (EMA_050)")
@@ -387,10 +529,52 @@ def _video_lines(video: Dict[str, Any], ref_name: Optional[str]) -> List[str]:
     ]
 
 
-def write_pdf(path: str, video, models_all, models, ref):
+def _pdf_table_page(pdf, title: str, rows: List[Dict[str, Any]], note: Optional[str] = None,
+                    img: Optional[bytes] = None):
+    """Genel tablo sayfasıyla aynı biçimde (A3 yatay) tablo + isteğe bağlı açıklama/görsel sayfası."""
+    if not rows:
+        return
+    import textwrap
+    plt = _mpl()
+    fig = plt.figure(figsize=(16.54, 11.69))
+    fig.suptitle(title, fontsize=16, fontweight="bold", y=0.975)
+    top = 0.93
+    if note:
+        lines = textwrap.wrap(note, 210)
+        for i, line in enumerate(lines):
+            fig.text(0.02, top - i * 0.02, line, fontsize=9.5)
+        top -= 0.02 * len(lines) + 0.01
+    if img is not None:
+        from PIL import Image
+        h = 0.42
+        ax_i = fig.add_axes([0.02, top - h, 0.96, h]); ax_i.imshow(Image.open(io.BytesIO(img))); ax_i.axis("off")
+        top -= h + 0.01
+    cols = list(rows[0].keys())
+    short = [_header_two_lines(c) for c in cols]
+    wide = {"Model": 3.2, "Sonuç": 2.6, "Yöntem": 3.2, "Durum": 1.6}
+    weights = [wide.get(c, max(1.0, max(len(x) for x in h.split("\n")) / 8.5)) for c, h in zip(cols, short)]
+    ax = fig.add_axes([0.01, 0.06, 0.98, max(0.1, top - 0.07)]); ax.axis("off")
+    tbl = ax.table(cellText=[[_fmt(r.get(c)) for c in cols] for r in rows], colLabels=short, loc="upper center",
+                   cellLoc="center", colWidths=[w / sum(weights) for w in weights])
+    tbl.auto_set_font_size(False); tbl.set_fontsize(8.0); tbl.scale(1.0, 2.0)
+    for (r_i, c_i), c in tbl.get_celld().items():
+        if r_i == 0:
+            c.set_facecolor("#1f3a5f"); c.get_text().set_color("white"); c.get_text().set_fontweight("bold")
+            c.set_height(c.get_height() * 2.0)
+        elif r_i % 2 == 0:
+            c.set_facecolor("#eef2f7")
+        if c_i == 0 and r_i > 0:
+            c.get_text().set_horizontalalignment("left"); c.PAD = 0.02
+    fig.text(0.02, 0.025, "Not: Saniye eşikleri simülasyon/analiz parametreleridir; bu rapor klinik tanı aracı değildir.",
+             fontsize=8.5, style="italic")
+    pdf.savefig(fig); plt.close(fig)
+
+
+def write_pdf(path: str, video, models_all, models, ref, extras: Optional[Dict[str, Any]] = None):
     plt = _mpl()
     from matplotlib.backends.backend_pdf import PdfPages
     A3 = (16.54, 11.69)
+    extras = extras or {}
     with PdfPages(path) as pdf:
         # Sayfa 1: genel tablo
         fig = plt.figure(figsize=A3)
@@ -431,6 +615,12 @@ def write_pdf(path: str, video, models_all, models, ref):
         fig.subplots_adjust(left=0.05, right=0.80, top=0.93, bottom=0.06, hspace=0.08)
         pdf.savefig(fig); plt.close(fig)
 
+        # Yeni bölümler: hız ve maliyet, olay durum makinesi, optik akış denemesi
+        price = extras.get("price")
+        _pdf_table_page(pdf, f"Hız ve Maliyet (aylık sunucu ücreti: {_fmt(price)} TL)", extras.get("speed") or [], COST_NOTE)
+        _pdf_table_page(pdf, "Olay Durum Makinesi — Baktı / Durdu / Geri Döndü", extras.get("events") or [], FSM_NOTE)
+        _pdf_table_page(pdf, "Optik Akışla Durma Anı Denemesi", extras.get("flow") or [], FLOW_NOTE, extras.get("flow_png"))
+
         # Sayfa 3..N: her model
         for m in models:
             fig = plt.figure(figsize=A3)
@@ -467,7 +657,8 @@ def _sheet_name(name: str, used: set) -> str:
     return s
 
 
-def write_xlsx(path: str, video, models_all, models, ref, overlay_bytes, chart_bytes):
+def write_xlsx(path: str, video, models_all, models, ref, overlay_bytes, chart_bytes,
+               extras: Optional[Dict[str, Any]] = None):
     from openpyxl import Workbook
     from openpyxl.drawing.image import Image as XLImage
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -567,6 +758,31 @@ def write_xlsx(path: str, video, models_all, models, ref, overlay_bytes, chart_b
         ws2.column_dimensions[get_column_letter(j)].width = 11
     ws2.freeze_panes = "D3"
 
+    # Yeni bölümler (Genel tablo biçiminde)
+    extras = extras or {}
+    for title, key, note, img_key in (("Hiz_ve_Maliyet", "speed", COST_NOTE, None),
+                                      ("Olay_Durum_Makinesi", "events", FSM_NOTE, None),
+                                      ("Optik_Akis_Denemesi", "flow", FLOW_NOTE, "flow_png")):
+        rows = extras.get(key) or []
+        if not rows:
+            continue
+        wsx = wb.create_sheet(_sheet_name(title, used))
+        wsx.cell(row=1, column=1, value=note).alignment = Alignment(wrap_text=True, vertical="top")
+        wsx.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(rows[0]))
+        wsx.row_dimensions[1].height = 60
+        xcols = list(rows[0].keys())
+        for j, c in enumerate(xcols, start=1):
+            wsx.cell(row=3, column=j, value=c)
+        style_header(wsx, 3, 1, len(xcols))
+        wsx.row_dimensions[3].height = 32
+        for i, r in enumerate(rows, start=4):
+            for j, c in enumerate(xcols, start=1):
+                put(wsx, i, j, r.get(c))
+        autofit(wsx, max_w=40)
+        wsx.column_dimensions["A"].width = 38
+        if img_key and extras.get(img_key):
+            add_png(wsx, extras[img_key], f"A{len(rows) + 6}", 1300)
+
     # Sayfa 3..N: her model
     frame_cols = ["frame", "time_s", "valid", "bridged", "yaw", "pitch", "roll",
                   "pose_change_deg", "omega_deg_s", "gaze_target", "latency_ms", "flag"]
@@ -629,7 +845,20 @@ def _h(v: Any) -> str:
     return html.escape(_fmt(v))
 
 
-def write_html(path: str, video, models_all, models, ref, overlay_bytes, chart_bytes):
+def _table_html(rows: List[Dict[str, Any]], left=("Model", "Sonuç", "Yöntem")) -> str:
+    if not rows:
+        return "<p class='note'>Veri yok.</p>"
+    cols = list(rows[0].keys())
+    head = "".join(f"<th>{html.escape(c)}</th>" for c in cols)
+    body = "".join("<tr>" + "".join(f"<td class='{'l' if c in left else ''}'>{_h(r.get(c))}</td>" for c in cols) + "</tr>"
+                   for r in rows)
+    return f"<div class='tw'><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
+
+
+def write_html(path: str, video, models_all, models, ref, overlay_bytes, chart_bytes,
+               extras: Optional[Dict[str, Any]] = None):
+    extras = extras or {}
+
     def b64(data: bytes) -> str:
         return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
 
@@ -639,8 +868,21 @@ def write_html(path: str, video, models_all, models, ref, overlay_bytes, chart_b
         for m in models_all
     )
     ids = {m["name"]: "m_" + re.sub(r"[^A-Za-z0-9_]", "_", m["name"]) for m in models}
-    nav = ["<button data-t='__all__'>Tümünü Göster</button>", "<button data-t='genel'>Genel Kıyaslama</button>"]
+    nav = ["<button data-t='__all__'>Tümünü Göster</button>", "<button data-t='genel'>Genel Kıyaslama</button>",
+           "<button data-t='hiz_maliyet'>Hız ve Maliyet</button>", "<button data-t='olaylar'>Olay Durum Makinesi</button>",
+           "<button data-t='optik_akis'>Optik Akış Denemesi</button>"]
     nav += [f"<button data-t='{ids[m['name']]}'>{html.escape(m['name'])}</button>" for m in models]
+    flow_img = (f"<img alt='Optik akış grafiği' src='{b64(extras['flow_png'])}'>" if extras.get("flow_png") else "")
+    extra_cards = (
+        f"<section class='card' id='hiz_maliyet'><h2>Hız ve Maliyet</h2>"
+        f"<p class='note'>{html.escape(COST_NOTE)} Aylık sunucu ücreti: {_h(extras.get('price'))} TL.</p>"
+        f"{_table_html(extras.get('speed') or [])}</section>"
+        f"<section class='card' id='olaylar'><h2>Olay Durum Makinesi — Baktı / Durdu / Geri Döndü</h2>"
+        f"<p class='note'>{html.escape(FSM_NOTE)} Evreler her modelin sayfasındaki sapma panelinde renkli bant olarak görünür.</p>"
+        f"{_table_html(extras.get('events') or [])}</section>"
+        f"<section class='card' id='optik_akis'><h2>Optik Akışla Durma Anı Denemesi</h2>"
+        f"<p class='note'>{html.escape(FLOW_NOTE)}</p>{_table_html(extras.get('flow') or [])}{flow_img}</section>"
+    )
 
     cards = []
     for m in models:
@@ -674,14 +916,15 @@ def write_html(path: str, video, models_all, models, ref, overlay_bytes, chart_b
 <nav>{''.join(nav)}</nav><main>
 <section class="card" id="genel"><h2>Genel Kıyaslama</h2><div class="tw"><table><thead><tr>{''.join(f'<th>{html.escape(c)}</th>' for c in cols)}</tr></thead>
 <tbody>{rows_html}</tbody></table></div><h3>Çok modelli bindirme</h3>{overlay}</section>
-{''.join(cards)}</main><script>{_JS}</script></body></html>"""
+{extra_cards}{''.join(cards)}</main><script>{_JS}</script></body></html>"""
     with open(path, "w", encoding="utf-8") as f:
         f.write(doc)
 
 
 # --------------------------------------------------------------------------------------- giriş noktası
 def write_reports(output_dir: str, summary: Dict[str, Any], entries: List[Dict[str, Any]], fps: float,
-                  reference_name: Optional[str] = None) -> Dict[str, Optional[str]]:
+                  reference_name: Optional[str] = None,
+                  monthly_price_tl: Optional[float] = DEFAULT_MONTHLY_PRICE_TL) -> Dict[str, Optional[str]]:
     """Tüm raporları üretir; üretilen dosya yollarını döner (atlananlar None)."""
     os.makedirs(output_dir, exist_ok=True)
     video = summary["video"]
@@ -702,27 +945,35 @@ def write_reports(output_dir: str, summary: Dict[str, Any], entries: List[Dict[s
     for m in models:
         m["agreement"] = _agreement(m, ref)
 
+    extras: Dict[str, Any] = {
+        "price": monthly_price_tl,
+        "speed": speed_cost_rows(models, monthly_price_tl),
+        "events": event_rows(models, ref),
+        "flow": flow_rows(summary, ref),
+        "flow_png": None,
+    }
     out: Dict[str, Optional[str]] = {"pdf": None, "xlsx": None, "html": None}
     overlay_bytes, chart_bytes = None, {}
     try:
         _mpl()
         overlay_bytes = overlay_png(models, ref) if models else None
         chart_bytes = {m["name"]: model_chart_png(m) for m in models}
+        extras["flow_png"] = flow_png(summary, ref, fps)
         path = os.path.join(output_dir, PDF_NAME)
-        write_pdf(path, video, models_all, models, ref)
+        write_pdf(path, video, models_all, models, ref, extras)
         out["pdf"] = path
     except ImportError as exc:
         print(f"    [RAPOR UYARI] matplotlib yok; PDF ve grafikler atlandı ({exc})", flush=True)
 
     try:
         path = os.path.join(output_dir, XLSX_NAME)
-        write_xlsx(path, video, models_all, models, ref, overlay_bytes, chart_bytes)
+        write_xlsx(path, video, models_all, models, ref, overlay_bytes, chart_bytes, extras)
         out["xlsx"] = path
     except ImportError as exc:
         print(f"    [RAPOR UYARI] openpyxl/pillow yok; Excel atlandı ({exc})", flush=True)
 
     path = os.path.join(output_dir, HTML_NAME)
-    write_html(path, video, models_all, models, ref, overlay_bytes, chart_bytes)
+    write_html(path, video, models_all, models, ref, overlay_bytes, chart_bytes, extras)
     out["html"] = path
 
     # Eski koşulardan kalan ayrık grafikleri temizle (artık raporlara gömülü)

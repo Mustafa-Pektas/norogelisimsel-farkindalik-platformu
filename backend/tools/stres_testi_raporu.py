@@ -2,7 +2,7 @@
 Gemini senaryo üretimi stres testi raporu (+ üretilen senaryoların içerik kalite denetimi)
 
 Girdi : rag_stress_test.js --save-outputs çıktıları (aşama başına bir JSON)
-Çıktı : Gemini_stres_testi_raporu.html / .pdf / .xlsx
+Çıktı : Gemini_stres_testi_raporu.html / .pdf / .xlsx / .md (+ sureler.png, sonuclar.png)
 
 Kalite denetimi (her başarılı çıktı; sunucu zaten JSON yapısını doğrular):
   K1 Yapı           — sunucu sözleşme doğrulaması geçti (success)
@@ -413,6 +413,43 @@ def main():
     with open(base + ".html", "w", encoding="utf-8") as f:
         f.write(doc)
 
+    # Markdown: grafikler yanına PNG olarak yazılır, tablolar Markdown tablosu
+    for key, name in (("lat", "sureler.png"), ("out", "sonuclar.png")):
+        with open(os.path.join(args.out_dir, name), "wb") as f:
+            f.write(imgs[key])
+
+    def md_table(rows):
+        if not rows:
+            return "_Veri yok._\n"
+        cols = list(rows[0].keys())
+        esc = lambda v: fmtv(v).replace("|", "\\|").replace("\n", " ")
+        return ("| " + " | ".join(cols) + " |\n| " + " | ".join("---" for _ in cols) + " |\n" +
+                "".join("| " + " | ".join(esc(r.get(c)) for c in cols) + " |\n" for r in rows))
+
+    checks_md = "\n".join(f"- {l.strip()}" for l in __doc__.split("Kalite denetimi")[1].split("Kullanım")[0].splitlines()[1:] if l.strip())
+    md = ["# Gemini Senaryo Üretimi — Stres Testi ve Çıktı Kalitesi", "",
+          "> Sentetik eğitim senaryoları üretimi ölçülmüştür; çıktılar klinik tanı amacı taşımaz.", "",
+          "## Özet", ""] + [f"- {x}" for x in findings] + ["", "### Test ortamı", ""] + \
+         [f"- **{k}**: {v}" for k, v in meta.items() if k != "bulgular"] + \
+         ["", "## 1. Performans", "", "![Yanıt süresi bileşenleri](sureler.png)", "", "![İstek sonuçları](sonuclar.png)", "",
+          md_table(perf),
+          "_capacity_rejected_: kapasite + kuyruk dolu olduğu için Gemini'ye gönderilmeden anında reddedildi. "
+          "_provider_error_: Gemini geçici hata (ör. 503). _provider_quota_: Gemini kota/hız reddi (429).", "",
+          "## 2. Çıktı kalitesi (otomatik denetim)", "", checks_md, "",
+          "### Genel", "", md_table(q_all), "### Girdiye göre", "", md_table(q_input),
+          "### Deney koluna göre (A: kural yok, B: tek kart, C: tüm kartlar, D: JSON RAG)", "", md_table(q_arm),
+          "### Çeşitlilik (aynı girdiye üretilen başlangıçların benzerliği)", "", md_table(div),
+          f"### Denetimden geçemeyen çıktılar ({n_fail}; ilk {len(fails)})", "", md_table(fails),
+          "## 3. Elle inceleme", ""]
+    if manual:
+        md += [manual.get("ozet", ""), ""]
+        for o in manual.get("ornekler", []):
+            md += [f"### {o['baslik']}", "", f"> {o.get('alinti', '')}", "", o["yorum"], ""]
+    else:
+        md += ["_Elle inceleme notu eklenmedi._", ""]
+    with open(base + ".md", "w", encoding="utf-8") as f:
+        f.write("\n".join(md))
+
     # Excel
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -517,7 +554,7 @@ def main():
                    {"quality": {k: v for k, v in (r.get("quality") or {}).items()}} for r in records], f, ensure_ascii=False, indent=1)
     for x in findings:
         print("•", x)
-    print("Rapor:", base + ".html/.pdf/.xlsx")
+    print("Rapor:", base + ".html/.pdf/.xlsx/.md")
 
 
 if __name__ == "__main__":
