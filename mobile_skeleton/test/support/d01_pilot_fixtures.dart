@@ -1,3 +1,5 @@
+import 'package:neuro_awareness_app/models/d01_marked_input.dart';
+
 import 'dart:io';
 
 import 'package:neuro_awareness_app/models/d01_pilot_result.dart';
@@ -55,13 +57,19 @@ class ControlledPilotApi implements D01PilotApi {
   final List<ControlledPilotTask> tasks = [];
   final List<String> keys = [], addresses = [];
   final List<File> videos = [];
+  final List<D01MarkedInput?> marks = [];
+  final List<D01FastInput?> fastInputs = [];
   ControlledPilotTask Function()? makeTask;
   @override
   D01PilotTask create({
     required File video,
     required String address,
     required String accessKey,
+    D01MarkedInput? markedInput,
+    D01FastInput? fastInput,
   }) {
+    marks.add(markedInput);
+    fastInputs.add(fastInput);
     keys.add(accessKey);
     addresses.add(address);
     videos.add(video);

@@ -1,0 +1,19 @@
+{
+  "protocol": "d01-recorded-sampling12-engineering-v1",
+  "source_fps": 24,
+  "sample_fps": 12,
+  "stride": 2,
+  "phases": [0, 1],
+  "median_intervals": [3, 2],
+  "primary_median_intervals": 3,
+  "start_confirmation_samples": 2,
+  "stop_confirmation_samples": 3,
+  "ema_alpha": 0.75,
+  "rationale": "24fps W=5 spans 0.208333s; at12fps integer W=3 is0.25s, W=2 is0.166667s. Both quantization sides and phases are retained, not label-tuned. Confirmation spans (N-1)/fps remain 0.083333s and0.166667s. Alpha12=1-(1-alpha24)^2 preserves the scalar exponential time constant, not exact SO3 trajectories.",
+  "thresholds": "Unchanged base45/20deg/s; geodesic speed divided by actual decoder dt",
+  "reindexing": "Detector frame_index is sample ordinal; source_frame_index retained. Missing source frames remain ordinal gaps, never bridged. Actual decoder timestamps retained.",
+  "settling": "Not run: 9-frame blocks, support and reference counts would require a separately declared time-based design. Settling is not movement end.",
+  "real_inference_gate": "Before inspecting outcomes: all raw/EMA phase/window conditions must retain every24fps candidate with known start/end, have no extra candidates, and shift boundaries by <=1/12s. A24fps unknown boundary or no complete first event prevents qualification. This is reference fidelity, not correctness or clinical validation.",
+  "manual_motion_labels_used": false,
+  "new_inference_started": false
+}

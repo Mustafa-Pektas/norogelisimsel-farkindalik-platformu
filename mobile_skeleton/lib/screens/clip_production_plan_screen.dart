@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/scenario_clip_plan.dart';
 import '../models/scenario_graph.dart';
 import '../services/clip_video_store.dart';
+import '../services/graph_playback_controller.dart';
 import 'clip_video_preview_screen.dart';
 import 'graph_playback_screen.dart';
 
@@ -26,6 +27,7 @@ class ClipProductionPlanScreen extends StatefulWidget {
     this.providedPlan,
     this.rawPlanJson,
     this.sourceContext,
+    this.createPlaybackPlayer,
   });
 
   static const d01GraphAssetPath = 'assets/scenarios/d01_scenario_graph.json';
@@ -47,7 +49,7 @@ class ClipProductionPlanScreen extends StatefulWidget {
     return (graph: graph, plan: plan);
   }
 
-  /// Sunucudan gelen plan yalnız inceleme içindir; eski video deposuna erişmez.
+  /// Üretilen plan kendi planId/clipId eşlemelerini kullanır; paket eşlemesi devralmaz.
   final LoadedClipPlan? providedPlan;
   final String? rawPlanJson;
   /// Kaynak plan JSON şemasına eklenmez; özgün cevap/kimlik ayrı dışa aktarılır.
@@ -56,6 +58,7 @@ class ClipProductionPlanScreen extends StatefulWidget {
   final String planAssetPath;
   final ClipVideoStore? videoStore;
   final Future<XFile?> Function()? pickVideo;
+  final GraphClipPlayer Function(File)? createPlaybackPlayer;
 
   @override
   State<ClipProductionPlanScreen> createState() => _ClipProductionPlanScreenState();
@@ -82,16 +85,23 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
 
   Future<LoadedClipPlan> _load() async {
     final epoch = ++_loadEpoch;
+    _bindingsReady = false;
+    _currentPlanId = null;
+    _bindings = {};
+    _videoExists = {};
+    _videoMessages.clear();
     final provided = widget.providedPlan;
+    late final LoadedClipPlan data;
     if (provided != null) {
       provided.graph.validate();
       provided.plan.validateAgainst(provided.graph);
       provided.plan.d01ObservationDurations(provided.graph, requireTiming: true);
-      return provided;
+      data = provided;
+    } else {
+      data = await ClipProductionPlanScreen.loadPlanAssets(
+        _bundle!, graphAssetPath: widget.graphAssetPath, planAssetPath: widget.planAssetPath,
+      );
     }
-    final data = await ClipProductionPlanScreen.loadPlanAssets(
-      _bundle!, graphAssetPath: widget.graphAssetPath, planAssetPath: widget.planAssetPath,
-    );
     final graph = data.graph;
     final plan = data.plan;
     try {
@@ -125,14 +135,15 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
       _videoMessages.remove(clipId);
     });
     var selecting = true;
+    final epoch = _loadEpoch;
     try {
       final selected = await (widget.pickVideo?.call() ?? ImagePicker().pickVideo(source: ImageSource.gallery));
-      if (selected == null || !mounted) return; // İptal: mevcut eşlemeye dokunma.
+      if (selected == null || !mounted || epoch != _loadEpoch || _currentPlanId != planId) return;
       selecting = false;
       final result = await _videoStore.attach(
         planId: planId, clipId: clipId, source: File(selected.path), fileName: selected.name,
       );
-      if (mounted && _currentPlanId == planId) {
+      if (mounted && epoch == _loadEpoch && _currentPlanId == planId) {
         setState(() {
           _bindings[clipId] = result.binding;
           _videoExists[clipId] = true;
@@ -188,6 +199,7 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
       children: [
         const Divider(),
         Text(status, key: ValueKey('clip-video-status:$clipId'), style: const TextStyle(fontWeight: FontWeight.bold)),
+        SelectableText('Plan: $planId · Klip: $clipId'),
         if (binding != null) SelectableText(binding.fileName, key: ValueKey('clip-video-name:$clipId')),
         const Text('İncelenmedi: video bağlanması davranışı, süreyi veya sürekliliği doğrulamaz.'),
         if (binding != null) const Text('Başka bir video seçerek değiştirebilirsiniz.'),
@@ -315,7 +327,7 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                 Text(
                   widget.providedPlan == null
                     ? 'Elle hazırlanmış üretim planıdır; video veya gözlem kanıtı değildir'
-                    : 'Sunucudan üretilmiş plan taslağı; içerik onayı veya hazır video değildir. D01 videolarına bağlı değildir.',
+                    : 'Sunucudan üretilmiş plan taslağı; içerik onayı veya hazır video değildir. Her klibe bu plan için video seçin; hazır D01/D02 videoları otomatik atanmaz.',
                   style: const TextStyle(fontWeight: FontWeight.bold, color: _navy),
                 ),
                 const SizedBox(height: 8),
@@ -340,18 +352,36 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                     onPressed: () => _export(jsonEncode(widget.sourceContext)),
                     child: const Text('Özgün istek, ham cevap ve üretim kaynağını kopyala')),
                 ],
-                if (kDebugMode && widget.providedPlan == null)
+                if (_bindingsReady && data.plan.clips.any((clip) => _bindings[clip.id] == null || _videoExists[clip.id] != true))
+                  ExpansionTile(
+                    key: const ValueKey('plan-missing-video-bindings'),
+                    title: const Text('Eksik veya bulunamayan klip videoları'),
+                    initiallyExpanded: true,
+                    children: [
+                      const Text('Eksik klip oynatılmaz veya atlanmaz. İlgili sahneyi açıp “Video seç” ile eşleyin.'),
+                      for (final scene in data.graph.scenes)
+                        for (final clip in data.plan.clipsForScene(scene.id))
+                          if (_bindings[clip.id] == null || _videoExists[clip.id] != true)
+                            ListTile(
+                              key: ValueKey('clip-missing-mapping:${clip.id}'),
+                              title: Text('Sahne: ${scene.id} · Sıra: ${clip.orderInScene} · Klip: ${clip.id}'),
+                              subtitle: Text('Plan: ${data.plan.planId} · ${_bindings[clip.id] == null ? 'Eşleme yok' : 'Kayıtlı dosya bulunamadı'}'),
+                            ),
+                    ],
+                  ),
+                if (kDebugMode || widget.providedPlan != null)
                   Wrap(
                     spacing: 8, runSpacing: 8,
                     children: [
                       OutlinedButton.icon(
                         key: const ValueKey('open-graph-playback'),
-                        onPressed: _busyClip != null ? null : () {
+                        onPressed: _busyClip != null || !_bindingsReady ? null : () {
                           Navigator.of(context).push(MaterialPageRoute<void>(
                             builder: (_) => GraphPlaybackScreen(
                               graph: data.graph,
                               plan: data.plan,
                               videoStore: _videoStore,
+                              createPlayer: widget.createPlaybackPlayer,
                             ),
                           ));
                         },
@@ -424,8 +454,8 @@ class _ClipProductionPlanScreenState extends State<ClipProductionPlanScreen> {
                         ),
                         children: [
                           for (final clip in data.plan.clipsForScene(scene.id))
-                            _ClipDetails(clip: clip, behaviorIds: data.graph.behaviorIdsFor(scene), videoControls: widget.providedPlan == null
-                              ? _videoControls(data.plan.planId, clip.id) : const SizedBox.shrink()),
+                            _ClipDetails(clip: clip, behaviorIds: data.graph.behaviorIdsFor(scene),
+                              videoControls: _videoControls(data.plan.planId, clip.id)),
                         ],
                       ),
                     ),

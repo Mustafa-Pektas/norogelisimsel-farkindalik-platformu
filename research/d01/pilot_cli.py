@@ -70,6 +70,65 @@ def video_info(path):
             fps=cap.get(cv2.CAP_PROP_FPS),declared_frame_count=int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
     finally:cap.release()
 
+
+class PilotInputError(ValueError):
+    def __init__(self,code,message):
+        super().__init__(message);self.code=code
+
+
+def inspect_marked_video(path):
+    """Decode bounded CFR video before model loading; duration is video-frame extent,
+    not audio duration, player time or an inferred behavior observation window.
+    """
+    import cv2
+    cap=cv2.VideoCapture(str(path));count=0;last=None
+    try:
+        if not cap.isOpened():raise PilotInputError('invalid_video','Video cannot open')
+        fps=cap.get(cv2.CAP_PROP_FPS)
+        if fps!=24:raise PilotInputError('unsupported_fps','Marked-video pilot requires 24 FPS; no resampling')
+        geometry=None
+        while True:
+            ok,frame=cap.read()
+            if not ok:break
+            count+=1
+            if count>720:raise PilotInputError('video_too_long','Marked-video pilot is limited to 30 seconds / 720 frames')
+            height,width=frame.shape[:2]
+            if geometry is None:geometry=(width,height)
+            if geometry!=(width,height) or width*height>8388608:
+                raise PilotInputError('invalid_video','Changing or oversized video geometry')
+            t=cap.get(cv2.CAP_PROP_POS_MSEC)/1000
+            if not finite_time(t) or abs(t-(count-1)/fps)>.001:
+                raise PilotInputError('unsupported_timeline','Decoder timestamps must match the fixed 24 FPS timeline')
+            last=t
+        if not count:raise PilotInputError('invalid_video','Video contains no decoded frames')
+        return dict(width=geometry[0],height=geometry[1],fps=fps,declared_frame_count=count,
+            decoded_frame_count=count,duration_s=count/fps,
+            duration_source='decoded_CFR_video_frame_extent',time_source='OpenCV_POS_MSEC_checked_against_24fps')
+    finally:cap.release()
+
+
+def validate_marked_input(roi,info,annotation):
+    values=[roi.get(k) for k in ('x','y','width','height')]
+    if (any(type(v) is not int for v in values) or min(values[:2])<0 or min(values[2:])<=0 or
+            values[0]+values[2]>info['width'] or values[1]+values[3]>info['height'] or
+            roi.get('padding_ltrb_source_px')!=[0,0,0,0]):
+        raise PilotInputError('invalid_roi','User ROI must be an unpadded source-pixel rectangle inside the decoded image')
+    if info['fps']!=24:raise PilotInputError('unsupported_fps','Marked-video pilot requires 24 FPS')
+    if not finite_time(info.get('duration_s')) or not 0<info['duration_s']<=30:
+        raise PilotInputError('video_too_long','Marked-video pilot requires positive video duration <= 30 seconds')
+    marks=annotation.get('marks',{})
+    if set(marks)!={'call_start_s','call_end_s'}:
+        raise PilotInputError('invalid_manual_times','Both call marks, and no movement marks, are required')
+    times=[]
+    for key in ('call_start_s','call_end_s'):
+        mark=marks[key];ms=mark.get('media_time_ms') if isinstance(mark,dict) else None
+        if type(ms) is not int or not 0<=ms<=info['duration_s']*1000:
+            raise PilotInputError('invalid_manual_times','Call mark must be within the decoded video duration')
+        times.append(ms)
+    if times[0]>times[1]:raise PilotInputError('invalid_manual_times','Call end precedes call start')
+    return dict(schema_version='d01-user-marked-input-1.0',source_type='user_marked',roi=roi,video_metadata=info,
+        manual_candidate_status='unreviewed',validation='media_bounds_only_not_content_or_ROI_quality_approval')
+
 def replay_rows(path,info):
     indexed={}
     with path.open(encoding='utf-8') as f:
@@ -168,7 +227,7 @@ def analyze_records(raw,motion,settling,details,checkpoint,metrics=None):
     save_json(details/'settling_index.json',dict(protocol=settling['protocol'],parameters=settling,results=regions,manual_labels_read=False))
     return dict(protocol=motion['protocol'],results=det),compact
 
-def run(args,info_reader=video_info,runtime_factory=None):
+def run(args,info_reader=video_info,runtime_factory=None,marked_info_reader=inspect_marked_video):
     out=args.output_dir.resolve();repo=Path(__file__).resolve().parents[2]
     if out.exists() or out==repo or repo in out.parents:raise ValueError('New external output directory required')
     out.mkdir(parents=True,exist_ok=False);details=out/'details';details.mkdir();start=time.perf_counter();metrics=Metrics()
@@ -200,14 +259,36 @@ def run(args,info_reader=video_info,runtime_factory=None):
         if args.recorded_raw:inputs.extend([args.recorded_raw,args.recorded_report])
         protected={str(p.resolve()):sha(p) for p in inputs}
         if sha(args.weights)!=protocol['weights_sha256']:raise ValueError('Local weight hash mismatch')
-        info=info_reader(args.video)
+        user_marked=getattr(args,'user_marked',False)
+        marked_input=None
+        if user_marked:
+            if args.recorded_raw:raise PilotInputError('invalid_video','Marked-video API requires real inference, not replay')
+            if not args.manual:raise PilotInputError('invalid_manual_times','Marked-video call marks required')
+            annotation=json.loads(args.manual.read_text(encoding='utf-8-sig'))
+            if annotation.get('video_sha256')!=sha(args.video):raise PilotInputError('invalid_video','Manual/video hash mismatch')
+            info=marked_info_reader(args.video)
+            marked_input=validate_marked_input(roi,info,annotation)
+            checkpoint(user_marked_input=marked_input,video_metadata=info)
+        elif args.manual and not args.recorded_raw:
+            info=marked_info_reader(args.video)
+            annotation=json.loads(args.manual.read_text(encoding='utf-8-sig'))
+            previous=None
+            for key in ('call_start_s','call_end_s'):
+                mark=annotation.get('marks',{}).get(key)
+                if mark is None:continue
+                ms=mark.get('media_time_ms')
+                if type(ms) is not int or not 0<=ms<=info['duration_s']*1000:
+                    raise PilotInputError('invalid_manual_times','Call mark outside decoded video')
+                if previous is not None and ms<previous:raise PilotInputError('invalid_manual_times','Call end precedes start')
+                previous=ms
+        else:info=info_reader(args.video)
         if info['fps']!=protocol['fps']:raise ValueError('Current fixed frame-window protocol requires 24 FPS; no automatic resampling or threshold adaptation')
         if info['width']<=0 or info['height']<=0:raise ValueError('Invalid video geometry')
         from PIL import Image
         crop_roi(Image.new('RGB',(info['width'],info['height'])),roi)
         atomic(out/'settings.json',dict(protocol=protocol,motion=motion,settling=settling,roi=roi,video=info,
             inputs_sha256=protected,human_roi_not_tracking=True,manual_times_not_given_to_detection=True,
-            execution=dict(execution)))
+            execution=dict(execution),user_marked_input=marked_input))
         checkpoint(stage='raw',video_metadata=info)
         if args.recorded_raw:
             original=json.loads(args.recorded_report.read_text(encoding='utf-8'))
@@ -279,7 +360,7 @@ def run(args,info_reader=video_info,runtime_factory=None):
         atomic(details/'performance.json',dict(runtime_environment=state['runtime_environment'],measurements=metrics.snapshot(),resource_sample=metrics.sample(),
             snapshot_scope='Before main result publication; final measurements are in state.json; final checkpoint excludes its own write time.'))
         pilot.update(schema_version='d01-pilot-result-1.0',protocol_version=protocol['protocol_version'],run_mode=state['mode'],
-            execution=execution,
+            execution=execution,user_marked_input=marked_input,
             runtime_environment=state['runtime_environment'],measurement_details='details/performance.json',final_measurements_file='state.json',
             run_state_file='state.json',require_completed_run_state=True,model_inference_performed=not bool(args.recorded_raw),
             user_roi=dict(setting=roi,source='human_supplied_not_automatic_tracking'),
@@ -299,7 +380,7 @@ def run(args,info_reader=video_info,runtime_factory=None):
     except KeyboardInterrupt:
         checkpoint(status='interrupted');raise
     except BaseException as exc:
-        checkpoint(status='failed',error=f'{type(exc).__name__}: {exc}');raise
+        checkpoint(status='failed',error=f'{type(exc).__name__}: {exc}',code=exc.code if isinstance(exc,PilotInputError) else None);raise
 
 def main():
     import signal
@@ -310,6 +391,7 @@ def main():
     for name in ('video','weights','roi','protocol','output-dir'):parser.add_argument('--'+name,type=Path,required=True)
     for name in ('official-source','manual','recorded-raw','recorded-report'):parser.add_argument('--'+name,type=Path)
     parser.add_argument('--user-review',type=Path,action='append',help='Optional separate user observation; read only after detection is fixed')
+    parser.add_argument('--user-marked',action='store_true',help='Bounded 24 FPS custom video; unpadded human ROI and both call marks required')
     parser.add_argument('--cpu-threads',type=int,choices=(1,2,4),help='Explicit intra-op override; omitted uses unchanged protocol default')
     args=parser.parse_args();run(args);print(str(args.output_dir.resolve()/'result.json'))
 

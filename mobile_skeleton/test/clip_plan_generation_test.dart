@@ -13,10 +13,12 @@ import 'package:neuro_awareness_app/models/scenario_workspace_draft.dart';
 import 'package:neuro_awareness_app/screens/clip_production_plan_screen.dart';
 import 'package:neuro_awareness_app/screens/scenario_graph_import_screen.dart';
 import 'package:neuro_awareness_app/services/clip_plan_generation_service.dart';
+import 'package:neuro_awareness_app/services/clip_video_store.dart';
 import 'package:neuro_awareness_app/services/http_scenario_generation_service.dart';
 import 'package:neuro_awareness_app/services/scenario_draft_store.dart';
 import 'package:neuro_awareness_app/services/scenario_generation_service.dart';
 import 'package:neuro_awareness_app/services/scenario_graph_converter.dart';
+import 'support/fake_graph_playback.dart';
 
 final request = ScenarioGenerationRequest(behaviorId: 'D01', cardVersion: '0.2',
   ageMonths: 31, sceneContext: 'Deniz evde küplerle oynuyor.', additionalInstructions: 'Sabit kamera.');
@@ -97,7 +99,9 @@ Future<void> tap(WidgetTester tester, String key) async {
   await tester.pumpAndSettle();
 }
 Future<void> mount(WidgetTester tester, ClipPlanGenerationService service,
-    {Size size = const Size(1100, 1000), double scale = 1}) async {
+    {Size size = const Size(1100, 1000), double scale = 1, ClipVideoStore? videoStore}) async {
+  // No native directories or asynchronous disk IO inside the widget FakeAsync.
+  final store = videoStore ?? (FakeGraphStore(ScenarioClipPlan.fromJson(planJson(inputFor('generated-test-empty-store'))))..bindings.clear());
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(DefaultAssetBundle(bundle: _NoAssets(), child: MaterialApp(
@@ -105,7 +109,7 @@ Future<void> mount(WidgetTester tester, ClipPlanGenerationService service,
     home: Builder(builder: (context) => Scaffold(body: TextButton(
       key: const ValueKey('open'), child: const Text('Aç'), onPressed: () => Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => ScenarioGraphImportScreen(
-          draftStore: _DraftStore(), clipPlanService: service))),
+          draftStore: _DraftStore(), clipPlanService: service, clipVideoStore: store))),
     ))),
   )));
   await tap(tester, 'open');
@@ -219,12 +223,13 @@ void main() {
     }
   });
 
-  testWidgets('Gerçek düğme → HTTP → aynı plan ekranı; JSON ve promptlar tam kopyalanır, D01 deposu yok', (tester) async {
+  testWidgets('Gerçek düğme → HTTP → aynı plan ekranı; JSON/promptlar tam kopyalanır, plan video kontrollerine erişilir', (tester) async {
     final pending = Completer<http.Response>();
     Map<String, dynamic>? sentBody;
     String? raw;
     final client = MockClient((sent) { sentBody = jsonDecode(sent.body) as Map<String, dynamic>; return pending.future; });
-    await mount(tester, HttpScenarioGenerationService(clientFactory: () => client, resolveServerUrl: () async => 'http://controlled:8000'));
+    final store = FakeGraphStore(ScenarioClipPlan.fromJson(planJson(inputFor('generated-test-empty-store'))))..bindings.clear();
+    await mount(tester, HttpScenarioGenerationService(clientFactory: () => client, resolveServerUrl: () async => 'http://controlled:8000'), videoStore: store);
     await tap(tester, 'scenario-request-clip-plan');
     expect(sentBody!['graph'], graph.toJson()); expect(sentBody!['request'], request.toJson());
     final input = inputFor(sentBody!['planId'] as String);
@@ -235,8 +240,15 @@ void main() {
     final unchanged = tester.widget<TextField>(find.byKey(const ValueKey('scenario-import-json'))).controller!.text;
     await tap(tester, 'scenario-view-clip-plan');
     expect(find.byType(ClipProductionPlanScreen), findsOneWidget);
-    expect(find.byKey(const ValueKey('open-graph-playback')), findsNothing);
-    expect(find.text('Video seç'), findsNothing);
+    expect(tester.widget<ClipProductionPlanScreen>(find.byType(ClipProductionPlanScreen)).videoStore, same(store));
+    expect(find.byKey(const ValueKey('open-graph-playback')), findsOneWidget);
+    expect(find.byKey(const ValueKey('plan-missing-video-bindings')), findsOneWidget);
+    expect(store.mutations, 0);
+    final scene = find.byKey(ValueKey('clip-scene:${graph.startSceneId}'));
+    final title = graph.scenes.firstWhere((s) => s.id == graph.startSceneId).title ?? graph.startSceneId;
+    final header = find.descendant(of: scene, matching: find.text(title));
+    await tester.ensureVisible(header); await tester.tap(header); await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('select-clip-video:${graph.startSceneId}-1')), findsOneWidget);
     String? clipboard;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
       if (call.method == 'Clipboard.setData') clipboard = (call.arguments as Map)['text'] as String;

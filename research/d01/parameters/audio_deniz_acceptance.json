@@ -1,0 +1,16 @@
+[
+  {
+    "video": "../videolar/_root___context___/context___instruction___prompt_Continue_20261011025647_9.mp4",
+    "sha256": "6f127ff5387de2e0399d548ce21a3799710b0ec75ad594ef1ac2e5fe91e4c451",
+    "targetPoint": null,
+    "callStartS": 0.000,
+    "callEndS": 0.650
+  },
+  {
+    "video": "mobile_skeleton/assets/videos/d01_name_turning/20261024200833.mp4",
+    "sha256": "b6e12246983f8852f2cef4397b328ec9c0412294564a17212a4021a653eaf605",
+    "targetPoint": [0.3, 0.46],
+    "callStartS": 0.401,
+    "callEndS": 1.152
+  }
+]

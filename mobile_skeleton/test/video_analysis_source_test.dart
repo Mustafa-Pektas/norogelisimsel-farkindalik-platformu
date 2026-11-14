@@ -150,7 +150,7 @@ void main() {
     await tester.pumpAndSettle();
     final screen = tester.widget<VideoAnalysisScreen>(find.byType(VideoAnalysisScreen).last);
     expect(screen.experimentalD01, isTrue);
-    expect(find.textContaining('Yalnız iki denetlenmiş D01'), findsOneWidget);
+    expect(find.textContaining('Hızlı yüz takibi ve baş hareketi adayları.'), findsOneWidget);
     expect(platform.sources.length, players);
     expect(api.tasks, isEmpty);
     await tester.pageBack();
@@ -275,6 +275,30 @@ void main() {
     await tester.ensureVisible(button); await tester.tap(button);
     await tester.pumpAndSettle();
   }
+
+  testWidgets('Fast target point keeps controller and clears it on replacement', (tester) async {
+    var selection = 0;
+    final api = ControlledPilotApi();
+    await mount(tester, (_) async => XFile('marked-${selection++}.mp4'), pilot: true, pilotApi: api);
+    await pickFromGallery(tester, 'select'); await tester.pumpAndSettle();
+    final current = controls(tester).controller;
+    final mode = find.byKey(const ValueKey('pilot-user-marked'));
+    await tester.ensureVisible(mode); await tester.pumpAndSettle(); await tester.tap(mode); await tester.pumpAndSettle();
+    final canvas = find.byKey(const ValueKey('pilot-roi-canvas'));
+    await tester.ensureVisible(canvas); await tester.pumpAndSettle();
+    final rect = tester.getRect(canvas);
+    await tester.tapAt(rect.center);
+    await tester.pumpAndSettle();
+    expect(controls(tester).controller, same(current));
+    expect(current.value.isPlaying, isFalse);
+    expect(find.textContaining('Başlangıç yüz noktası seçildi'), findsOneWidget);
+    expect(platform.sources, hasLength(1)); expect(api.tasks, isEmpty);
+    await pickFromGallery(tester, 'replace'); await tester.pumpAndSettle();
+    expect(find.text('Hedef yüz henüz belirtilmedi.'), findsOneWidget);
+    expect(find.textContaining('Başlangıç yüz noktası seçildi'), findsNothing);
+    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('pilot-start'))).onPressed, isNull);
+    await close(tester);
+  });
 
   testWidgets('Pilot uses existing preview/fullscreen; seek pauses same controller without playing', (tester) async {
     // Establish and restore a valid foreground baseline, including on failure.

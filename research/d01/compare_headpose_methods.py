@@ -54,7 +54,7 @@ def euler_xyz(matrix):
             math.degrees(math.atan2(r[1, 0], r[0, 0])) if sy >= 1e-6 else 0.0]
 
 
-def series(rows, config):
+def series(rows, config, alpha=.50):
     from motion_candidates import rotation
     from rotation_processing import causal_ema_matrices
     matrices, breaks = [], set()
@@ -63,7 +63,7 @@ def series(rows, config):
         if i and (r['frame_index'] != rows[i-1]['frame_index']+1 or r['time_s'] is None or
                   rows[i-1]['time_s'] is None or not 0 < r['time_s']-rows[i-1]['time_s'] <= config['max_dt_factor']/config['nominal_fps']):
             breaks.add(i)
-    ema = causal_ema_matrices(matrices, .50, break_before=breaks)
+    ema = causal_ema_matrices(matrices, alpha, break_before=breaks)
     def build(ms):
         return [dict(frame_index=r['frame_index'], time_s=r['time_s'], valid=m is not None,
                      rotation_matrix=None if m is None else m.tolist()) for r, m in zip(rows, ms)]

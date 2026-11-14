@@ -10,6 +10,20 @@ import 'package:neuro_awareness_app/services/clip_video_store.dart';
 import 'package:neuro_awareness_app/services/graph_playback_controller.dart';
 
 // Bellek içi test sınırları: galeri, path_provider, dosya veya codec çalıştırmaz.
+class EmptyClipVideoStore extends ClipVideoStore {
+  EmptyClipVideoStore() : super(documentsDirectory: () async {
+    throw StateError('Controlled plan tests must not access the real documents directory.');
+  });
+
+  final loadedPlanIds = <String>[];
+
+  @override
+  Future<Map<String, ClipVideoBinding>> loadPlan(String planId) async {
+    loadedPlanIds.add(planId);
+    return {};
+  }
+}
+
 class FakeGraphStore extends ClipVideoStore {
   FakeGraphStore(ScenarioClipPlan plan) : super(documentsDirectory: () async {
     throw StateError('Graf testi gerçek belge dizinine erişmemeli.');

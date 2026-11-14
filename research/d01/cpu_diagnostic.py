@@ -52,7 +52,7 @@ def worker(args):
     from official_runtime import OfficialRuntime, input_transforms
     import torch
     from PIL import Image
-    torch.set_num_interop_threads(4)
+    torch.set_num_interop_threads(getattr(args,'worker_interop',4))
     run = args.recorded_run.resolve()
     protocol = json.loads((Path(__file__).parent/'parameters/pilot_v1.json').read_text())
     settings = json.loads((run/'settings.json').read_text())
@@ -74,7 +74,8 @@ def worker(args):
     started = time.perf_counter(); cpu = time.process_time()
     from pilot_metrics import memory
     normalize = input_transforms()[2]
-    log = args.output_dir/f'threads_{args.worker_threads}.jsonl'
+    label=getattr(args,'condition_id',None) or f'threads_{args.worker_threads}'
+    log = args.output_dir/f'{label}.jsonl'
     with log.open('x', encoding='utf-8') as stream:
         def emit(row):
             stream.write(json.dumps(row, allow_nan=False)+'\n')
@@ -97,9 +98,13 @@ def worker(args):
             if hashlib.sha256(tensor.numpy().tobytes()).hexdigest() != r['normalized_tensor_sha256']:
                 raise ValueError('Normalized tensor hash mismatch')
             tensors[index] = tensor
+            emit(dict(kind='input',frame_index=index,input_rgb_sha256=r['input_rgb_sha256'],
+                      normalized_tensor_sha256=r['normalized_tensor_sha256'],hashes_verified=True))
         started = time.perf_counter(); cpu = time.process_time()
         runtime = OfficialRuntime(args.official_source, args.weights, args.worker_threads)
         emit(dict(kind='runtime', environment=runtime.environment,
+                  model_load_s=runtime.timings.get('model_load_s'),
+                  recorded_roi=settings['roi'],weight_sha256=protocol['weights_sha256'],
                   load_wall_s=time.perf_counter()-started,
                   load_cpu_s=time.process_time()-cpu))
         for warmup, index in [(True, FRAMES[0])] + [(False, i) for i in FRAMES]:
@@ -122,6 +127,8 @@ def main():
     parser.add_argument('--official-source', type=Path)
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--worker-threads', type=int, choices=(1, 2, 4), help=argparse.SUPPRESS)
+    parser.add_argument('--worker-interop', type=int, default=4, help=argparse.SUPPRESS)
+    parser.add_argument('--condition-id', help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.inspect_cpu:
         print(json.dumps(cpu_info(), indent=2)); return
