@@ -48,6 +48,7 @@ function parseArgs(argv) {
     else if (key === '--queue-max') opts.queueMax = need();
     else if (key === '--queue-wait-ms') opts.queueWaitMs = need();
     else if (key === '--continue-on-quota') opts.continueOnQuota = true;
+    else if (key === '--save-outputs') opts.saveOutputs = true;
     else throw Error(`Bilinmeyen argüman: ${key}`);
   }
   if (!['local', 'remote'].includes(opts.mode)) throw Error('--mode local veya remote olmalı');
@@ -142,13 +143,21 @@ function classify(res) {
   return `http_${res.status}`;
 }
 
-async function runJob(job, base, key) {
+// --save-outputs: içerik kalite denetimi için modelin ham cevabı (ve hata mesajı) kayda eklenir.
+function attachOutput(record, res, save) {
+  if (!save) return record;
+  if (typeof res.body?.rawResponse === 'string') record.rawResponse = res.body.rawResponse;
+  if (res.body && !res.body.success && typeof res.body.error === 'string') record.error = res.body.error.slice(0, 300);
+  return record;
+}
+
+async function runJob(job, base, key, save = false) {
   const record = { index: job.index, endpoint: job.endpoint, arm: job.arm, inputId: job.inputId };
   if (job.endpoint === 'input') {
     const res = await post(base, '/api/generate-scenario-input', job.request, key, 150000);
     Object.assign(record, { status: res.status, outcome: classify(res), clientMs: res.clientMs,
       measurement: res.body?.measurement ?? null });
-    return record;
+    return attachOutput(record, res, save);
   }
   // compare: önce önizleme (sağlayıcı çağrısı yok), sonra üretim
   const preview = await post(base, '/api/compare-scenario', { request: job.request, arm: job.arm, action: 'preview' }, key, 30000);
@@ -162,7 +171,7 @@ async function runJob(job, base, key) {
     protocolId: preview.body.preview.protocolId }, key, 150000);
   Object.assign(record, { status: res.status, outcome: classify(res), clientMs: res.clientMs,
     measurement: res.body?.measurement ?? null });
-  return record;
+  return attachOutput(record, res, save);
 }
 
 async function runPool(jobs, concurrency, worker, onRecord) {
@@ -258,7 +267,7 @@ async function main(argv = process.argv.slice(2), { log = true } = {}) {
   }
   const started = performance.now();
   let quotaStops = 0;
-  const records = await runPool(jobs, opts.concurrency, job => runJob(job, base, key), record => {
+  const records = await runPool(jobs, opts.concurrency, job => runJob(job, base, key, opts.saveOutputs === true), record => {
     if (log) process.stdout.write(record.outcome === 'success' ? '.' : 'x');
     if (opts.mode === 'remote' && record.outcome === 'provider_quota' && !opts.continueOnQuota) { quotaStops++; return 'stop'; }
     return undefined;

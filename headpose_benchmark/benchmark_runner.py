@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common.types import PoseResult
 from common.roi import resolve_video_roi, crop_roi_bgr
 from common.d01_kinematics import evaluate_d01_turn_metrics
+from common.flow_stop import compute_flow_series, detect_flow_stop
 from common.reporting import write_reports
 from common.visualizer import VideoAnnotator
 from estimators.mediapipe_pnp import MediaPipePnpEstimator
@@ -152,6 +153,19 @@ def run_benchmark(
         cap_tr.release()
         eye_tracker.reset()
 
+    # Optik akışla hareket başlama/durma denemesi (poz modelinden bağımsız, video başına bir kez)
+    face_boxes = {i: v.get("face_bbox_roi") for i, v in shared_head_tracks.items() if v.get("face_bbox_roi")}
+    if face_boxes:
+        t_flow = time.perf_counter()
+        flow_rows = compute_flow_series(video_path, roi, face_boxes, crop_roi_bgr, fps)["rows"]
+        flow = detect_flow_stop(flow_rows, float(calls[0]["start_s"]) if calls else None)
+        flow["wall_time_s"] = round(time.perf_counter() - t_flow, 2)
+        flow["frames"] = len(flow_rows)
+        benchmark_summary["optical_flow_stop"] = flow
+        print(f" Optik akış durma denemesi: başlangıç {flow.get('first_movement_start_s')} s → durma "
+              f"{flow.get('first_movement_stop_s')} s ({flow['status']}) | durgunluk kuralı: "
+              f"{(flow.get('stillness') or {}).get('first_still_s')} s | {flow['wall_time_s']} s\n", flush=True)
+
     for est in estimators:
         print(f"--> [{est.name}] hazırlanıyor...", flush=True)
         t_setup_start = time.perf_counter()
@@ -271,6 +285,12 @@ def run_benchmark(
 
         # Serileştirme öncesi ağır matris serilerini çıkar (raporlar için ayrı kopyada tutulur)
         report_turn_metrics = dict(turn_metrics)
+        ema_feats = turn_metrics["_plot_series"]["ema050_features"]
+        compact_series = {
+            "t": [round(float(r.metadata.get("decoder_time_s", r.frame_index / fps)), 4) for r in results],
+            "pose_change": [r.metadata.get("pose_change_deg") for r in results],
+            "omega": [None if f["median_speed_deg_s"] is None else round(f["median_speed_deg_s"], 2) for f in ema_feats],
+        }
         turn_metrics.pop("_plot_series", None)
 
         valid_pose_frames = turn_metrics["valid_pose_frames"]
@@ -327,6 +347,9 @@ def run_benchmark(
                 "effective_fps_at_median": round(effective_fps, 2),
             },
             "sample_yaw_angles": sample_angles,
+            "d01_events": turn_metrics["d01_events"],
+            "d01_event_segments": turn_metrics["d01_event_segments"],
+            "series": compact_series,
         }
         benchmark_summary["models"][est.name] = model_stat
         report_entries.append({"name": est.name, "stat": model_stat, "results": results,
@@ -336,7 +359,9 @@ def run_benchmark(
         print(
             f"    [BİTTİ] Toplam Süre: {total_wall_time_s:.2f} sn | Medyan: {median_lat:.2f} ms | "
             f"Geçerli Poz: {valid_pose_frames}/{len(results)} | Optik Akış: {optical_flow_frames} | Kayıp: {lost_frames_count} | "
-            f"İlk Dönüş: {turn_metrics['first_turn_onset_s']} sn -> {turn_metrics['first_turn_end_s']} sn ({turn_metrics['first_turn_end_status']})\n",
+            f"İlk Dönüş: {turn_metrics['first_turn_onset_s']} sn -> {turn_metrics['first_turn_end_s']} sn ({turn_metrics['first_turn_end_status']}) | "
+            f"Olaylar: baktı {turn_metrics['d01_events']['bakti_s']} / durdu {turn_metrics['d01_events']['durdu_s']} / "
+            f"geri döndü {turn_metrics['d01_events']['geri_dondu_s']} ({turn_metrics['d01_events']['durum']})\n",
             flush=True,
         )
 

@@ -214,6 +214,12 @@ def summary_row(m: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _events_text(ev: Optional[Dict[str, Any]], keys) -> str:
+    if not ev:
+        return "—"
+    return " / ".join("—" if ev.get(k) is None else f"{float(ev[k]):.2f}" for k in keys)
+
+
 def model_metric_pairs(m: Dict[str, Any]) -> List[List[Any]]:
     row = summary_row(m)
     s = m["stat"]
@@ -225,6 +231,9 @@ def model_metric_pairs(m: Dict[str, Any]) -> List[List[Any]]:
         ["Kurulum (ms)", s.get("setup_time_ms")],
         ["Başlangıç Onayı (s)", s["d01_first_head_turn"].get("onset_confirmed_s")],
         ["Bitiş Onayı (s)", s["d01_first_head_turn"].get("end_confirmed_s")],
+        ["Baktı / Durdu (s)", _events_text(s.get("d01_events"), ("bakti_s", "durdu_s"))],
+        ["Geri Dönüş Başl. / Bitiş (s)", _events_text(s.get("d01_events"), ("geri_donus_baslangic_s", "geri_dondu_s"))],
+        ["Olay Durumu", (s.get("d01_events") or {}).get("durum")],
         ["Referans Uyumu", m["agreement"]["text"]],
         ["Yaw MAE vs Ref (°)", m["agreement"]["yaw_mae_deg"]],
     ]

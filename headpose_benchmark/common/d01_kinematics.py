@@ -255,6 +255,145 @@ def detect_v1_candidates(
     }
 
 
+# D01 olay durum makinesi (mühendislik parametreleri; klinik eşik DEĞİLDİR, kalibrasyon bekler)
+EVENT_FSM_CONFIG = {
+    "protocol": "d01-event-fsm-v1",
+    "look_min_deg": 12.0,          # BAKTI sayılması için çağrı öncesi pozdan en az sapma
+    "return_ratio": 0.35,          # GERİ DÖNDÜ: sapma, zirvenin bu oranına (veya aşağıdakine) inerse
+    "return_floor_deg": 6.0,
+    "smooth_frames": 5,            # sapma serisine uygulanan kayan medyan
+}
+
+FSM_STATES = ("BEKLEME", "BAKIYOR", "DURDU", "GERI_DONUYOR", "GERI_DONDU", "BELIRSIZ")
+
+
+def _rolling_median(values: List[Optional[float]], k: int) -> List[Optional[float]]:
+    out: List[Optional[float]] = []
+    for i in range(len(values)):
+        w = [v for v in values[max(0, i - k + 1): i + 1] if v is not None]
+        out.append(float(np.median(w)) if len(w) >= max(1, k // 2 + 1) else None)
+    return out
+
+
+def detect_d01_events(
+    times: List[float],
+    pose_change: List[Optional[float]],
+    candidates: List[Dict[str, Any]],
+    call_start_s: Optional[float],
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    "Baktı → Durdu → Geri döndü" olaylarını ayrı ayrı çıkaran durum makinesi.
+
+    Girdiler: EMA_050 hareket adayları (başlangıç ω ≥ 45 °/s, bitiş ω ≤ 20 °/s) ve çağrı öncesi
+    medoid pozdan sapma (pose_change_deg). Durumlar:
+      BEKLEME      → çağrıdan sonraki ilk hareket adayı başlayana kadar
+      BAKIYOR      → ilk hareket (baş yön değiştiriyor); zirve sapma ≥ look_min_deg ise "baktı"
+      DURDU        → hareket bitti, baş yeni yönde tutuluyor (bakış süresi bu durumda geçer)
+      GERI_DONUYOR → sonraki hareket adayı; sapma geri dönüş eşiğine iniyorsa
+      GERI_DONDU   → sapma eşik altına indi (baş başlangıç pozuna yakın)
+      BELIRSIZ     → veri boşluğu / klip sonu nedeniyle bitiş gözlenemedi
+    """
+    cfg = dict(EVENT_FSM_CONFIG, **(config or {}))
+    pc = _rolling_median(pose_change, int(cfg["smooth_frames"]))
+    t0_ref = (call_start_s - 0.15) if call_start_s is not None else -1e9
+
+    def idx_at(t: Optional[float]) -> Optional[int]:
+        if t is None:
+            return None
+        for i, tt in enumerate(times):
+            if tt >= t - 1e-6:
+                return i
+        return len(times) - 1
+
+    def cand_start(c):
+        return c.get("start_s") if c.get("start_s") is not None else c.get("first_high_evidence_s")
+
+    post = [c for c in candidates if cand_start(c) is not None and cand_start(c) >= t0_ref]
+    events: Dict[str, Any] = {
+        "protocol": cfg["protocol"],
+        "bakti_s": None, "durdu_s": None, "bakis_suresi_s": None,
+        "geri_donus_baslangic_s": None, "geri_dondu_s": None,
+        "zirve_sapma_deg": None, "geri_donus_esigi_deg": None,
+        "durum": None, "aciklama": None,
+    }
+    segments: List[List[Any]] = []
+
+    def seg(state, a, b):
+        if a is not None and b is not None and b > a:
+            segments.append([state, round(float(a), 4), round(float(b), 4)])
+
+    t_first, t_last = (times[0], times[-1]) if times else (0.0, 0.0)
+    if not post:
+        seg("BEKLEME", t_first, t_last)
+        events.update(durum="bakis_yok", aciklama="Çağrıdan sonra hareket adayı yok.")
+        return {"events": events, "segments": segments, "config": cfg}
+
+    look = post[0]
+    a = cand_start(look)
+    seg("BEKLEME", t_first, a)
+    if look.get("end_s") is None:
+        seg("BAKIYOR", a, look.get("last_supported_time_s") or t_last)
+        seg("BELIRSIZ", look.get("last_supported_time_s") or t_last, t_last)
+        events.update(bakti_s=a, durum="durma_gozlenemedi",
+                      aciklama=f"İlk hareketin bitişi gözlenemedi ({look.get('end_status')}).")
+        return {"events": events, "segments": segments, "config": cfg}
+
+    b = look["end_s"]
+    ia, ib = idx_at(a), idx_at(b)
+    window = [v for v in pc[ia: ib + 1] if v is not None]
+    peak = max(window) if window else None
+    # Durduktan sonraki ilk birkaç karenin sapması da zirveye dahil (baş yerleşirken)
+    after = [v for v in pc[ib: ib + 6] if v is not None]
+    if after:
+        peak = max([peak] + after) if peak is not None else max(after)
+    events["zirve_sapma_deg"] = None if peak is None else round(peak, 2)
+    if peak is None or peak < cfg["look_min_deg"]:
+        seg("BAKIYOR", a, b)
+        seg("BEKLEME", b, t_last)
+        events.update(durum="kucuk_hareket",
+                      aciklama=f"Hareket var ama sapma {cfg['look_min_deg']:.0f}° altında (yönelim sayılmadı).")
+        return {"events": events, "segments": segments, "config": cfg}
+
+    thr = max(cfg["return_floor_deg"], cfg["return_ratio"] * peak)
+    events.update(bakti_s=a, durdu_s=b, geri_donus_esigi_deg=round(thr, 2))
+    seg("BAKIYOR", a, b)
+
+    # Geri dönüş: sonraki adaylardan, bitişinde (ya da sırasında) sapma eşik altına inen ilki.
+    ret_start, ret_end, status = None, None, None
+    for c in post[1:]:
+        cs = cand_start(c)
+        ce = c.get("end_s")
+        i0 = idx_at(cs)
+        i1 = idx_at(ce) if ce is not None else len(times) - 1
+        hit = next((i for i in range(i0, min(len(times), i1 + 6)) if pc[i] is not None and pc[i] <= thr), None)
+        if hit is not None:
+            ret_start, ret_end = cs, (ce if ce is not None else times[hit])
+            status = "geri_dondu" if ce is not None else "geri_dondu_bitis_belirsiz"
+            break
+    if ret_start is None:
+        # Yavaş dönüş: hız eşiğini aşmadan sapma eşik altına inmiş olabilir
+        hit = next((i for i in range(ib + 1, len(times)) if pc[i] is not None and pc[i] <= thr), None)
+        if hit is not None:
+            ret_start = ret_end = times[hit]
+            status = "yavas_geri_donus"
+
+    if ret_start is None:
+        seg("DURDU", b, t_last)
+        events.update(bakis_suresi_s=round(t_last - b, 3), durum="geri_donus_yok",
+                      aciklama="Baş yeni yönde kaldı; klip içinde başlangıç pozuna dönmedi (bakış süresi alt sınırdır).")
+    else:
+        seg("DURDU", b, ret_start)
+        seg("GERI_DONUYOR", ret_start, ret_end)
+        seg("GERI_DONDU", ret_end, t_last)
+        events.update(bakis_suresi_s=round(ret_start - b, 3), geri_donus_baslangic_s=round(ret_start, 4),
+                      geri_dondu_s=round(ret_end, 4), durum=status,
+                      aciklama="Baktı, durdu ve başlangıç pozuna geri döndü." if status == "geri_dondu"
+                      else "Geri dönüş hız eşiğini aşmadan (yavaş) gerçekleşti." if status == "yavas_geri_donus"
+                      else "Geri dönüş başladı; bitişi gözlenemedi.")
+    return {"events": events, "segments": segments, "config": cfg}
+
+
 def evaluate_d01_turn_metrics(
     results: List[PoseResult],
     fps: float = 24.0,
@@ -332,7 +471,16 @@ def evaluate_d01_turn_metrics(
         and r.flag not in ("OPTICAL_FLOW_ROI_ONLY", "OPTICAL_FLOW_INTERPOLATED", "OPTICAL_FLOW_TRACKED")
     )
 
+    times = [rec["time_s"] for rec in raw_records]
+    pc_series = [r.metadata.get("pose_change_deg") for r in results]
+    fsm = detect_d01_events(
+        times, pc_series, candidates_ema or candidates_raw,
+        float(calls[0]["start_s"]) if (calls and len(calls) > 0) else None,
+    )
+
     return {
+        "d01_events": fsm["events"],
+        "d01_event_segments": fsm["segments"],
         "valid_pose_frames": valid_pose_frames,
         "optical_flow_only_frames": optical_flow_only_frames,
         "lost_frames": max(0, lost_frames),
