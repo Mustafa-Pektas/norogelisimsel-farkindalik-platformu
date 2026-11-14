@@ -1,4 +1,5 @@
 import 'd01_marked_input.dart';
+import 'd01_video_limits.dart';
 
 // Experimental head-motion API only. No response/target/clinical classification.
 class D01PilotException implements Exception {
@@ -23,11 +24,12 @@ class D01PilotException implements Exception {
     'unsupported_fps' => 'Bu pilot yalnız 24 FPS videoları destekliyor.',
     'unsupported_timeline' =>
       'Video zaman çizgisi sabit 24 FPS koşuluyla uyuşmuyor.',
-    'video_too_long' => 'Yeni video en fazla 30 saniye olabilir.',
+    'video_too_long' =>
+      'Analiz için video en fazla ${D01VideoLimits.describeLimit()} olabilir. Videoyu kısaltıp yeniden seçin.',
     'invalid_video' =>
       'Video çözümlenemedi veya görüntü boyutları desteklenmiyor.',
     'video_too_large' ||
-    'request_too_large' => 'Video 25 MiB yükleme sınırını aşıyor.',
+    'request_too_large' => 'Video ${D01VideoLimits.maxUploadMiB} MiB yükleme sınırını aşıyor.',
     'analysis_timeout' =>
       'Sunucu analiz süre sınırına ulaştı; iş tamamlanmadı.',
     'http_timeout' =>
@@ -237,7 +239,7 @@ class D01PilotResult {
           video['fps'] != 24 ||
           durationS == null ||
           durationS <= 0 ||
-          durationS > 30 ||
+          durationS > D01VideoLimits.maxSeconds ||
           video['durationSource'] != 'decoded_CFR_video_frame_extent' ||
           _count(video['decodedFrames']) != processed ||
           (durationS - processed! / 24).abs() > .001 ||
@@ -346,7 +348,7 @@ class D01PilotResult {
         video['decodedFrames'] != processed ||
         duration == null ||
         duration <= 0 ||
-        duration > 30 ||
+        duration > D01VideoLimits.maxSeconds ||
         (duration - processed! / 24).abs() > .001 ||
         !const [
           'manual_initial_point',

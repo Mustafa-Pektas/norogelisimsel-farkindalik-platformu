@@ -127,6 +127,33 @@ test('Unsupported video hash never starts runner and releases slot', async t => 
   assert.equal((await f.upload()).status, 202);
 });
 
+test('Varsayılan 3,5 dk üstü video analiz başlamadan 422 video_too_long; sınır CLI\'ya iletilir', async t => {
+  const { mp4 } = require('./mp4_fixture');
+  const f = fixture(t);
+  const long = await f.upload({ method: 'mediapipe_pnp_flow' }, mp4({ seconds: 240 }));
+  assert.equal(long.status, 422); assert.equal(long.body.code, 'video_too_long');
+  assert.equal(long.body.durationS, 240); assert.equal(long.body.maxDurationS, 210);
+  assert.equal(f.children.length, 0);
+  const sinir = await f.upload({ method: 'mediapipe_pnp_flow' }, mp4({ seconds: 210.04 }));
+  assert.equal(sinir.status, 202, 'ses izi kaynaklı küçük taşma reddedilmez; karar CLI kare sayımına kalır');
+  assert.equal(f.children.length, 1);
+  const args = f.children[0].args;
+  assert.equal(args[args.indexOf('--max-duration-s') + 1], '210');
+});
+
+test('Video süre sınırı PILOT_D01_MAX_VIDEO_SECONDS ile ayarlanır; geçersiz değer başlatmayı durdurur', async t => {
+  const { mp4 } = require('./mp4_fixture');
+  const { videoLimits } = require('../d01_pilot_jobs');
+  const f = fixture(t, 'deployment', { envOverrides: { PILOT_D01_MAX_VIDEO_SECONDS: '30' } });
+  const long = await f.upload({ method: 'mediapipe_pnp_flow' }, mp4({ seconds: 45 }));
+  assert.equal(long.status, 422); assert.equal(long.body.maxDurationS, 30);
+  assert.deepEqual(videoLimits({}), { maxSeconds: 210, maxFrames: 5040 });
+  assert.deepEqual(videoLimits({ PILOT_D01_MAX_VIDEO_SECONDS: '90' }), { maxSeconds: 90, maxFrames: 2160 });
+  for (const value of ['', '0', '-5', 'abc', '601', '1e3']) {
+    assert.throws(() => createPilotJobs({ ...f.env, PILOT_D01_MAX_VIDEO_SECONDS: value }), /PILOT_D01_MAX_VIDEO_SECONDS/);
+  }
+});
+
 test('Unknown video + marked ROI/call interval -> existing job API, versioned sanitized source', async t => {
   const f = fixture(t); const bytes = Buffer.from('new controlled media identity');
   const r = await f.upload({ roi: JSON.stringify({ x: 10, y: 20, width: 100, height: 100 }), callStartS: '0.020', callEndS: '0.100' }, bytes);
@@ -216,8 +243,14 @@ test('Cancellation holds slot until actual process close; late success rejected'
   assert.equal((await f.upload()).status, 429); assert.deepEqual(f.children[0].signals, ['SIGTERM']);
   f.children[0].finish(); assert.equal((await request(f.app, 'GET', `/api/pilot-d01/jobs/${r.body.jobId}`)).body.status, 'interrupted');
 });
-test('Upload size has its own 25 MiB limit; global deployment JSON remains 1 MiB', async t => {
-  const f = fixture(t); assert.equal((await f.upload({}, Buffer.alloc(MAX_VIDEO + 1))).status, 413);
+test('Upload size has its own configurable limit (default 100 MiB); global deployment JSON remains 1 MiB', async t => {
+  const { uploadLimitBytes, DEFAULT_MAX_UPLOAD_MB } = require('../d01_pilot_jobs');
+  assert.equal(DEFAULT_MAX_UPLOAD_MB, 100); assert.equal(MAX_VIDEO, 100 * 1024 * 1024);
+  assert.equal(uploadLimitBytes({}), 100 * 1024 * 1024); assert.equal(uploadLimitBytes({ PILOT_D01_MAX_UPLOAD_MB: '40' }), 40 * 1024 * 1024);
+  for (const value of ['', '0', '-1', '1.5', 'abc', '2049']) assert.throws(() => uploadLimitBytes({ PILOT_D01_MAX_UPLOAD_MB: value }), /PILOT_D01_MAX_UPLOAD_MB/);
+  // Testte büyük tampon ayırmamak için sınır 1 MiB'e düşürülür; davranış aynıdır.
+  const f = fixture(t, 'deployment', { envOverrides: { PILOT_D01_MAX_UPLOAD_MB: '1' } });
+  assert.equal((await f.upload({}, Buffer.alloc(1024 * 1024 + 1))).status, 413);
   assert.equal((await request(f.app, 'POST', '/api/generate-scenario-input', Buffer.from(JSON.stringify({ x: 'a'.repeat(1024 * 1024) })))).status, 413);
   assert.equal(f.children.length, 0);
 });
@@ -259,7 +292,7 @@ test('Retention count bounded and another owner cannot reuse the live directory'
 test('Timeout requests termination, keeps slot until close, never uses late success', async t => {
   const pending = []; const timers = { setTimeout(fn, ms) { const token = { fn, ms, unref() {} }; pending.push(token); return token; }, clearTimeout() {} };
   const f = fixture(t, 'deployment', { timers }); const response = await f.upload();
-  assert.equal(pending[0].ms, 600000); pending[0].fn();
+  assert.equal(pending[0].ms, 900000); pending[0].fn();
   assert.equal((await f.upload()).status, 429); assert.deepEqual(f.children[0].signals, ['SIGTERM']);
   assert.equal(pending[1].ms, 10000); pending[1].fn(); assert.deepEqual(f.children[0].signals, ['SIGTERM', 'SIGKILL']);
   f.children[0].finish(); assert.equal((await request(f.app, 'GET', `/api/pilot-d01/jobs/${response.body.jobId}`)).body.code, 'analysis_timeout');

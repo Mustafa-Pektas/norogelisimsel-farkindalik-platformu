@@ -12,7 +12,7 @@ function createGenerationMeasurement({ endpoint, now = () => performance.now(), 
   }
   const started = stamp();
   let retrievalStart = null, providerStart = null, terminal;
-  const state = { requestId: randomUUID(), endpoint, retrievalDurationMs: null,
+  const state = { requestId: randomUUID(), endpoint, retrievalDurationMs: null, queueWaitMs: null,
     providerDurationMs: null, providerStarted: false, providerFinished: false,
     promptTokens: null, outputTokens: null, behaviorSource: null };
   return {
@@ -23,6 +23,8 @@ function createGenerationMeasurement({ endpoint, now = () => performance.now(), 
         behaviorId: card.behaviorId, cardVersion: card.version, sha256: card.sha256,
         behaviors: card.selectedCards?.map(ref => ({ behaviorId: ref.behaviorId, cardVersion: ref.cardVersion })) ?? null });
     },
+    // Üretim sırasında (kuyruk) geçen süre; kuyruksuz kapasitede 0.
+    recordQueueWait(ms) { state.queueWaitMs = Number.isFinite(ms) && ms >= 0 ? Number(ms.toFixed(3)) : null; },
     startProvider() { state.providerStarted = true; providerStart = stamp(); },
     finishProvider() { state.providerDurationMs = duration(providerStart); state.providerFinished = true; },
     captureUsage(usage) {

@@ -3,7 +3,8 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const finite = v => typeof v === 'number' && Number.isFinite(v);
-function fastMainResult(job, run, state, result) {
+// limits: d01_pilot_jobs.videoLimits() çıktısı (yapılandırılmış süre/kare üst sınırı)
+function fastMainResult(job, run, state, result, limits = { maxSeconds: 30, maxFrames: 720 }) {
   const bad = () => { throw new Error('invalid fast result'); };
   const meta = result.video_metadata; const counts = result.counts;
   const poseEngine = result.poseEngine ?? 'mediapipe_pnp_flow';
@@ -15,8 +16,8 @@ function fastMainResult(job, run, state, result) {
   if (state.status !== 'completed' || state.method !== 'mediapipe_pnp_flow' || state.model_loaded !== true ||
       result.schema_version !== 'd01-fast-result-1.0' || result.method !== 'mediapipe_pnp_flow' || result.video_hash !== job.videoHash ||
       !meta || meta.fps !== 24 || !Number.isInteger(meta.width) || !Number.isInteger(meta.height) || meta.width <= 0 || meta.height <= 0 ||
-      !finite(meta.duration_s) || meta.duration_s <= 0 || meta.duration_s > 30 ||
-      !counts || !Number.isInteger(counts.processed) || counts.processed <= 0 || counts.processed > 720 ||
+      !finite(meta.duration_s) || meta.duration_s <= 0 || meta.duration_s > limits.maxSeconds ||
+      !counts || !Number.isInteger(counts.processed) || counts.processed <= 0 || counts.processed > limits.maxFrames ||
       !Number.isInteger(counts.valid) || !Number.isInteger(counts.invalid) || counts.valid < 0 || counts.invalid < 0 ||
       counts.valid + counts.invalid !== counts.processed || counts.processed !== state.processed_frames || counts.valid !== state.valid_frames ||
       meta.decoded_frame_count !== counts.processed || Math.abs(meta.duration_s - counts.processed / 24) > .001) bad();
@@ -83,7 +84,7 @@ function fastMainResult(job, run, state, result) {
   if (coverage.poseFrames !== counts.valid || coverage.totalFrames !== counts.processed ||
       coverage.poseFrames + coverage.flowOnlyFrames + coverage.lostFrames > counts.processed || coverage.ambiguousFrames > coverage.lostFrames) bad();
   const intervals = result.missingPoseIntervals;
-  if (!Array.isArray(intervals) || intervals.length > 720) bad();
+  if (!Array.isArray(intervals) || intervals.length > limits.maxFrames) bad();
   const missingPoseIntervals = intervals.map(i => {
     if (!finite(i.startS) || !finite(i.endS) || i.startS < 0 || i.endS < i.startS || i.endS > meta.duration_s || !Number.isInteger(i.frames) || i.frames <= 0) bad();
     return { startS: i.startS, endS: i.endS, frames: i.frames };

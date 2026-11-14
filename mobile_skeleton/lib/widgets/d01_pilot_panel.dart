@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../models/d01_pilot_result.dart';
 import '../models/d01_marked_input.dart';
+import '../models/d01_video_limits.dart';
 import '../services/d01_pilot_service.dart';
 
 /// Tracking belongs to this mounted panel. Closing it never cancels the server job.
@@ -28,7 +29,8 @@ class D01PilotPanel extends StatefulWidget {
     this.api = const HttpD01PilotApi(),
     this.initialAccessKey = '',
     this.pollInterval = const Duration(seconds: 5),
-    this.trackingLimit = const Duration(minutes: 20),
+    // Yükleme (≤10 dk) + sunucu analiz zaman aşımı (15 dk) + sonlandırma payı.
+    this.trackingLimit = const Duration(minutes: 30),
   });
   final ValueChanged<bool>? onBusyChanged;
   final bool userMarked;
@@ -95,6 +97,12 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
     callStart: _callStart,
     callEnd: _callEnd,
   );
+  /// Sınırı aşan video hiç yüklenmez (bkz. D01VideoLimits; sunucuyla aynı sınır ve tolerans).
+  bool get _videoTooLong => D01VideoLimits.exceeds(widget.duration);
+  String get _tooLongMessage =>
+      'Seçilen video ${D01VideoLimits.describe(widget.duration)}. '
+      '${const D01PilotException('video_too_long').message}';
+
   bool get _inputValid => widget.fastAnalysis
       ? _fastInput.validFor(widget.duration) &&
             (!widget.userMarked || widget.targetPoint != null)
@@ -132,6 +140,10 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
         widget.video == null ||
         widget.videoIdentity == null ||
         widget.openingVideo) {
+      return;
+    }
+    if (_videoTooLong) {
+      setState(() => _message = _tooLongMessage);
       return;
     }
     if (!_inputValid) {
@@ -398,8 +410,8 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
               ? 'Hızlı yüz takibi ve baş hareketi adayları. Birden fazla yüz varsa ilk karede çocuğun yüzüne dokunarak hedefi belirtin; dikdörtgen çizmeniz gerekmez. Belirsiz hedef ve takip kaybında poz ölçülmez. Bu, isme tepki veya doğru kişiye yönelme analizi değildir.'
               : 'İki hazır video otomatik ROI kullanır. Yeni videoda baş bölgesini ve çağrı zamanlarını işaretleyin. Baş hareketi adaylarını gösterir; isme tepkiyi veya doğru kişiye yönelmeyi belirlemez. Analiz birkaç dakika sürebilir.',
         ),
-        const Text(
-          'İşaretler kullanıcı adayıdır; yerleşme, hareket bitişi değildir. Yeni video: 24 FPS, en çok 30 sn / 25 MiB.',
+        Text(
+          'İşaretler kullanıcı adayıdır; yerleşme, hareket bitişi değildir. Yeni video: 24 FPS, en çok ${D01VideoLimits.describeLimit()} / ${D01VideoLimits.maxUploadMiB} MiB.',
         ),
         if (widget.onUserMarkedChanged != null)
           SwitchListTile(
@@ -544,6 +556,12 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
                 : 'İşlenen kare: ${_status!.processedFrames}'
                       '${_status!.totalFrames == null ? '' : ' / ${_status!.totalFrames}'}',
           ),
+        if (ready && !active && _videoTooLong)
+          Text(
+            _tooLongMessage,
+            key: const ValueKey('pilot-video-too-long'),
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
         if (_message != null)
           Text(_message!, key: const ValueKey('pilot-message')),
         const SizedBox(height: 8),
@@ -553,7 +571,7 @@ class _D01PilotPanelState extends State<D01PilotPanel> {
           children: [
             FilledButton(
               key: const ValueKey('pilot-start'),
-              onPressed: ready && !active && _inputValid ? _start : null,
+              onPressed: ready && !active && _inputValid && !_videoTooLong ? _start : null,
               child: const Text('Pilot analizi başlat'),
             ),
             if (active && _stage == 'error' && _task?.jobId != null)

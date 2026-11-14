@@ -1,11 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { backendTiming, checkTiming, pollTerminal } = require('../pilot_timing');
-test('Backend defaults stay 600s/10s; client wait and explicit closing margin are distinct', () => {
-  assert.deepEqual(backendTiming({}), { timeoutMs: 600000, killGraceMs: 10000 });
-  const t = checkTiming({}); assert.equal(t.waitMs, 600000); assert.equal(t.closingGraceMs, 45000); assert.equal(t.totalObservationMs, 645000);
+test('Backend defaults 900s/10s; client wait covers backend timeout; explicit closing margin distinct', () => {
+  assert.deepEqual(backendTiming({}), { timeoutMs: 900000, killGraceMs: 10000 });
+  const t = checkTiming({}); assert.equal(t.waitMs, 900000); assert.equal(t.closingGraceMs, 45000); assert.equal(t.totalObservationMs, 945000);
   assert.equal(checkTiming({ PILOT_D01_TIMEOUT_MS: '900000', PILOT_CHECK_WAIT_MS: '900000' }).totalObservationMs, 945000);
-  assert.throws(() => checkTiming({ PILOT_D01_TIMEOUT_MS: '900000' }), /observation window/);
+  assert.equal(checkTiming({ PILOT_D01_TIMEOUT_MS: '600000' }).waitMs, 600000, 'düşürülen zaman aşımı istemci beklemesini de kısaltır');
+  assert.throws(() => checkTiming({ PILOT_CHECK_WAIT_MS: '600000' }), /observation window/);
   for (const value of ['', '0', '-1', 'abc', '1.5']) assert.throws(() => backendTiming({ PILOT_D01_TIMEOUT_MS: value }), /Invalid/);
 });
 test('Mandatory boundary GET replaces stale running with actual analysis_timeout', async () => {

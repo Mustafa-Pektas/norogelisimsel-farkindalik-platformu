@@ -2,11 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/d01_pilot_result.dart';
 import '../models/d01_marked_input.dart';
+import '../models/d01_video_limits.dart';
 
 abstract interface class D01PilotApi {
   D01PilotTask create({
@@ -32,10 +33,15 @@ class HttpD01PilotApi implements D01PilotApi {
   const HttpD01PilotApi({
     this.clientFactory,
     this.timeout = const Duration(seconds: 30),
+    this.uploadTimeout = const Duration(minutes: 10),
   });
   static const defaultAddress = String.fromEnvironment('D01_PILOT_SERVER_URL');
   final http.Client Function()? clientFactory;
   final Duration timeout;
+
+  /// 100 MiB'lik yükleme yavaş mobil bağlantıda dakikalar sürebilir; durum/sonuç
+  /// istekleri kısa [timeout] ile kalır.
+  final Duration uploadTimeout;
   @override
   D01PilotTask create({
     required File video,
@@ -57,11 +63,11 @@ class HttpD01PilotApi implements D01PilotApi {
     final key = accessKey.trim();
     if (fastInput != null &&
         (markedInput != null ||
-            !fastInput.validFor(const Duration(seconds: 30)))) {
+            !fastInput.validFor(D01VideoLimits.maxDuration))) {
       throw const D01PilotException('invalid_manual_times');
     }
     if (markedInput != null &&
-        !markedInput.validFor(const Duration(seconds: 30))) {
+        !markedInput.validFor(D01VideoLimits.maxDuration)) {
       throw const D01PilotException('invalid_manual_times');
     }
     if (!RegExp(r'^[\x21-\x7e]+$').hasMatch(key)) {
@@ -73,6 +79,7 @@ class HttpD01PilotApi implements D01PilotApi {
       key,
       clientFactory ?? http.Client.new,
       timeout,
+      uploadTimeout,
       markedInput,
       fastInput == null ? null : D01FastInput(
         targetPoint: fastInput.targetPoint == null ? null : List<double>.unmodifiable(fastInput.targetPoint!),
@@ -89,9 +96,11 @@ class _HttpPilotTask implements D01PilotTask {
     this.accessKey,
     this.clientFactory,
     this.timeout,
+    this.uploadTimeout,
     this.markedInput,
     this.fastInput,
   );
+  final Duration uploadTimeout;
   final D01FastInput? fastInput;
   final D01MarkedInput? markedInput;
   String? _acceptedHash;
@@ -102,16 +111,22 @@ class _HttpPilotTask implements D01PilotTask {
   final Set<http.Client> clients = {};
   final Duration timeout;
   bool closed = false, submitted = false;
-  List<int>? sourceBytes;
+  // Yüklenen dosyanın boyutu + SHA-256 özeti; tüm videoyu bellekte tutmadan
+  // sonucun aynı baytlara ait olduğunu doğrulamak için.
+  int? _sourceLength;
+  Digest? _sourceDigest;
   String? _jobId;
+
+  static Future<Digest> _digestOf(File file) => sha256.bind(file.openRead()).first;
   String? _profileId;
   @override
   String? get jobId => _jobId;
 
   Future<Map<String, dynamic>> _send(
     http.BaseRequest request,
-    int expected,
-  ) async {
+    int expected, {
+    Duration? timeoutOverride,
+  }) async {
     if (closed) {
       throw const D01PilotException('connection_error');
     }
@@ -127,7 +142,8 @@ class _HttpPilotTask implements D01PilotTask {
         final bytes = <int>[];
         await for (final chunk in response.stream) {
           size += chunk.length;
-          if (size > 256 * 1024) {
+          // Uzun videolarda (en fazla 3,5 dk) aday/aralık listeleri büyür; sunucuyla aynı 1 MiB sınır.
+          if (size > 1024 * 1024) {
             throw const D01PilotException('invalid_contract');
           }
           bytes.addAll(chunk);
@@ -156,7 +172,7 @@ class _HttpPilotTask implements D01PilotTask {
           );
         }
         return pilotMap(jsonDecode(utf8.decode(bytes)));
-      })().timeout(timeout);
+      })().timeout(timeoutOverride ?? timeout);
     } on TimeoutException {
       throw const D01PilotException('http_timeout');
     } on D01PilotException {
@@ -183,17 +199,16 @@ class _HttpPilotTask implements D01PilotTask {
     }
     submitted = true;
     try {
-      if (await video.length() > 25 * 1024 * 1024) {
+      final length = await video.length();
+      if (length == 0 || length > D01VideoLimits.maxUploadBytes) {
         throw const D01PilotException('video_too_large');
       }
-      final bytes = await video.readAsBytes();
-      if (bytes.isEmpty || bytes.length > 25 * 1024 * 1024) {
-        throw const D01PilotException('video_too_large');
-      }
-      sourceBytes = bytes;
+      _sourceDigest = await _digestOf(video);
+      _sourceLength = length;
+      // Akışlı yükleme: 100 MiB'e kadar dosya belleğe alınmaz.
       final upload = http.MultipartRequest('POST', _uri())
         ..files.add(
-          http.MultipartFile.fromBytes('video', bytes, filename: 'pilot.mp4'),
+          http.MultipartFile('video', video.openRead(), length, filename: 'pilot.mp4'),
         );
       final fast = fastInput;
       if (fast != null) {
@@ -216,7 +231,7 @@ class _HttpPilotTask implements D01PilotTask {
             .toStringAsFixed(3);
       }
       // Never send local paths, model commands or movement labels.
-      final acceptedJson = await _send(upload, 202);
+      final acceptedJson = await _send(upload, 202, timeoutOverride: uploadTimeout);
       final accepted = D01PilotStatus.fromJson(acceptedJson);
       _jobId = accepted.jobId;
       if (markedInput != null || fastInput != null) {
@@ -263,11 +278,11 @@ class _HttpPilotTask implements D01PilotTask {
     );
     var matchingBytes = false;
     try {
-      final source = sourceBytes;
+      final digest = _sourceDigest;
       matchingBytes =
-          source != null &&
-          await video.length() == source.length &&
-          listEquals(await video.readAsBytes(), source);
+          digest != null &&
+          await video.length() == _sourceLength &&
+          await _digestOf(video) == digest;
     } on FileSystemException {
       matchingBytes = false;
     }

@@ -9,7 +9,7 @@ import importlib.metadata
 import hashlib
 from collections import Counter
 from fast_tracking import FastTracker,call_phase
-from pilot_cli import inspect_marked_video,atomic,append,PilotInputError,load_protocol
+from pilot_cli import inspect_marked_video,atomic,append,PilotInputError,load_protocol,DEFAULT_MAX_DURATION_S
 from motion_candidates import sha,detect
 from compare_headpose_methods import series
 from pilot_metrics import environment,memory
@@ -55,7 +55,7 @@ def run(args):
         pose_engine=getattr(args,'pose_engine','mediapipe_pnp_flow')
         if pose_engine not in ('mediapipe_pnp_flow','cascade_stride4_onnx'):
             raise ValueError('Unsupported pose engine')
-        t=time.perf_counter();info=inspect_marked_video(args.video);timings['media_preflight_s']=time.perf_counter()-t
+        t=time.perf_counter();info=inspect_marked_video(args.video,getattr(args,'max_duration_s',None) or DEFAULT_MAX_DURATION_S);timings['media_preflight_s']=time.perf_counter()-t
         checksum=sha(args.video)
         if sha(args.face_model)!='64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff':raise PilotInputError('invalid_video','Unexpected local Tasks asset')
         marks={};call_start=call_end=None
@@ -157,4 +157,5 @@ if __name__=='__main__':
     parser.add_argument('--pose-engine',choices=['mediapipe_pnp_flow','cascade_stride4_onnx'],default='mediapipe_pnp_flow')
     parser.add_argument('--stride4-source',type=Path)
     parser.add_argument('--onnx-model',type=Path)
+    parser.add_argument('--max-duration-s',type=float,default=DEFAULT_MAX_DURATION_S,help='Upper bound for the video (seconds); backend supplies its configured limit')
     run(parser.parse_args())

@@ -171,6 +171,22 @@ class PilotCliTests(unittest.TestCase):
             marks['marks']['call_end_s']['media_time_ms']=2001
             with self.assertRaises(p.PilotInputError):p.validate_marked_input(roi,info,marks)
 
+    def test_configurable_max_duration_bounds_decoding_and_validation(self):
+        import cv2
+        video=self.root/'controlled_limit.avi'
+        writer=cv2.VideoWriter(str(video),cv2.VideoWriter_fourcc(*'MJPG'),24,(64,48))
+        for _ in range(48):writer.write(np.zeros((48,64,3),dtype=np.uint8))
+        writer.release()
+        self.assertEqual(p.max_frames_for(210),5040);self.assertEqual(p.max_frames_for(30),720)
+        with self.assertRaises(p.PilotInputError) as error:p.inspect_marked_video(video,1.5)
+        self.assertEqual(error.exception.code,'video_too_long')
+        info=p.inspect_marked_video(video,2.0)
+        roi=dict(x=10,y=5,width=30,height=30,padding_ltrb_source_px=[0,0,0,0])
+        marks=dict(marks={k:dict(media_time_ms=v) for k,v in [('call_start_s',0),('call_end_s',1000)]})
+        self.assertEqual(p.validate_marked_input(roi,info,marks,2.0)['source_type'],'user_marked')
+        with self.assertRaises(p.PilotInputError) as error:p.validate_marked_input(roi,info,marks,1.5)
+        self.assertEqual(error.exception.code,'video_too_long')
+
     def test_call_only_manual_is_posthoc_missing_movement_remains_unknown(self):
         self.make_rows(40,movement=True)
         manual=self.root/'manual.json';manual.write_text(json.dumps(dict(video_path=str(self.video),marks={

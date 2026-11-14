@@ -359,7 +359,9 @@ function createScenarioInputHandler({ generate, modelName, cardsPath = defaultCa
     let stopped = false;
     let rejectDisconnect;
     const disconnect = new Promise((_, reject) => { rejectDisconnect = reject; });
-    const onClose = () => { disconnected = true; rejectDisconnect(new InputError('Yerel bağlantı kapandı.', 499)); };
+    // Kuyrukta bekleyen istek; istemci ayrılırsa veya süre dolarsa sıradaki yer anında bırakılır.
+    const queueAbort = new AbortController();
+    const onClose = () => { disconnected = true; queueAbort.abort(); rejectDisconnect(new InputError('Yerel bağlantı kapandı.', 499)); };
     // Hazırlık ve üretim tek sınır içindedir; yarışın kaybeden Future'ları da izlenir.
     res.once('close', onClose);
     try {
@@ -381,10 +383,22 @@ function createScenarioInputHandler({ generate, modelName, cardsPath = defaultCa
         if (disconnected || stopped) throw new InputError('Bekleme sonlandı.', 499);
         if (trial?.action === 'preview') return { success: true, request, preview };
         const prompts = preview || (planning ? planning.buildPlanPrompts(input, card) : buildNarrativePrompts(request, card));
-        const release = capacity?.tryAcquire();
-        if (capacity && !release) {
-          throw new InputError('Yerel üretim kapasitesi dolu; istek sağlayıcıya gönderilmedi. Kuyruk veya otomatik tekrar yok.',
-            429, 'local_capacity_exceeded');
+        let release = null;
+        if (capacity) {
+          // acquire: isteğe bağlı FIFO bekleme kuyruğu; yalnız tryAcquire sunan kapasitede eski anında-ret davranışı.
+          const slot = typeof capacity.acquire === 'function'
+            ? await capacity.acquire({ signal: queueAbort.signal })
+            : { release: capacity.tryAcquire(), reason: 'immediate', waitedMs: 0 };
+          measurement.recordQueueWait(slot.waitedMs);
+          release = slot.release;
+          if (!release) {
+            throw new InputError(slot.reason === 'queue_timeout'
+              ? 'Üretim sırası bekleme süresi doldu; istek sağlayıcıya gönderilmedi. Otomatik tekrar yok, lütfen biraz sonra yeniden deneyin.'
+              : slot.reason === 'aborted' ? 'Bekleme sonlandı; istek sağlayıcıya gönderilmedi.'
+                : 'Yerel üretim kapasitesi ve bekleme sırası dolu; istek sağlayıcıya gönderilmedi. Otomatik tekrar yok.',
+            slot.reason === 'aborted' ? 499 : 429, slot.reason === 'aborted' ? undefined : 'local_capacity_exceeded');
+          }
+          if (disconnected || stopped) { release(); throw new InputError('Bekleme sonlandı.', 499); }
         }
         phase = 'provider';
         measurement.startProvider();
@@ -426,6 +440,7 @@ function createScenarioInputHandler({ generate, modelName, cardsPath = defaultCa
       const timeout = new Promise((_, reject) => {
         timer = timers.setTimeout(() => {
           stopped = true;
+          queueAbort.abort();
           reject(new InputError('Üretim bekleme süresi doldu; model işinin iptali doğrulanmadı.', 504));
         }, timeoutMs);
       });

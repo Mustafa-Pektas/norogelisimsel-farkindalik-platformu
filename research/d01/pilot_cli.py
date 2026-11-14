@@ -76,7 +76,14 @@ class PilotInputError(ValueError):
         super().__init__(message);self.code=code
 
 
-def inspect_marked_video(path):
+DEFAULT_MAX_DURATION_S=30  # Araştırma protokolü varsayılanı; backend --max-duration-s ile üst sınırı verir
+
+
+def max_frames_for(max_duration_s):
+    return int(round(max_duration_s*24))
+
+
+def inspect_marked_video(path,max_duration_s=DEFAULT_MAX_DURATION_S):
     """Decode bounded CFR video before model loading; duration is video-frame extent,
     not audio duration, player time or an inferred behavior observation window.
     """
@@ -86,12 +93,12 @@ def inspect_marked_video(path):
         if not cap.isOpened():raise PilotInputError('invalid_video','Video cannot open')
         fps=cap.get(cv2.CAP_PROP_FPS)
         if fps!=24:raise PilotInputError('unsupported_fps','Marked-video pilot requires 24 FPS; no resampling')
-        geometry=None
+        geometry=None;max_frames=max_frames_for(max_duration_s)
         while True:
             ok,frame=cap.read()
             if not ok:break
             count+=1
-            if count>720:raise PilotInputError('video_too_long','Marked-video pilot is limited to 30 seconds / 720 frames')
+            if count>max_frames:raise PilotInputError('video_too_long',f'Marked-video pilot is limited to {max_duration_s:g} seconds / {max_frames} frames')
             height,width=frame.shape[:2]
             if geometry is None:geometry=(width,height)
             if geometry!=(width,height) or width*height>8388608:
@@ -107,15 +114,15 @@ def inspect_marked_video(path):
     finally:cap.release()
 
 
-def validate_marked_input(roi,info,annotation):
+def validate_marked_input(roi,info,annotation,max_duration_s=DEFAULT_MAX_DURATION_S):
     values=[roi.get(k) for k in ('x','y','width','height')]
     if (any(type(v) is not int for v in values) or min(values[:2])<0 or min(values[2:])<=0 or
             values[0]+values[2]>info['width'] or values[1]+values[3]>info['height'] or
             roi.get('padding_ltrb_source_px')!=[0,0,0,0]):
         raise PilotInputError('invalid_roi','User ROI must be an unpadded source-pixel rectangle inside the decoded image')
     if info['fps']!=24:raise PilotInputError('unsupported_fps','Marked-video pilot requires 24 FPS')
-    if not finite_time(info.get('duration_s')) or not 0<info['duration_s']<=30:
-        raise PilotInputError('video_too_long','Marked-video pilot requires positive video duration <= 30 seconds')
+    if not finite_time(info.get('duration_s')) or not 0<info['duration_s']<=max_duration_s:
+        raise PilotInputError('video_too_long',f'Marked-video pilot requires positive video duration <= {max_duration_s:g} seconds')
     marks=annotation.get('marks',{})
     if set(marks)!={'call_start_s','call_end_s'}:
         raise PilotInputError('invalid_manual_times','Both call marks, and no movement marks, are required')
@@ -261,16 +268,18 @@ def run(args,info_reader=video_info,runtime_factory=None,marked_info_reader=insp
         if sha(args.weights)!=protocol['weights_sha256']:raise ValueError('Local weight hash mismatch')
         user_marked=getattr(args,'user_marked',False)
         marked_input=None
+        max_s=getattr(args,'max_duration_s',None) or DEFAULT_MAX_DURATION_S
+        read_marked=(lambda p:inspect_marked_video(p,max_s)) if marked_info_reader is inspect_marked_video else marked_info_reader
         if user_marked:
             if args.recorded_raw:raise PilotInputError('invalid_video','Marked-video API requires real inference, not replay')
             if not args.manual:raise PilotInputError('invalid_manual_times','Marked-video call marks required')
             annotation=json.loads(args.manual.read_text(encoding='utf-8-sig'))
             if annotation.get('video_sha256')!=sha(args.video):raise PilotInputError('invalid_video','Manual/video hash mismatch')
-            info=marked_info_reader(args.video)
-            marked_input=validate_marked_input(roi,info,annotation)
+            info=read_marked(args.video)
+            marked_input=validate_marked_input(roi,info,annotation,max_s)
             checkpoint(user_marked_input=marked_input,video_metadata=info)
         elif args.manual and not args.recorded_raw:
-            info=marked_info_reader(args.video)
+            info=read_marked(args.video)
             annotation=json.loads(args.manual.read_text(encoding='utf-8-sig'))
             previous=None
             for key in ('call_start_s','call_end_s'):
@@ -393,6 +402,7 @@ def main():
     parser.add_argument('--user-review',type=Path,action='append',help='Optional separate user observation; read only after detection is fixed')
     parser.add_argument('--user-marked',action='store_true',help='Bounded 24 FPS custom video; unpadded human ROI and both call marks required')
     parser.add_argument('--cpu-threads',type=int,choices=(1,2,4),help='Explicit intra-op override; omitted uses unchanged protocol default')
+    parser.add_argument('--max-duration-s',type=float,default=DEFAULT_MAX_DURATION_S,help='Upper bound for the bounded 24 FPS video (seconds); backend supplies its configured limit')
     args=parser.parse_args();run(args);print(str(args.output_dir.resolve()/'result.json'))
 
 if __name__=='__main__':main()

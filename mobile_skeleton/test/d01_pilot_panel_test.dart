@@ -19,6 +19,7 @@ void main() {
     bool opening = false,
     bool noVideo = false,
     Future<void> Function(Duration)? seek,
+    Duration duration = const Duration(seconds: 7),
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -29,7 +30,7 @@ void main() {
               api: api,
               video: noVideo ? null : file ?? File('selected.mp4'),
               videoIdentity: noVideo ? null : identity ?? 'controller-1',
-              duration: const Duration(seconds: 7),
+              duration: duration,
               openingVideo: opening,
               initialAccessKey: 'session-only',
               pollInterval: interval,
@@ -55,6 +56,30 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
   }
+
+  testWidgets('3,5 dk üstü video yüklenmez; uyarı görünür, sunucuya istek gitmez', (tester) async {
+    final api = ControlledPilotApi();
+    await mount(tester, api, duration: const Duration(minutes: 4, seconds: 12));
+    expect(
+      tester.widget<FilledButton>(find.byKey(const ValueKey('pilot-start'))).onPressed,
+      isNull,
+    );
+    final warning = find.byKey(const ValueKey('pilot-video-too-long'));
+    expect(warning, findsOneWidget);
+    expect(tester.widget<Text>(warning).data, contains('4 dk 12 sn'));
+    expect(tester.widget<Text>(warning).data, contains('en fazla 3,5 dakika'));
+    expect(api.tasks, isEmpty);
+    await close(tester);
+  });
+
+  testWidgets('Sınırdaki ve kısa videolar engellenmez', (tester) async {
+    for (final duration in [const Duration(milliseconds: 210040), const Duration(seconds: 45)]) {
+      final api = ControlledPilotApi();
+      await mount(tester, api, duration: duration);
+      expect(find.byKey(const ValueKey('pilot-video-too-long')), findsNothing);
+    }
+    await close(tester);
+  });
 
   testWidgets(
     'No automatic upload, idle without video, session key clear; no scenario address changes',

@@ -33,7 +33,8 @@ class _VideoPlatform extends VideoPlayerPlatform {
     events[id]!.add(VideoEvent(
       eventType: VideoEventType.initialized,
       size: const Size(640, 360),
-      duration: const Duration(seconds: 120),
+      // Pilot analizi 30 sn üstü videoyu yüklemez; testler en fazla 9. saniyeye gider.
+      duration: const Duration(seconds: 20),
     ));
   }
 
@@ -335,7 +336,7 @@ void main() {
     expect(find.byType(FloatingVideoControls).hitTestable(), findsOneWidget);
     expect(find.byTooltip('5 sn Geri').hitTestable(), findsOneWidget);
     expect(find.byTooltip('5 sn İleri').hitTestable(), findsOneWidget);
-    expect(find.text('00:01 / 02:00').hitTestable(), findsOneWidget);
+    expect(find.text('00:01 / 00:20').hitTestable(), findsOneWidget);
     expect(find.byType(FullscreenVideoScreen), findsNothing);
     expect(controls(tester).controller, same(controller));
     expect(controller.value.position, const Duration(milliseconds: 1500));

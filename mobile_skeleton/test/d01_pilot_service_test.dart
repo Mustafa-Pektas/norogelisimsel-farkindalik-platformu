@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:neuro_awareness_app/models/d01_pilot_result.dart';
+import 'package:neuro_awareness_app/models/d01_video_limits.dart';
 import 'package:neuro_awareness_app/services/d01_pilot_service.dart';
 import 'package:neuro_awareness_app/services/server_api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -164,6 +165,29 @@ void main() {
     task.close();
   });
 
+  test('Upload uses its own (longer) timeout; short status timeout does not cut uploads', () async {
+    final api = HttpD01PilotApi(
+      timeout: const Duration(milliseconds: 20),
+      uploadTimeout: const Duration(milliseconds: 400),
+      clientFactory: () => MockClient((r) async {
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        return json(pilotStatusJson(), 202);
+      }),
+    );
+    final task = api.create(video: video, address: 'http://localhost', accessKey: 'test');
+    expect((await task.submit()).jobId, isNotNull);
+    task.close();
+    final slow = HttpD01PilotApi(
+      uploadTimeout: const Duration(milliseconds: 20),
+      clientFactory: () => MockClient((r) async {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        return json(pilotStatusJson(), 202);
+      }),
+    ).create(video: video, address: 'http://localhost', accessKey: 'test');
+    await expectLater(slow.submit(), throwsA(error('http_timeout')));
+    slow.close();
+  });
+
   for (final corruption in [
     'schema',
     'job',
@@ -306,7 +330,7 @@ void main() {
       throwsA(error('unauthorized')),
     );
     final file = await video.open(mode: FileMode.write);
-    await file.truncate(25 * 1024 * 1024 + 1);
+    await file.truncate(D01VideoLimits.maxUploadBytes + 1);
     await file.close();
     final task = api.create(
       video: video,

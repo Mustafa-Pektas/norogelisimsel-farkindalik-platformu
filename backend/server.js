@@ -24,7 +24,10 @@ if (!['development', 'deployment'].includes(mode)) {
   throw new Error('BACKEND_MODE development veya deployment olmalıdır.');
 }
 const deployment = mode === 'deployment';
-const capacity = deployment ? createGenerationCapacity(env.GENERATION_MAX_CONCURRENT) : null;
+const capacity = deployment ? createGenerationCapacity(env.GENERATION_MAX_CONCURRENT, {
+  ...(env.GENERATION_QUEUE_MAX !== undefined ? { queueMax: env.GENERATION_QUEUE_MAX } : {}),
+  ...(env.GENERATION_QUEUE_WAIT_MS !== undefined ? { queueWaitMs: env.GENERATION_QUEUE_WAIT_MS } : {}),
+}) : null;
 let teamKeyHash;
 if (deployment || pilotEnabled) {
   if (typeof env.TEAM_ACCESS_KEY !== 'string' || !/^[\x21-\x7e]+$/.test(env.TEAM_ACCESS_KEY)) {

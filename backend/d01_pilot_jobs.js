@@ -7,7 +7,42 @@ const multer = require('multer');
 const { isDeepStrictEqual } = require('node:util');
 const { fastMainResult } = require('./d01_fast_result');
 const { backendTiming } = require('./pilot_timing');
-const MAX_VIDEO = 25 * 1024 * 1024;
+const { mp4DurationSeconds } = require('./video_duration');
+// Yükleme boyutu üst sınırı (MiB). PILOT_D01_MAX_UPLOAD_MB ile değiştirilebilir.
+// Varsayılan 100 MiB: 3,5 dk (210 sn) 24 FPS video için ~4 Mbps'e karşılık gelir. Ölçülen
+// 720p/24 FPS videolar 1,7–2,7 Mbps (3,5 dk ≈ 42–67 MiB); bunlara ~%50 pay bırakır.
+const DEFAULT_MAX_UPLOAD_MB = 100;
+const MAX_UPLOAD_MB_CEILING = 2048;
+function uploadLimitBytes(env) {
+  const raw = env.PILOT_D01_MAX_UPLOAD_MB;
+  if (raw !== undefined && (!/^[1-9]\d*$/.test(raw) || Number(raw) > MAX_UPLOAD_MB_CEILING)) {
+    throw new Error(`PILOT_D01_MAX_UPLOAD_MB must be a positive integer <= ${MAX_UPLOAD_MB_CEILING}`);
+  }
+  return (raw === undefined ? DEFAULT_MAX_UPLOAD_MB : Number(raw)) * 1024 * 1024;
+}
+const MAX_VIDEO = DEFAULT_MAX_UPLOAD_MB * 1024 * 1024;
+// Büyük videoyu belleğe tümüyle almadan SHA-256 (8 MiB parçalar).
+function hashFile(file) {
+  const h = createHash('sha256'); const fd = fs.openSync(file, 'r'); const buf = Buffer.alloc(8 * 1024 * 1024);
+  try { let n; while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) h.update(buf.subarray(0, n)); }
+  finally { fs.closeSync(fd); }
+  return h.digest('hex');
+}
+// Video süre üst sınırı (saniye). PILOT_D01_MAX_VIDEO_SECONDS ile değiştirilebilir (ileride dinamik
+// hale getirilecek); kare sınırı sabit 24 FPS'ten türetilir ve Python CLI'lara --max-duration-s ile iletilir.
+// Başlık süresi ses izi nedeniyle birkaç ms taşabildiği için yalnız belirgin aşım (> sınır + 0,5 sn)
+// analizden önce reddedilir; sınır durumları CLI'nin kare sayımına kalır.
+const DEFAULT_MAX_VIDEO_SECONDS = 210; // 3,5 dakika
+const MAX_VIDEO_SECONDS_CEILING = 600;
+const DURATION_HEADER_TOLERANCE_S = 0.5;
+function videoLimits(env) {
+  const raw = env.PILOT_D01_MAX_VIDEO_SECONDS;
+  const seconds = raw === undefined ? DEFAULT_MAX_VIDEO_SECONDS : Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > MAX_VIDEO_SECONDS_CEILING || (raw !== undefined && !/^\d+(\.\d+)?$/.test(raw))) {
+    throw new Error(`PILOT_D01_MAX_VIDEO_SECONDS must be a positive number <= ${MAX_VIDEO_SECONDS_CEILING}`);
+  }
+  return { maxSeconds: seconds, maxFrames: Math.round(seconds * 24) };
+}
 const RETENTION = 24 * 60 * 60 * 1000;
 const MAX_TERMINAL = 10;
 const TERMINAL = new Set(['completed', 'failed', 'interrupted']);
@@ -25,6 +60,8 @@ function alive(pid) {
 function createPilotJobs(env, { runner = spawn, profiles: suppliedProfiles, now = Date.now,
   timers = { setTimeout, clearTimeout } } = {}) {
   const timing = backendTiming(env);
+  const limits = videoLimits(env);
+  const maxUploadBytes = uploadLimitBytes(env);
   const fastEngine = env.PILOT_D01_FAST_ENGINE ?? 'mediapipe_pnp_flow';
   if (!['mediapipe_pnp_flow','cascade_stride4_onnx'].includes(fastEngine)) throw new Error('Invalid PILOT_D01_FAST_ENGINE');
   const cpuThreads = env.PILOT_D01_CPU_THREADS;
@@ -121,8 +158,9 @@ if (!j) return null;
   function mainResult(job) {
     const run = path.join(dirOf(job.jobId), 'run');
     const read = (name, max) => { const p = path.join(run, name); if (fs.statSync(p).size > max) throw new Error('oversize'); return JSON.parse(fs.readFileSync(p)); };
-    const state = read('state.json', 65536); const result = read('result.json', 131072);
-    if (job.method === 'mediapipe_pnp_flow') return fastMainResult(job, run, state, result);
+    // Uzun videolarda (en fazla maxFrames kare) aralık/aday listeleri büyüyebilir; 1 MiB üst sınır.
+    const state = read('state.json', 65536); const result = read('result.json', 1024 * 1024);
+    if (job.method === 'mediapipe_pnp_flow') return fastMainResult(job, run, state, result, limits);
     if (state.status !== 'completed' || state.mode !== 'cpu_inference' || state.model_loaded !== true ||
         result.schema_version !== 'd01-pilot-result-1.0' || result.protocol_version !== 'd01-pilot-fixed-1.0' || result.model_inference_performed !== true ||
         result.video?.sha256 !== job.videoHash || !Array.isArray(result.settling?.conditions) ||
@@ -165,8 +203,8 @@ if (!j) return null;
       if (marked?.schema_version !== 'd01-user-marked-input-1.0' || marked.source_type !== 'user_marked' ||
           !isDeepStrictEqual(marked.roi, job.roi) || media?.fps !== 24 ||
           !Number.isInteger(media.width) || media.width <= 0 || !Number.isInteger(media.height) || media.height <= 0 ||
-          !Number.isInteger(media.decoded_frame_count) || media.decoded_frame_count !== state.processed_frames || media.decoded_frame_count > 720 ||
-          !Number.isFinite(media.duration_s) || media.duration_s <= 0 || media.duration_s > 30 ||
+          !Number.isInteger(media.decoded_frame_count) || media.decoded_frame_count !== state.processed_frames || media.decoded_frame_count > limits.maxFrames ||
+          !Number.isFinite(media.duration_s) || media.duration_s <= 0 || media.duration_s > limits.maxSeconds ||
           Math.abs(media.duration_s - media.decoded_frame_count / 24) > .001 ||
           job.roi.x + job.roi.width > media.width || job.roi.y + job.roi.height > media.height ||
           Object.values(job.manual).some(t => t > media.duration_s)) throw new Error('invalid marked source');
@@ -218,11 +256,11 @@ if (!j) return null;
       }
     }
     const dir = dirOf(job.jobId), video = path.join(dir, 'upload.mp4');
-    job.videoHash = hash(fs.readFileSync(video)); job.profileId = null;
+    job.videoHash = hashFile(video); job.profileId = null;
     job.method = 'mediapipe_pnp_flow'; job.sourceType = 'automatic_face_tracking'; job.manual = manual; job.targetPoint = point ?? null;
     job.poseEngine = fastEngine;
     const args = ['-X', 'utf8', '-B', path.resolve(__dirname, '../research/d01/fast_cli.py'), '--video', video,
-      '--face-model', model, '--output-dir', path.join(dir, 'run')];
+      '--face-model', model, '--output-dir', path.join(dir, 'run'), '--max-duration-s', String(limits.maxSeconds)];
     if (fastEngine === 'cascade_stride4_onnx') args.push('--pose-engine',fastEngine,
       '--stride4-source',env.PILOT_D01_STRIDE4_SOURCE,'--onnx-model',env.PILOT_D01_ONNX_MODEL);
     if (env.PILOT_D01_AUDIO_MODEL && path.isAbsolute(env.PILOT_D01_AUDIO_MODEL)) {
@@ -253,7 +291,7 @@ if (!j) return null;
       job.manual = manual;
     } catch { finish(job, 'failed', 'invalid_manual_times'); return { status: 400, code: 'invalid_manual_times' }; }
     const dir = dirOf(job.jobId); const video = path.join(dir, 'upload.mp4');
-    const digest = hash(fs.readFileSync(video)); const profile = profiles.find(p => p.sha256 === digest);
+    const digest = hashFile(video); const profile = profiles.find(p => p.sha256 === digest);
     if (!profile && fields.roi === undefined) { finish(job, 'failed', 'roi_required'); return { status: 422, code: 'roi_required' }; }
     if (profile && fields.roi !== undefined) { finish(job, 'failed', 'profile_roi_fixed'); return { status: 400, code: 'profile_roi_fixed' }; }
     let roi = profile?.roi;
@@ -274,7 +312,8 @@ if (!j) return null;
     job.videoHash = digest; job.profileId = profile?.id ?? null; job.sourceType = profile ? 'reviewed_profile' : 'user_marked'; job.roi = roi;
     write(path.join(dir, 'roi.json'), roi);
     const args = ['-X', 'utf8', '-B', cli, '--video', video, '--weights', env.PILOT_D01_WEIGHTS,
-      '--roi', path.join(dir, 'roi.json'), '--protocol', protocol, '--official-source', env.PILOT_D01_OFFICIAL_SOURCE, '--output-dir', path.join(dir, 'run')];
+      '--roi', path.join(dir, 'roi.json'), '--protocol', protocol, '--official-source', env.PILOT_D01_OFFICIAL_SOURCE, '--output-dir', path.join(dir, 'run'),
+      '--max-duration-s', String(limits.maxSeconds)];
     if (cpuThreads !== undefined) args.push('--cpu-threads', cpuThreads);
     if (!profile) args.push('--user-marked');
     job.requestedCpuThreads = cpuThreads === undefined ? 4 : Number(cpuThreads);
@@ -332,7 +371,7 @@ if (!j) return null;
     active.killTimer = timers.setTimeout(() => child.kill('SIGKILL'), timing.killGraceMs); active.killTimer.unref?.(); return true;
   }
   const upload = multer({ storage: multer.diskStorage({ destination(req, file, cb) { cb(null, dirOf(req.pilotJob.jobId)); },
-    filename(req, file, cb) { cb(null, 'upload.mp4'); } }), limits: { fileSize: MAX_VIDEO, files: 1, fields: 4, fieldSize: 256, parts: 6 } }).single('video');
+    filename(req, file, cb) { cb(null, 'upload.mp4'); } }), limits: { fileSize: maxUploadBytes, files: 1, fields: 4, fieldSize: 256, parts: 6 } }).single('video');
   function install(app) {
     app.post('/api/pilot-d01/jobs', (req, res) => {
       const job = reserve(); if (!job) return res.status(429).json({ code: 'pilot_busy', error: 'Pilot analiz meşgul; kuyruk oluşturulmadı.' });
@@ -342,6 +381,13 @@ if (!j) return null;
         if (error || !req.file) { finish(job, 'failed', error?.code === 'LIMIT_FILE_SIZE' ? 'video_too_large' : 'invalid_upload'); return res.status(error?.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ code: error?.code === 'LIMIT_FILE_SIZE' ? 'video_too_large' : 'invalid_upload' }); }
         if (job.status !== 'uploading') return res.status(400).json({ code: 'upload_interrupted' });
         job.uploadCompletedAt = now();
+        // Uzun videoyu analiz/süreç başlatmadan reddet (MP4/MOV başlığı; okunamazsa CLI karar verir).
+        const headerDurationS = mp4DurationSeconds(path.join(dirOf(job.jobId), 'upload.mp4'));
+        if (headerDurationS !== null) job.headerDurationS = Number(headerDurationS.toFixed(3));
+        if (headerDurationS !== null && headerDurationS > limits.maxSeconds + DURATION_HEADER_TOLERANCE_S) {
+          finish(job, 'failed', 'video_too_long');
+          return res.status(422).json({ code: 'video_too_long', durationS: Number(headerDurationS.toFixed(2)), maxDurationS: limits.maxSeconds });
+        }
         let failure;
         try { failure = start(job, req.body); } catch { finish(job, 'failed', 'pilot_io_error'); failure = { status: 500, code: 'pilot_io_error' }; }
         if (failure) return res.status(failure.status).json({ code: failure.code });
@@ -370,4 +416,4 @@ if (!j) return null;
       close();
     } };
 }
-module.exports = { createPilotJobs, MAX_VIDEO, RETENTION };
+module.exports = { createPilotJobs, MAX_VIDEO, DEFAULT_MAX_UPLOAD_MB, uploadLimitBytes, DEFAULT_MAX_VIDEO_SECONDS, videoLimits, RETENTION };
