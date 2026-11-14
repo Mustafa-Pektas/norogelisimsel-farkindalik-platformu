@@ -24,7 +24,9 @@ if (!['development', 'deployment'].includes(mode)) {
   throw new Error('BACKEND_MODE development veya deployment olmalıdır.');
 }
 const deployment = mode === 'deployment';
-const capacity = deployment ? createGenerationCapacity(env.GENERATION_MAX_CONCURRENT, {
+// Development varsayılan olarak sınırsızdır; GENERATION_QUEUE_MAX açıkça verilirse (ör. herkese açık
+// development sunucusu) kapasite + kuyruk orada da devreye girer.
+const capacity = deployment || env.GENERATION_QUEUE_MAX !== undefined ? createGenerationCapacity(env.GENERATION_MAX_CONCURRENT, {
   ...(env.GENERATION_QUEUE_MAX !== undefined ? { queueMax: env.GENERATION_QUEUE_MAX } : {}),
   ...(env.GENERATION_QUEUE_WAIT_MS !== undefined ? { queueWaitMs: env.GENERATION_QUEUE_WAIT_MS } : {}),
 }) : null;

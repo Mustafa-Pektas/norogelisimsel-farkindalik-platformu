@@ -274,3 +274,22 @@ test('Kapasite ayarı pozitif güvenli tam sayıdır; release tekrarı kapasitey
   assert.equal((await first).status, 200);
   assert.equal((await second).status, 200);
 });
+
+test('Development + açık GENERATION_QUEUE_MAX: kapasite 1 ve kuyruk devrede, sıradaki istek bekleyip tamamlanır', async () => {
+  assert.throws(() => createApp({ env: { BACKEND_MODE: 'development', GENERATION_QUEUE_MAX: '2', GENERATION_MAX_CONCURRENT: 'x' } }),
+    /GENERATION_MAX_CONCURRENT/);
+  const gate = deferred(), started = deferred();
+  const fake = controlled({ env: { BACKEND_MODE: 'development', GENERATION_MAX_CONCURRENT: '1', GENERATION_QUEUE_MAX: '1' },
+    beforeGenerate: async (_, n) => { if (n === 1) { started.resolve(); await gate.promise; } } });
+  const first = postScenario(fake.app); let queued;
+  try {
+    await started.promise;
+    queued = postPlan(fake.app);
+    await new Promise(resolve => setImmediate(resolve));
+    assertBusy(await postScenario(fake.app)); // kapasite 1 + kuyruk 1 dolu
+    assert.equal(fake.calls(), 1);
+  } finally { gate.resolve(); }
+  assert.equal((await first).status, 200);
+  assert.equal((await queued).status, 200);
+  assert.equal(fake.calls(), 2);
+});
