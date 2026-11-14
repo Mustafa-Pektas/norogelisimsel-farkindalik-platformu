@@ -1,0 +1,11 @@
+numpy>=1.22.0
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+scipy>=1.9.0
+matplotlib>=3.5.0
+openpyxl>=3.0.0
+pillow>=9.0.0
+# İsteğe bağlı: 6DRepNet360 ONNX çalışma zamanı (Stride4_ONNX). Kurarken mevcut protobuf/numpy sürümlerini
+# sabitleyin (run_server_benchmark.sh bunu otomatik yapar). `onnx` paketini ana ortama KURMAYIN:
+# protobuf>=5 ister ve mediapipe 0.10.x'i bozar; yalnız tools/export_6drepnet_onnx.py için ayrı klasöre kurulur.
+onnxruntime>=1.16

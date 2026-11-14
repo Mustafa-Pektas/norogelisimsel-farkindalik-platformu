@@ -1,0 +1,2 @@
+# Sunucuda bash ile çalışır; Windows'ta CRLF'e çevrilirse betik bozulur
+*.sh text eol=lf

@@ -1,0 +1,16 @@
+# Koşu çıktıları ve raporlar (PDF / Excel / HTML / işlenmiş videolar) depoya girmez
+outputs*/
+yeni_raporlar/
+benchmark_results*.json
+
+# Sunucuda oluşan yardımcı klasör/dosyalar
+.onnx_export_deps/
+.pip_constraints.txt
+sample_videos/
+
+# Model ağırlıkları ve büyük ikili dosyalar
+*.onnx
+*.onnx.verify.json
+*.pth
+*.pt
+*.tar.gz
