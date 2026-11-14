@@ -61,7 +61,6 @@ function createGenerationCapacity(value = '1', { queueMax = '0', queueWaitMs = '
         waiter.grant = release => { stats.granted++; settle(release, 'granted'); };
         const onAbort = () => { stats.abandoned++; settle(null, 'aborted'); };
         const timer = setTimeout(() => { stats.rejectedTimeout++; settle(null, 'queue_timeout'); }, waitMs);
-        timer.unref?.();
         signal?.addEventListener?.('abort', onAbort, { once: true });
         queue.push(waiter); stats.queued++; stats.peakQueue = Math.max(stats.peakQueue, queue.length);
       });
