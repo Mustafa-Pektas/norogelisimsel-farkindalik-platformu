@@ -268,6 +268,12 @@ def class_tables(path):
     d = json.load(open(path, encoding="utf-8"))
     recs = d["records"]
     ok = [r for r in recs if r.get("success")]
+    # Bilgi tabanında ATİPİK = "en az X sn gecikme VEYA pencere boyunca hiç tepki yok". Gecikme yazılmamış ve
+    # sahneler atipik işaretliyse çıktı 'tepki yok' senaryosudur → ATİPİK sayılır (ayrıca raporlanır).
+    for r in ok:
+        r["noResponse"] = r.get("actual") is None and r.get("flagClass") == "ATIPIK"
+        if r["noResponse"]:
+            r["actual"] = "ATIPIK"
     arms = sorted({r["arm"] for r in recs})
     matrices, metrics = {}, []
     for arm in arms + ["TÜMÜ"]:
@@ -287,7 +293,8 @@ def class_tables(path):
         f1 = 2 * prec * rec / (prec + rec) if prec and rec else (0.0 if prec == 0 or rec == 0 else None)
         metrics.append({
             "Kol": arm, "İstek": sum(1 for r in recs if arm == "TÜMÜ" or r["arm"] == arm), "Başarılı çıktı": len(rs),
-            "Gecikme yazılmadı": sum(1 for r in rs if r.get("actual") is None),
+            "Tepki yok (→ATİPİK)": sum(1 for r in rs if r.get("noResponse")),
+            "Sınıflanamadı": sum(1 for r in rs if r.get("actual") is None),
             "3 sınıf doğruluk %": None if not rs else round(100 * exact / len(rs), 1),
             "TP": tp, "FP": fp, "FN": fn, "TN": tn,
             "Precision": None if prec is None else round(prec, 3),
@@ -343,7 +350,9 @@ CLASS_NOTE = ("Her senaryonun UYARAN sahnelerindeki tepki gecikmeleri (latencySe
               "eşikleriyle sınıflandı: gecikme ≤ tipik üst sınır → TİPİK, ≥ atipik alt sınır → ATİPİK, arası → SINIRDA; "
               "herhangi bir gecikme atipikse senaryo ATİPİK, hepsi tipikse TİPİK, aksi SINIRDA. İkili metriklerde pozitif "
               "sınıf ATİPİK'tir (TP: ATİPİK istendi ve ATİPİK üretildi; FP: ATİPİK istenmedi ama ATİPİK üretildi; FN: ATİPİK "
-              "istendi ama üretilmedi). Gecikme yazmayan çıktılar sınıflanamaz ve 'ATİPİK değil' sayılır. Eşikler simülasyon "
+              "istendi ama üretilmedi). Bilgi tabanında ATİPİK 'en az X sn gecikme veya hiç tepki yok' olarak tanımlı olduğundan, "
+              "gecikme yazılmamış ve sahneleri atipik işaretli çıktılar 'tepki yok' senaryosu olarak ATİPİK sayılır; kalan "
+              "gecikmesiz çıktılar sınıflanamaz ve 'ATİPİK değil' sayılır. Eşikler simülasyon "
               "tasarım parametresidir; bu bir tanı doğruluğu değil, üretilen senaryonun istenen profile uyumudur.")
 
 
