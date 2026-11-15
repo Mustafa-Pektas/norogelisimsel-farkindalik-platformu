@@ -227,7 +227,9 @@ function getMarkdownCards() {
   return markdownCardsCache;
 }
 
-function buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation, arm = 'D' }) {
+// stimulusOnly: yalnız ontolojinin sınandığı UYARAN fazı (11 sahne) üretilir; TABAN/KAPANIS yok (deney/kısa üretim).
+const STIMULUS_SCENE_COUNT = 11;
+function buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation, arm = 'D', stimulusOnly = false }) {
   const ontList = ontologyCodes.map((c) => `- ${c}: ${ONTOLOGIES[c] || c}`).join('\n');
   const riskKey = (riskProfile || 'ATİPİK').toUpperCase();
 
@@ -287,7 +289,12 @@ Kurallar:
 - "clinical": note (Türkçe klinik gözlem ve ADOS-2 kriteri notu), latencySeconds (varsa tepki süresi sn cinsinden), atypical (boolean).
 - summary ve clinical.note Türkçe, videoPrompt ve durumlar İngilizce yazılır.`;
 
-  const user = `${ageMonths} aylık ${childName} için senaryo üret.
+  const scope = stimulusOnly
+    ? `\n\nKAPSAM: Yalnız UYARAN fazını üret: tam ${STIMULUS_SCENE_COUNT} sahne, hepsinin phase değeri "UYARAN". ` +
+      `TABAN ve KAPANIS sahnesi ÜRETME; yukarıdaki 26 sahne ve faz dağılımı kuralı bu istekte geçersizdir. ` +
+      `"summary" yalnız bu uyaran bölümünü anlatır (60-120 kelime).`
+    : '';
+  const user = `${ageMonths} aylık ${childName} için senaryo üret.${scope}
 Hedef davranışlar:
 ${ontList}
 Risk profili: ${riskKey} → ${RISK_PROFILES[riskKey] || RISK_PROFILES['ATİPİK']}
@@ -299,12 +306,14 @@ Materyal: ${materials}
 
 const mmss = (sec) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
 
-function validate(s) {
+function validate(s, { stimulusOnly = false } = {}) {
   const errors = [];
-  if (!s.summary || s.summary.split(/\s+/).length < 40) errors.push('summary çok kısa');
-  if (s.scenes.length !== SCENE_COUNT) errors.push(`sahne sayısı ${s.scenes.length}, olması gereken ${SCENE_COUNT}`);
+  const expected = stimulusOnly ? STIMULUS_SCENE_COUNT : SCENE_COUNT;
+  if (!s.summary || s.summary.split(/\s+/).length < (stimulusOnly ? 25 : 40)) errors.push('summary çok kısa');
+  if (s.scenes.length !== expected) errors.push(`sahne sayısı ${s.scenes.length}, olması gereken ${expected}`);
   const order = { TABAN: 0, UYARAN: 1, KAPANIS: 2 };
   s.scenes.forEach((sc, i) => {
+    if (stimulusOnly && sc.phase !== 'UYARAN') errors.push(`sahne ${i + 1}: yalnız UYARAN istendi, ${sc.phase} geldi`);
     if (i > 0 && order[sc.phase] < order[s.scenes[i - 1].phase]) errors.push(`sahne ${i + 1}: faz sırası bozuk`);
     if (sc.dialogue && !sc.speaker) errors.push(`sahne ${i + 1}: speaker eksik`);
     if (/autis|atypical|delay|diagnos/i.test(sc.videoPrompt)) errors.push(`sahne ${i + 1}: videoPrompt'ta klinik terim`);
@@ -383,6 +392,7 @@ app.post('/api/generate-scenario', async (req, res) => {
       arm = req.body.arm || 'B',
       caseId = req.body.caseId || 'custom',
     } = req.body;
+    const stimulusOnly = req.body.stimulusOnly === true;
 
     console.log(`[*] Senaryo isteği: ${ageMonths} Ay, ${childName}, ${ontologyCodes.join('+')}, ${riskProfile} (Kol ${arm})`);
 
@@ -391,7 +401,7 @@ app.post('/api/generate-scenario', async (req, res) => {
     }
 
     const variation = req.body.variation || Math.random().toString(36).slice(2, 8);
-    const prompts = buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation, arm });
+    const prompts = buildPrompts({ ageMonths, childName, ontologyCodes, riskProfile, materials, variation, arm, stimulusOnly });
     const models = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
     let lastErr;
 
@@ -402,7 +412,7 @@ app.post('/api/generate-scenario', async (req, res) => {
           const callStart = Date.now();
           const { raw, usage } = await generateOnce(genAI, m, prompts);
           const latencyApiMs = Date.now() - callStart;
-          const errors = validate(raw);
+          const errors = validate(raw, { stimulusOnly });
           if (errors.length) {
             lastErr = new Error(errors.join('; '));
             console.warn(`[!] ${m} doğrulama hatası:`, errors);
@@ -412,7 +422,7 @@ app.post('/api/generate-scenario', async (req, res) => {
           scenario.scenes.forEach((sc) => {
             sc.veoPrompt = buildVeoPrompt(sc);
           });
-          console.log(`[OK] Senaryo 26 sahne ile başarıyla üretildi (${m})!`);
+          console.log(`[OK] Senaryo ${scenario.scenes.length} sahne ile başarıyla üretildi (${m})!`);
           const fsmCheck = validateFSMContinuity(scenario.scenes);
           const fsmMatchRate = fsmCheck.matchRate ?? 1.0;
 
@@ -420,12 +430,14 @@ app.post('/api/generate-scenario', async (req, res) => {
           let deltaTCompliant = null;
           let deltaT = null;
           try {
-            const selective = retriever.getSelectiveRuleContext({
-              behaviorCode: ontologyCodes[0],
+            // Çoklu ontolojide gecikme eşiği olan ilk kart esas alınır (eşikler yaş bandına göredir, kartlar arasında ortak).
+            const contexts = ontologyCodes.map((code) => retriever.getSelectiveRuleContext({
+              behaviorCode: code,
               ageMonths,
               riskProfile,
-            });
-            deltaT = deltaTCompliance(scenario.scenes, selective);
+            }));
+            const selective = contexts.find((c) => c.hasLatencyThreshold) || contexts[0];
+            deltaT = { ...deltaTCompliance(scenario.scenes, selective), basisCard: selective.cardId };
             deltaTCompliant = deltaT.compliant;
           } catch (error) {
             console.warn('[deltaT] uyum hesaplanamadı:', error.message);
@@ -465,7 +477,7 @@ app.post('/api/generate-scenario', async (req, res) => {
             arm,
             scenario,
             benchmark,
-            metadata: { ageMonths, ontologyCodes, riskProfile, variation },
+            metadata: { ageMonths, ontologyCodes, riskProfile, variation, stimulusOnly },
           });
         } catch (e) {
           console.warn(`[!] [${m}] hata:`, e.message);

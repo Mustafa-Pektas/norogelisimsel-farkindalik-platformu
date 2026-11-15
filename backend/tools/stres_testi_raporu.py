@@ -307,7 +307,30 @@ def class_tables(path):
                "Eşikler (s)": f"≤{r['typicalMax']} / ≥{r['atypicalMin']}"}
               for r in ok if r.get("actual") != r["expected"]]
     failed = [r for r in recs if not r.get("success")]
+    # Öz-etiket: modelin UYARAN sahnelerine koyduğu clinical.atypical işaretleri istenen profille uyumlu mu
+    flags = []
+    for arm in arms + ["TÜMÜ"]:
+        rs = [r for r in ok if arm == "TÜMÜ" or r["arm"] == arm]
+        row = {"Kol": arm}
+        for c in ("TIPIK", "ATIPIK"):
+            sub = [r for r in rs if r["expected"] == c and r.get("flagClass")]
+            row[f"{CLASS_TR[c]} istendi → öz-etiket {CLASS_TR[c]}"] = None if not sub else \
+                f"{sum(1 for r in sub if r['flagClass'] == c)}/{len(sub)}"
+        sub = [r for r in rs if r["expected"] == "SINIRDA" and r.get("flagClass")]
+        row["SINIRDA istendi → atipik işaret var"] = None if not sub else f"{sum(1 for r in sub if r['flagClass'] == 'ATIPIK')}/{len(sub)}"
+        flags.append(row)
+    # Ontoloji başına: o kartı içeren kombinasyonlarda gecikme sınıfı doğruluğu
+    codes = sorted({c for r in recs for c in (r.get("codes") or [r["behavior"]])})
+    by_onto = []
+    for code in codes:
+        rs = [r for r in ok if code in (r.get("codes") or [r["behavior"]])]
+        all_rs = [r for r in recs if code in (r.get("codes") or [r["behavior"]])]
+        by_onto.append({"Ontoloji": code, "İstek": len(all_rs), "Başarılı": len(rs),
+                        "Gecikme sınıfı doğru %": None if not rs else round(100 * sum(1 for r in rs if r.get("actual") == r["expected"]) / len(rs), 1),
+                        "Öz-etiket doğru % (TİPİK/ATİPİK)": (lambda s: None if not s else round(100 * sum(1 for r in s if r["flagClass"] == r["expected"]) / len(s), 1))(
+                            [r for r in rs if r["expected"] in ("TIPIK", "ATIPIK") and r.get("flagClass")])})
     return {"matrices": matrices, "metrics": metrics, "per_class": per_class, "errors": errors,
+            "flags": flags, "by_onto": by_onto,
             "n": len(recs), "ok": len(ok), "failed": len(failed), "arms": arms,
             "options": d.get("options", {}), "created": d.get("createdAt")}
 
@@ -458,7 +481,8 @@ def main():
     class_html = ""
     if ct:
         t_all = next(m for m in ct["metrics"] if m["Kol"] == "TÜMÜ")
-        findings.append(f"Senaryo sınıf doğruluğu (26 sahnelik üretim, {ct['ok']}/{ct['n']} başarılı çıktı): istenen risk "
+        scope = "yalnız uyaran sahneleri" if ct["options"].get("stimulusOnly", False) else "26 sahnelik üretim"
+        findings.append(f"Senaryo sınıf doğruluğu ({scope}, 10 ontolojiden 3-4'lü kombinasyonlar, {ct['ok']}/{ct['n']} başarılı çıktı): istenen risk "
                         f"profilinin tutturulma oranı genelde %{t_all['3 sınıf doğruluk %']}; ATİPİK için precision "
                         f"{t_all['Precision']}, recall {t_all['Recall']}. Kol ayrıntısı 3. bölümde.")
         mats = "".join(f"<h3>Kol {html.escape(a)}</h3>{table_html(matrix_rows(ct['matrices'][a]), left=('İstenen ↓ / Gerçekleşen →',))}"
@@ -467,6 +491,8 @@ def main():
                       f"<p class='note'>{html.escape(CLASS_NOTE)}</p>"
                       f"<h3>Kol başına metrikler (A: kural yok, B: tek kart, C: tüm kartlar, D: JSON RAG)</h3>{table_html(ct['metrics'])}"
                       f"<h3>Sınıf başına doğru sayısı</h3>{table_html(ct['per_class'])}{mats}"
+                      f"<h3>Öz-etiket uyumu (modelin sahnelere koyduğu 'atipik' işareti)</h3>{table_html(ct['flags'])}"
+                      f"<h3>Ontoloji başına</h3>{table_html(ct['by_onto'])}"
                       f"<h3>Uyuşmayan çıktılar ({len(ct['errors'])})</h3>{table_html(ct['errors'])}</section>")
     meta_lines ="".join(f"<li><b>{html.escape(k)}</b>: {html.escape(str(v))}</li>" for k, v in meta.items() if k != "bulgular")
     manual_html = ""
@@ -528,7 +554,9 @@ def main():
                "### Sınıf başına doğru sayısı", "", md_table(ct["per_class"])]
         for a in ct["arms"] + ["TÜMÜ"]:
             md += [f"### Kol {a}", "", md_table(matrix_rows(ct["matrices"][a]))]
-        md += [f"### Uyuşmayan çıktılar ({len(ct['errors'])})", "", md_table(ct["errors"])]
+        md += ["### Öz-etiket uyumu (modelin sahnelere koyduğu 'atipik' işareti)", "", md_table(ct["flags"]),
+               "### Ontoloji başına", "", md_table(ct["by_onto"]),
+               f"### Uyuşmayan çıktılar ({len(ct['errors'])})", "", md_table(ct["errors"])]
     md += [f"## {'4' if ct else '3'}. Elle inceleme", ""]
     if manual:
         md += [manual.get("ozet", ""), ""]
@@ -555,7 +583,7 @@ def main():
     if ct:
         sheets += [("Sinif_Metrikleri", ct["metrics"]), ("Sinif_Basina_Dogru", ct["per_class"])] + \
                   [(f"Matris_Kol_{a}", matrix_rows(ct["matrices"][a])) for a in ct["arms"] + ["TÜMÜ"]] + \
-                  [("Sinif_Uyusmayan", ct["errors"])]
+                  [("Oz_Etiket", ct["flags"]), ("Ontoloji_Basina", ct["by_onto"]), ("Sinif_Uyusmayan", ct["errors"])]
     for title, rows in sheets:
         ws = wb.create_sheet(title)
         if not rows:
@@ -636,8 +664,10 @@ def main():
                 matrices += [{"Kol": a, **r} for r in matrix_rows(ct["matrices"][a])]
             page_table(pdf, "3b. Karışıklık matrisleri (satır: istenen, sütun: gerçekleşen)", matrices,
                        wide={"İstenen ↓ / Gerçekleşen →": 1.6})
+            page_table(pdf, "3c. Öz-etiket uyumu", ct["flags"])
+            page_table(pdf, "3d. Ontoloji başına doğruluk", ct["by_onto"])
             if ct["errors"]:
-                page_table(pdf, f"3c. Uyuşmayan çıktılar ({len(ct['errors'])})", ct["errors"][:30])
+                page_table(pdf, f"3e. Uyuşmayan çıktılar ({len(ct['errors'])})", ct["errors"][:30])
         if manual:
             fig = plt.figure(figsize=A4L)
             fig.text(0.04, 0.94, f"{'4' if ct else '3'}. Elle inceleme", fontsize=14, fontweight="bold")
