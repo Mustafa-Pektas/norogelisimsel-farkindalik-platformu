@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "video": "../video.mp4",
+  "child_head": [
+    0.32,
+    0.235,
+    0.48,
+    0.56
+  ],
+  "child_search_region": [
+    0.17,
+    0.12,
+    0.6,
+    0.77
+  ],
+  "adult_head": [
+    0.64,
+    0.025,
+    0.805,
+    0.41
+  ],
+  "adult_search_region": [
+    0.6,
+    0.0,
+    0.88,
+    0.62
+  ],
+  "targets": [
+    {
+      "id": "adult_face",
+      "type": "person_face",
+      "track": "adult",
+      "bbox": [
+        0.64,
+        0.025,
+        0.805,
+        0.41
+      ]
+    },
+    {
+      "id": "adult_body",
+      "type": "person_body",
+      "bbox": [
+        0.605,
+        0.34,
+        0.895,
+        0.73
+      ]
+    },
+    {
+      "id": "toy",
+      "type": "object",
+      "bbox": [
+        0.27,
+        0.79,
+        0.59,
+        0.99
+      ]
+    }
+  ],
+  "calls": [],
+  "settings": {
+    "gaze_model": "gazelle_dinov2_vitb14_inout",
+    "gaze_repo": "fkryan/gazelle:2d78f9f3bd2a5db360354954ec1a4c526ee8ab55",
+    "dinov2_repo": "facebookresearch/dinov2:85a24602099d397264d5b30461ad7f3bfd726ca1",
+    "gaze_fps": 6.0,
+    "device": "auto",
+    "cpu_threads": 4,
+    "baseline_s": 0.8,
+    "baseline_guard_s": 0.1,
+    "observation_s": 4.0,
+    "movement_degrees": 12.0,
+    "movement_hold_s": 0.16,
+    "max_motion_target_gap_s": 1.0,
+    "target_hold_s": 0.33,
+    "min_baseline_samples": 6,
+    "min_coverage": 0.7,
+    "min_in_frame": 0.55,
+    "min_heatmap_peak": 0.08,
+    "min_target_margin": 0.05,
+    "max_flow_gap_s": 2.5,
+    "max_pose_reprojection_px": 12.0,
+    "max_heatmap_spread": 0.22
+  }
+}

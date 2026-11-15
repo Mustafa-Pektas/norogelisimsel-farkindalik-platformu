@@ -1,0 +1,22 @@
+{
+  "protocol": "head-motion-candidates-engineering-v1",
+  "declared_before_first_scan": true,
+  "basis": "Fixed exploratory engineering settings: temporal median rejects a single bad-pose out-and-back pair; dwell confirmation and hysteresis reduce state flicker. No label-derived calibration or clinical interpretation.",
+  "window_intervals": 5,
+  "start_confirmation_samples": 3,
+  "stop_confirmation_samples": 5,
+  "max_dt_factor": 1.5,
+  "nominal_fps": 24,
+  "settings": [
+    {"id": "lower_20pct", "start_deg_s": 36, "stop_deg_s": 16},
+    {"id": "base", "start_deg_s": 45, "stop_deg_s": 20},
+    {"id": "higher_20pct", "start_deg_s": 54, "stop_deg_s": 24}
+  ],
+  "start_estimate": "first above-start median sample in the confirmed run; confirmation time recorded separately",
+  "end_estimate": "first below-stop median sample in the confirmed run; confirmation time recorded separately",
+  "initial_state": "unknown until a full low-speed dwell establishes a baseline; activity before baseline has unknown start",
+  "clip_end": "active event keeps end=null; never close it using last video time",
+  "invalid_policy": "no interpolation or bridging across invalid matrices, nonmonotonic or oversized time gaps",
+  "manual_labels_used_by_detector": false,
+  "target_or_behavior_classification": false
+}

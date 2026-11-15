@@ -1,0 +1,12 @@
+{
+  "video": "../video.mp4",
+  "scene_config": "sahne.json",
+  "observation_s": 4.0,
+  "speaker_alignment": true,
+  "annotated_video": true,
+  "head_pose": {
+    "directmhp": "models/directmhp_cmu_s.torchscript.pt",
+    "repnet360": "../6drepnet360_denemesi/6DRepNet360_Full-Rotation_300W_LP+Panoptic.pth"
+  },
+  "optical_flow": {}
+}
