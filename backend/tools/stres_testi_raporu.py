@@ -258,6 +258,72 @@ def failures(records, limit=12):
     return out[:limit], len(out)
 
 
+# ------------------------------------------------------------------------------------------- senaryo sınıf doğruluğu
+CLASSES = ["TIPIK", "SINIRDA", "ATIPIK"]
+CLASS_TR = {"TIPIK": "TİPİK", "SINIRDA": "SINIRDA", "ATIPIK": "ATİPİK", None: "gecikme yok"}
+
+
+def class_tables(path):
+    """senaryo_sinif_deneyi.js çıktısından kol başına karışıklık matrisi ve ikili metrikler."""
+    d = json.load(open(path, encoding="utf-8"))
+    recs = d["records"]
+    ok = [r for r in recs if r.get("success")]
+    arms = sorted({r["arm"] for r in recs})
+    matrices, metrics = {}, []
+    for arm in arms + ["TÜMÜ"]:
+        rs = [r for r in ok if arm == "TÜMÜ" or r["arm"] == arm]
+        m = {e: {a: 0 for a in CLASSES + [None]} for e in CLASSES}
+        for r in rs:
+            m[r["expected"]][r.get("actual")] += 1
+        matrices[arm] = m
+        # İkili: pozitif = ATİPİK (istenen ATİPİK mi / gerçekleşen ATİPİK mi); gecikmesiz çıktılar negatif tahmin sayılır
+        tp = sum(1 for r in rs if r["expected"] == "ATIPIK" and r.get("actual") == "ATIPIK")
+        fn = sum(1 for r in rs if r["expected"] == "ATIPIK" and r.get("actual") != "ATIPIK")
+        fp = sum(1 for r in rs if r["expected"] != "ATIPIK" and r.get("actual") == "ATIPIK")
+        tn = sum(1 for r in rs if r["expected"] != "ATIPIK" and r.get("actual") != "ATIPIK")
+        exact = sum(1 for r in rs if r.get("actual") == r["expected"])
+        prec = tp / (tp + fp) if tp + fp else None
+        rec = tp / (tp + fn) if tp + fn else None
+        f1 = 2 * prec * rec / (prec + rec) if prec and rec else (0.0 if prec == 0 or rec == 0 else None)
+        metrics.append({
+            "Kol": arm, "İstek": sum(1 for r in recs if arm == "TÜMÜ" or r["arm"] == arm), "Başarılı çıktı": len(rs),
+            "Gecikme yazılmadı": sum(1 for r in rs if r.get("actual") is None),
+            "3 sınıf doğruluk %": None if not rs else round(100 * exact / len(rs), 1),
+            "TP": tp, "FP": fp, "FN": fn, "TN": tn,
+            "Precision": None if prec is None else round(prec, 3),
+            "Recall": None if rec is None else round(rec, 3),
+            "F1": None if f1 is None else round(f1, 3),
+        })
+    per_class = []
+    for arm in arms:
+        rs = [r for r in ok if r["arm"] == arm]
+        row = {"Kol": arm}
+        for c in CLASSES:
+            n = sum(1 for r in rs if r["expected"] == c)
+            row[f"{CLASS_TR[c]} doğru"] = None if not n else f"{sum(1 for r in rs if r['expected'] == c and r.get('actual') == c)}/{n}"
+        per_class.append(row)
+    errors = [{"Kol": r["arm"], "Davranış": r["behavior"], "Yaş (ay)": r["age"], "İstenen": CLASS_TR[r["expected"]],
+               "Gerçekleşen": CLASS_TR.get(r.get("actual")), "Gecikmeler (s)": ", ".join(str(x) for x in r.get("latencies") or []) or "—",
+               "Eşikler (s)": f"≤{r['typicalMax']} / ≥{r['atypicalMin']}"}
+              for r in ok if r.get("actual") != r["expected"]]
+    failed = [r for r in recs if not r.get("success")]
+    return {"matrices": matrices, "metrics": metrics, "per_class": per_class, "errors": errors,
+            "n": len(recs), "ok": len(ok), "failed": len(failed), "arms": arms,
+            "options": d.get("options", {}), "created": d.get("createdAt")}
+
+
+def matrix_rows(m):
+    return [{"İstenen ↓ / Gerçekleşen →": CLASS_TR[e], **{CLASS_TR[a]: m[e][a] for a in CLASSES + [None]}} for e in CLASSES]
+
+
+CLASS_NOTE = ("Her senaryonun UYARAN sahnelerindeki tepki gecikmeleri (latencySeconds) bilgi tabanındaki yaş bandı "
+              "eşikleriyle sınıflandı: gecikme ≤ tipik üst sınır → TİPİK, ≥ atipik alt sınır → ATİPİK, arası → SINIRDA; "
+              "herhangi bir gecikme atipikse senaryo ATİPİK, hepsi tipikse TİPİK, aksi SINIRDA. İkili metriklerde pozitif "
+              "sınıf ATİPİK'tir (TP: ATİPİK istendi ve ATİPİK üretildi; FP: ATİPİK istenmedi ama ATİPİK üretildi; FN: ATİPİK "
+              "istendi ama üretilmedi). Gecikme yazmayan çıktılar sınıflanamaz ve 'ATİPİK değil' sayılır. Eşikler simülasyon "
+              "tasarım parametresidir; bu bir tanı doğruluğu değil, üretilen senaryonun istenen profile uyumudur.")
+
+
 # ------------------------------------------------------------------------------------------- grafikler
 def _plt():
     import matplotlib
@@ -364,7 +430,9 @@ def main():
     ap.add_argument("--out-dir", default="stres_raporu")
     ap.add_argument("--manual", default=None, help="Elle inceleme notları (JSON: {ozet, ornekler:[{baslik, yorum}]})")
     ap.add_argument("--meta", default=None, help="Ek açıklama (JSON: {sunucu, model, kapasite, ...})")
+    ap.add_argument("--senaryo-sinif", default=None, help="senaryo_sinif_deneyi.js çıktısı (karışıklık matrisi bölümü)")
     args = ap.parse_args()
+    ct = class_tables(args.senaryo_sinif) if args.senaryo_sinif else None
     phases, inputs = load(args.phase)
     records = [r for p in phases for r in p["data"]["records"]]
     perf = perf_rows(phases)
@@ -387,7 +455,20 @@ def main():
         f"Başarılı çıktıların %{qa.get('Tümü geçti %', 0)}'i tüm otomatik içerik denetimlerinden geçti "
         f"(tanı dili yok: %{qa.get('K3 Tanı dili yok')}, davranışa uygun: %{qa.get('K4 Davranışa uygun')}, dallar farklı: %{qa.get('K5 Dallar farklı')}).",
     ] + (meta.get("bulgular") or [])
-    meta_lines = "".join(f"<li><b>{html.escape(k)}</b>: {html.escape(str(v))}</li>" for k, v in meta.items() if k != "bulgular")
+    class_html = ""
+    if ct:
+        t_all = next(m for m in ct["metrics"] if m["Kol"] == "TÜMÜ")
+        findings.append(f"Senaryo sınıf doğruluğu (26 sahnelik üretim, {ct['ok']}/{ct['n']} başarılı çıktı): istenen risk "
+                        f"profilinin tutturulma oranı genelde %{t_all['3 sınıf doğruluk %']}; ATİPİK için precision "
+                        f"{t_all['Precision']}, recall {t_all['Recall']}. Kol ayrıntısı 3. bölümde.")
+        mats = "".join(f"<h3>Kol {html.escape(a)}</h3>{table_html(matrix_rows(ct['matrices'][a]), left=('İstenen ↓ / Gerçekleşen →',))}"
+                       for a in ct["arms"] + ["TÜMÜ"])
+        class_html = (f"<section class='card'><h2>3. Senaryo sınıf doğruluğu (karışıklık matrisi)</h2>"
+                      f"<p class='note'>{html.escape(CLASS_NOTE)}</p>"
+                      f"<h3>Kol başına metrikler (A: kural yok, B: tek kart, C: tüm kartlar, D: JSON RAG)</h3>{table_html(ct['metrics'])}"
+                      f"<h3>Sınıf başına doğru sayısı</h3>{table_html(ct['per_class'])}{mats}"
+                      f"<h3>Uyuşmayan çıktılar ({len(ct['errors'])})</h3>{table_html(ct['errors'])}</section>")
+    meta_lines ="".join(f"<li><b>{html.escape(k)}</b>: {html.escape(str(v))}</li>" for k, v in meta.items() if k != "bulgular")
     manual_html = ""
     if manual:
         manual_html = f"<p>{html.escape(manual.get('ozet', ''))}</p>" + "".join(
@@ -406,7 +487,8 @@ def main():
 <h3>Genel</h3>{table_html(q_all)}<h3>Girdiye göre</h3>{table_html(q_input)}<h3>Deney koluna göre (A: kural yok, B: tek kart, C: tüm kartlar, D: JSON RAG)</h3>{table_html(q_arm)}
 <h3>Çeşitlilik (aynı girdiye üretilen başlangıçların benzerliği)</h3>{table_html(div)}
 <h3>Denetimden geçemeyen çıktılar ({n_fail}; ilk {len(fails)})</h3>{table_html(fails)}</section>
-<section class="card"><h2>3. Elle inceleme</h2>{manual_html or "<p class='note'>Elle inceleme notu eklenmedi.</p>"}</section>
+{class_html}
+<section class="card"><h2>{'4' if ct else '3'}. Elle inceleme</h2>{manual_html or "<p class='note'>Elle inceleme notu eklenmedi.</p>"}</section>
 </main></body></html>"""
     os.makedirs(args.out_dir, exist_ok=True)
     base = os.path.join(args.out_dir, "Gemini_stres_testi_raporu")
@@ -439,8 +521,15 @@ def main():
           "### Genel", "", md_table(q_all), "### Girdiye göre", "", md_table(q_input),
           "### Deney koluna göre (A: kural yok, B: tek kart, C: tüm kartlar, D: JSON RAG)", "", md_table(q_arm),
           "### Çeşitlilik (aynı girdiye üretilen başlangıçların benzerliği)", "", md_table(div),
-          f"### Denetimden geçemeyen çıktılar ({n_fail}; ilk {len(fails)})", "", md_table(fails),
-          "## 3. Elle inceleme", ""]
+          f"### Denetimden geçemeyen çıktılar ({n_fail}; ilk {len(fails)})", "", md_table(fails)]
+    if ct:
+        md += ["## 3. Senaryo sınıf doğruluğu (karışıklık matrisi)", "", CLASS_NOTE, "",
+               "### Kol başına metrikler (A: kural yok, B: tek kart, C: tüm kartlar, D: JSON RAG)", "", md_table(ct["metrics"]),
+               "### Sınıf başına doğru sayısı", "", md_table(ct["per_class"])]
+        for a in ct["arms"] + ["TÜMÜ"]:
+            md += [f"### Kol {a}", "", md_table(matrix_rows(ct["matrices"][a]))]
+        md += [f"### Uyuşmayan çıktılar ({len(ct['errors'])})", "", md_table(ct["errors"])]
+    md += [f"## {'4' if ct else '3'}. Elle inceleme", ""]
     if manual:
         md += [manual.get("ozet", ""), ""]
         for o in manual.get("ornekler", []):
@@ -461,8 +550,13 @@ def main():
                     "Başlangıç": (r.get("quality") or {}).get("başlangıç"),
                     "Dallar": json.dumps((r.get("quality") or {}).get("dallar"), ensure_ascii=False) if r.get("quality") else None,
                     "Hata": r.get("error")} for r in records]
-    for title, rows in (("Performans", perf), ("Kalite_Genel", q_all), ("Kalite_Girdi", q_input), ("Kalite_Kol", q_arm),
-                        ("Cesitlilik", div), ("Tum_Istekler", sample_rows)):
+    sheets = [("Performans", perf), ("Kalite_Genel", q_all), ("Kalite_Girdi", q_input), ("Kalite_Kol", q_arm),
+              ("Cesitlilik", div), ("Tum_Istekler", sample_rows)]
+    if ct:
+        sheets += [("Sinif_Metrikleri", ct["metrics"]), ("Sinif_Basina_Dogru", ct["per_class"])] + \
+                  [(f"Matris_Kol_{a}", matrix_rows(ct["matrices"][a])) for a in ct["arms"] + ["TÜMÜ"]] + \
+                  [("Sinif_Uyusmayan", ct["errors"])]
+    for title, rows in sheets:
         ws = wb.create_sheet(title)
         if not rows:
             continue
@@ -535,9 +629,18 @@ def main():
         if fails:
             page_table(pdf, f"2d. Denetimden geçemeyen çıktılar ({n_fail})", fails,
                        wide={"Başlangıç (ilk 160 karakter)": 4.5, "Ayrıntı": 2.2, "Başarısız": 2.0})
+        if ct:
+            page_table(pdf, "3. Senaryo sınıf doğruluğu — kol başına metrikler", ct["metrics"], note=CLASS_NOTE)
+            matrices = []
+            for a in ct["arms"] + ["TÜMÜ"]:
+                matrices += [{"Kol": a, **r} for r in matrix_rows(ct["matrices"][a])]
+            page_table(pdf, "3b. Karışıklık matrisleri (satır: istenen, sütun: gerçekleşen)", matrices,
+                       wide={"İstenen ↓ / Gerçekleşen →": 1.6})
+            if ct["errors"]:
+                page_table(pdf, f"3c. Uyuşmayan çıktılar ({len(ct['errors'])})", ct["errors"][:30])
         if manual:
             fig = plt.figure(figsize=A4L)
-            fig.text(0.04, 0.94, "3. Elle inceleme", fontsize=14, fontweight="bold")
+            fig.text(0.04, 0.94, f"{'4' if ct else '3'}. Elle inceleme", fontsize=14, fontweight="bold")
             y = 0.89
             for o in manual.get("ornekler", []):
                 for w in textwrap.wrap(o["baslik"], 140):

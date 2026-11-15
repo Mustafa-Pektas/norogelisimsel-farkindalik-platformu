@@ -5,7 +5,9 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const multer = require('multer');
+const fs = require('fs');
 const path = require('path');
+const { deltaTCompliance } = require('./delta_t');
 const { createHash, timingSafeEqual } = require('node:crypto');
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const { generateText, generateTextWithUsage } = require('./gemini_text');
@@ -414,27 +416,20 @@ app.post('/api/generate-scenario', async (req, res) => {
           const fsmCheck = validateFSMContinuity(scenario.scenes);
           const fsmMatchRate = fsmCheck.matchRate ?? 1.0;
 
-          let deltaTCompliant = true;
+          // null = ölçülemedi (gecikme eşiği olmayan kart veya gecikme değeri yok); eskiden hata yutulup true kalıyordu.
+          let deltaTCompliant = null;
+          let deltaT = null;
           try {
             const selective = retriever.getSelectiveRuleContext({
               behaviorCode: ontologyCodes[0],
               ageMonths,
               riskProfile,
             });
-            if (selective.card.hasLatencyThreshold) {
-              const uyarans = scenario.scenes.filter((s) => s.phase === 'UYARAN');
-              const latencies = uyarans.map((s) => s.clinical?.latencySeconds).filter((l) => typeof l === 'number');
-              if (latencies.length > 0) {
-                const band = selective.ageBand;
-                const riskNorm = selective.riskProfile;
-                if (riskNorm === 'TİPİK') {
-                  deltaTCompliant = latencies.every((l) => l <= band.typicalMaxDelaySec);
-                } else if (riskNorm === 'ATİPİK') {
-                  deltaTCompliant = latencies.some((l) => l >= band.atypicalMinDelaySec);
-                }
-              }
-            }
-          } catch (_) {}
+            deltaT = deltaTCompliance(scenario.scenes, selective);
+            deltaTCompliant = deltaT.compliant;
+          } catch (error) {
+            console.warn('[deltaT] uyum hesaplanamadı:', error.message);
+          }
 
           const benchmark = {
             latencyApiMs,
@@ -442,6 +437,7 @@ app.post('/api/generate-scenario', async (req, res) => {
             outputTokens: usage?.outputTokens || 0,
             fsmMatchRate,
             deltaTCompliant,
+            deltaT,
             arm,
             caseId,
           };

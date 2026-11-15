@@ -21,7 +21,7 @@ function recordBenchmarkEntry(entry) {
     caseId: entry.caseId || 'custom',
     behaviorCode: entry.behaviorCode || 'D01',
     ageMonths: entry.ageMonths || 18,
-    riskProfile: entry.riskProfile || 'ATİPİK',
+    riskProfile: entry.riskProfile || 'ATÄ°PÄ°K',
     modelVersion: entry.modelVersion || 'gemini-flash',
     promptTokens: entry.promptTokens || 0,
     outputTokens: entry.outputTokens || 0,
@@ -30,7 +30,8 @@ function recordBenchmarkEntry(entry) {
     retryCount: entry.retryCount || 0,
     schemaValid: Boolean(entry.schemaValid),
     fsmMatchRate: Number(entry.fsmMatchRate || 0),
-    deltaTCompliant: Boolean(entry.deltaTCompliant),
+    // null = Ã¶lÃ§Ã¼lemedi (eÅŸiksiz kart / gecikme yok); oranlara katÄ±lmaz
+    deltaTCompliant: entry.deltaTCompliant == null ? null : Boolean(entry.deltaTCompliant),
     envKeywordPass: Boolean(entry.envKeywordPass),
   };
 
@@ -57,10 +58,10 @@ function getBenchmarkStats() {
   }
 
   const arms = {
-    A: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
-    B: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
-    C: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
-    D: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
+    A: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, deltaTMeasured: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
+    B: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, deltaTMeasured: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
+    C: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, deltaTMeasured: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
+    D: { count: 0, latencies: [], fsmRates: [], deltaTPass: 0, deltaTMeasured: 0, schemaPass: 0, tokensIn: [], tokensOut: [] },
   };
 
   entries.forEach((e) => {
@@ -68,7 +69,8 @@ function getBenchmarkStats() {
     a.count++;
     if (e.latencyApiMs > 0) a.latencies.push(e.latencyApiMs);
     if (typeof e.fsmMatchRate === 'number') a.fsmRates.push(e.fsmMatchRate);
-    if (e.deltaTCompliant) a.deltaTPass++;
+    if (e.deltaTCompliant === true || e.deltaTCompliant === false) a.deltaTMeasured++;
+    if (e.deltaTCompliant === true) a.deltaTPass++;
     if (e.schemaValid) a.schemaPass++;
     if (e.promptTokens) a.tokensIn.push(e.promptTokens);
     if (e.outputTokens) a.tokensOut.push(e.outputTokens);
@@ -87,7 +89,8 @@ function getBenchmarkStats() {
       medianLatencyMs: medLat,
       p95LatencyMs: p95Lat,
       avgFsmMatchRate: Number(avgFsm.toFixed(4)),
-      deltaTComplianceRate: Number((data.deltaTPass / data.count).toFixed(4)),
+      deltaTComplianceRate: data.deltaTMeasured ? Number((data.deltaTPass / data.deltaTMeasured).toFixed(4)) : null,
+      deltaTMeasured: data.deltaTMeasured,
       schemaSuccessRate: Number((data.schemaPass / data.count).toFixed(4)),
       avgPromptTokens: avgTokensIn,
     };
